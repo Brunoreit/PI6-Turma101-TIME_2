@@ -1,0 +1,2 @@
+# Arquivos rodam em containers Linux: mantém LF para todo o time, mesmo no Windows.
+* text=auto eol=lf

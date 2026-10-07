@@ -1,0 +1,111 @@
+# Sobe o sistema inteiro: broker, banco, os três processos do backend
+# e três células simuladas.
+#
+#   docker compose up --build
+#
+# Valores padrão são os de uso normal. O teste de integração sobrescreve
+# alguns pelas variáveis de ambiente para rodar mais rápido.
+
+x-backend: &backend
+  build: { context: ., dockerfile: backend/Dockerfile }
+  restart: unless-stopped
+  environment: &env-backend
+    DATABASE_URL: postgresql://evolver:${POSTGRES_PASSWORD:-evolver}@banco:5432/evolver
+    MQTT_HOST: broker
+    MQTT_PORT: "1883"
+    TEMPERATURA_MIN_C: ${TEMPERATURA_MIN_C:-20}
+    TEMPERATURA_MAX_C: ${TEMPERATURA_MAX_C:-45}
+    REGRAS_INTERVALO_S: ${REGRAS_INTERVALO_S:-10}
+    SEM_COMUNICACAO_S: ${SEM_COMUNICACAO_S:-90}
+    SETPOINT_TIMEOUT_S: ${SETPOINT_TIMEOUT_S:-120}
+  depends_on:
+    banco: { condition: service_healthy }
+    broker: { condition: service_healthy }
+
+x-celula: &celula
+  build: { context: ., dockerfile: simulador/Dockerfile }
+  restart: unless-stopped
+  volumes: [celulas-dados:/dados]
+  depends_on:
+    broker: { condition: service_healthy }
+
+x-env-celula: &env-celula
+  MQTT_HOST: broker
+  MQTT_PORT: "1883"
+  INTERVALO_S: ${INTERVALO_S:-20}
+  KEEPALIVE_S: ${KEEPALIVE_S:-30}
+  TAU_S: ${TAU_S:-120}
+  ESCALA_TEMPO: ${ESCALA_TEMPO:-1}
+
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports: ["${PORTA_MQTT:-1883}:1883"]
+    volumes:
+      - ./broker/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - broker-dados:/mosquitto/data
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
+      interval: 5s
+      retries: 10
+
+  banco:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: evolver
+      POSTGRES_USER: evolver
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-evolver}
+    ports: ["${PORTA_BANCO:-5432}:5432"]
+    volumes:
+      - ./banco/init:/docker-entrypoint-initdb.d:ro
+      - banco-dados:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "evolver", "-d", "evolver"]
+      interval: 3s
+      retries: 20
+
+  consumidor:
+    <<: *backend
+    command: ["python", "-m", "app.consumidor.main"]
+
+  regras:
+    <<: *backend
+    command: ["python", "-m", "app.regras.main"]
+
+  api:
+    <<: *backend
+    command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports: ["${PORTA_API:-8000}:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/saude')"]
+      interval: 3s
+      retries: 20
+
+  interface:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    ports: ["${PORTA_INTERFACE:-8080}:80"]
+    volumes:
+      - ./interface/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./interface:/usr/share/nginx/html:ro
+    depends_on:
+      api: { condition: service_healthy }
+
+  celula-c01:
+    <<: *celula
+    environment: { <<: *env-celula, ID_CELULA: c01, CENARIO: "${CENARIO_C01:-normal}" }
+
+  celula-c02:
+    <<: *celula
+    environment: { <<: *env-celula, ID_CELULA: c02, CENARIO: "${CENARIO_C02:-normal}" }
+
+  celula-c03:
+    <<: *celula
+    environment: { <<: *env-celula, ID_CELULA: c03, CENARIO: "${CENARIO_C03:-normal}" }
+
+volumes:
+  banco-dados:
+  broker-dados:
+  celulas-dados:

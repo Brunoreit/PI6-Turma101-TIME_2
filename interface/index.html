@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Monitor eVOLVER</title>
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <header>
+    <h1>Monitor eVOLVER</h1>
+    <span id="saude" class="saude">verificando…</span>
+  </header>
+
+  <main>
+    <section>
+      <h2>Células</h2>
+      <div id="celulas" class="grade"><p class="vazio">Carregando…</p></div>
+    </section>
+
+    <section id="detalhe" hidden>
+      <div class="titulo-detalhe">
+        <h2>Célula <span id="detalhe-id"></span></h2>
+        <a id="csv" class="botao secundario" download>Exportar CSV</a>
+      </div>
+
+      <div class="graficos">
+        <figure><figcaption>Temperatura (°C)</figcaption><svg id="g-temperatura_c"></svg></figure>
+        <figure><figcaption>Densidade óptica</figcaption><svg id="g-od"></svg></figure>
+        <figure><figcaption>pH</figcaption><svg id="g-ph"></svg></figure>
+      </div>
+
+      <div class="colunas">
+        <form id="form-setpoint" class="painel">
+          <h3>Mudar temperatura</h3>
+          <label>Temperatura alvo (°C)
+            <input name="temperatura_c" type="number" step="0.1" min="20" max="45" required>
+          </label>
+          <label>Solicitado por
+            <input name="solicitado_por" maxlength="80" placeholder="seu nome">
+          </label>
+          <button class="botao">Enviar</button>
+          <p id="setpoint-msg" class="msg"></p>
+        </form>
+
+        <div class="painel">
+          <h3>Pedidos de setpoint</h3>
+          <table>
+            <thead><tr><th>Quando</th><th>Alvo</th><th>Estado</th><th>Por</th></tr></thead>
+            <tbody id="pedidos"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Alertas abertos</h2>
+      <table>
+        <thead><tr><th>Aberto em</th><th>Célula</th><th>Tipo</th><th>Mensagem</th></tr></thead>
+        <tbody id="alertas"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

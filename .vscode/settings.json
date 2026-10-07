@@ -1,0 +1,8 @@
+{
+  // O pacote "app" fica em backend/ e o simulador importa "buffer" e "modelo"
+  // como módulos soltos. Mesmo ajuste que tests/conftest.py faz no sys.path.
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.analysis.extraPaths": ["backend", "simulador"],
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests/unidade"]
+}
