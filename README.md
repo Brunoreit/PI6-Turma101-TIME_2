@@ -123,6 +123,18 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 - **Consumidor, regras e API em processos separados.** A queda de um não para os outros.
 - **Interface só fala com a API.** Validação e registro de quem mudou a temperatura ficam num lugar só.
 
+## Equipe
+
+| Nome | GitHub |
+|---|---|
+| Bruno Reitano Figuerola | [@Brunoreit](https://github.com/Brunoreit) |
+| Gabriel Flores Bonatto | [@gabrielbntt](https://github.com/gabrielbntt) |
+| Henry Gabriel Piozzi | [@HenryPiozzi](https://github.com/HenryPiozzi) |
+| Pedro Ximenes Costa | [@pedro-xc](https://github.com/pedro-xc) |
+| Rogério Medina | [@RogerioMedina](https://github.com/RogerioMedina) |
+
+**Orientadora:** Profª Drª Sílvia C. de Matos Soares — PUC-Campinas 
+
 ## Próximos passos
 
 - Fechar o contrato de mensagens com o grupo do hardware (`docs/contrato-mqtt.md`)
