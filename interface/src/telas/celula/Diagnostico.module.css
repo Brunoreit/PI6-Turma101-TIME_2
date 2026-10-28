@@ -1,0 +1,228 @@
+/* ---------- caminho da informação */
+
+.fluxo {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.etapa {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.etapaTopo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+}
+
+.etapaTopo > img {
+  flex-shrink: 0;
+}
+
+.etapaNome {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.ponto {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status\/offline-barra);
+}
+
+.etapaDescricao {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.etapaValor {
+  align-self: stretch;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--status\/offline-fundo);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--status\/offline);
+}
+
+.ok {
+  border-color: var(--status\/online);
+}
+
+.ok .ponto {
+  background: var(--status\/online);
+}
+
+.ok .etapaValor {
+  background: var(--status\/online-fundo);
+  color: var(--status\/online);
+}
+
+.parada {
+  border-color: var(--status\/alerta);
+}
+
+.parada .ponto {
+  background: var(--status\/alerta);
+}
+
+.parada .etapaValor {
+  background: var(--status\/alerta-fundo);
+  color: var(--status\/alerta);
+}
+
+.semDados {
+  border-style: dashed;
+}
+
+.seta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.protocolo {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+}
+
+.volta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--fundo\/sutil);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.volta > img {
+  flex-shrink: 0;
+}
+
+/* ---------- placa, sensores e integridade */
+
+.detalhes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 24px;
+}
+
+.sensor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.pontoOk,
+.pontoApagado {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status\/online);
+}
+
+.pontoApagado {
+  background: var(--status\/offline-barra);
+}
+
+.destaque {
+  color: var(--status\/online);
+}
+
+.problema {
+  color: var(--status\/alerta);
+}
+
+/* ---------- últimas mensagens */
+
+.mensagens {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--fundo\/sutil);
+  border-radius: 6px;
+  font-family: var(--fonte-mono);
+  font-size: 12px;
+}
+
+.mensagens td {
+  padding: 8px 0 8px 16px;
+  vertical-align: top;
+}
+
+.mensagens td:first-child {
+  padding-left: 12px;
+}
+
+.mensagens td:last-child {
+  padding-right: 12px;
+}
+
+.mensagens tr + tr td {
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.mensagemHora {
+  width: 136px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+.mensagemTipo,
+.mensagemTipoProblema {
+  width: 146px;
+  font-weight: 500;
+  color: var(--marca\/texto);
+  white-space: nowrap;
+}
+
+.mensagemTipoProblema {
+  color: var(--status\/alerta);
+}
+
+.mensagemConteudo {
+  color: var(--texto\/principal);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1280px) {
+  .fluxo {
+    flex-wrap: wrap;
+  }
+
+  .etapa {
+    flex-basis: 160px;
+  }
+
+  .detalhes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

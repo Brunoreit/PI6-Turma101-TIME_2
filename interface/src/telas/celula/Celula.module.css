@@ -1,0 +1,184 @@
+/* Estilos comuns às telas da célula. */
+
+.tela {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 32px 40px 40px;
+}
+
+/* ---------- trilha, cabeçalho e abas */
+
+.trilha {
+  display: flex;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+.trilhaLink {
+  color: var(--marca\/texto);
+}
+
+.trilhaLink:hover {
+  text-decoration: underline;
+}
+
+.cabecalho {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.tituloBloco {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.titulo {
+  font-family: var(--fonte-mono);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.subtitulo {
+  font-size: 14px;
+  color: var(--texto\/secundario);
+}
+
+.erro {
+  font-size: 13px;
+  color: var(--status\/alerta);
+}
+
+.abas {
+  display: flex;
+  gap: 24px;
+}
+
+.aba,
+.abaAtiva {
+  padding-bottom: 8px;
+  border-bottom: 2px solid transparent;
+  font-size: 14px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+.aba:hover {
+  color: var(--texto\/principal);
+}
+
+.abaAtiva {
+  border-bottom-color: var(--marca\/principal);
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.trilhaLink:focus-visible,
+.aba:focus-visible,
+.abaAtiva:focus-visible,
+.link:focus-visible {
+  outline: 2px solid var(--marca\/principal);
+  outline-offset: 2px;
+}
+
+/* ---------- painéis */
+
+.painel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 18px 20px 20px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.painelTitulo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.painelNome {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.painelDescricao {
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+/* Título com ícone à esquerda e, opcionalmente, um link à direita. */
+.painelTituloIcone {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.painelTituloIcone .painelNome {
+  flex: 1 1 0;
+}
+
+.link {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--marca\/texto);
+  white-space: nowrap;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+/* Linha "rótulo ......... valor". */
+.dado {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.dadoRotulo {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--texto\/secundario);
+}
+
+.dadoValor {
+  font-weight: 500;
+  color: var(--texto\/principal);
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--fonte-mono);
+}
+
+/* Texto só para leitores de tela. */
+.oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* O que a API ainda não informa. */
+.semDados {
+  padding: 12px 14px;
+  border: 1px dashed var(--borda\/padrao);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}

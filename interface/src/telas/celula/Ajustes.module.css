@@ -1,0 +1,286 @@
+.corpo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  align-items: start;
+  gap: 24px;
+}
+
+.colunaDireita {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+/* ---------- calibração */
+
+.emUso {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--fundo\/sutil);
+  border-radius: 8px;
+}
+
+.emUsoLinha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.emUsoVersao {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.formula {
+  font-family: var(--fonte-mono);
+  font-size: 14px;
+  color: var(--texto\/principal);
+}
+
+.emUsoDetalhe {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.nota {
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
+.botoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.passos {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.passosTitulo {
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.passosLista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: passo;
+  color: var(--texto\/secundario);
+}
+
+.passosLista li {
+  counter-increment: passo;
+}
+
+.passosLista li::before {
+  content: counter(passo) ". ";
+}
+
+.versoes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.versoesTitulo {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.versao {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.versaoNome {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+  white-space: nowrap;
+}
+
+.versaoDetalhe {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.versaoFormula {
+  font-family: var(--fonte-mono);
+  font-size: 12px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+/* ---------- selos */
+
+.selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.seloOk {
+  background: var(--status\/online-fundo);
+  color: var(--status\/online);
+}
+
+.seloVencido {
+  background: var(--fundo\/pagina);
+  color: var(--status\/alerta);
+}
+
+.seloNeutro {
+  background: var(--fundo\/sutil);
+  color: var(--texto\/secundario);
+}
+
+/* ---------- bombas */
+
+.bomba,
+.bombaVencida {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+}
+
+.bombaVencida {
+  background: var(--status\/alerta-fundo);
+  border-color: var(--status\/alerta-borda);
+}
+
+.bombaLinha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+}
+
+.bombaNome {
+  flex: 1 1 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.bombaResumo {
+  font-size: 13px;
+  color: var(--texto\/principal);
+}
+
+.bombaDetalhe {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+/* ---------- período de leitura */
+
+.linhaCampo {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ajuda {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+/* ---------- manutenção */
+
+.estadoManutencao {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.estadoManutencao > img {
+  flex-shrink: 0;
+}
+
+.grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.grupoRotulo {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.opcoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.opcao,
+.opcaoAtiva {
+  padding: 6px 12px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 16px;
+  font-size: 13px;
+  color: var(--texto\/principal);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.opcao:hover {
+  background: var(--fundo\/sutil);
+}
+
+.opcaoAtiva {
+  background: var(--marca\/fundo);
+  border-color: var(--marca\/principal);
+  font-weight: 600;
+  color: var(--marca\/texto);
+}
+
+.opcao:focus-visible,
+.opcaoAtiva:focus-visible {
+  outline: 2px solid var(--marca\/principal);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1200px) {
+  .corpo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

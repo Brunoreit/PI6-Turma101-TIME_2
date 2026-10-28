@@ -1,0 +1,65 @@
+.campo {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rotulo {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.entrada {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.entrada:focus-within {
+  border-color: var(--marca\/principal);
+  outline: 1px solid var(--marca\/principal);
+}
+
+.valor {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  color: var(--texto\/principal);
+}
+
+.unidade {
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+.ajuda,
+.erro {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.erro {
+  color: var(--status\/alerta);
+}

@@ -30,16 +30,27 @@ VITE_FONTE_DADOS=api npm run dev
 ```
 
 No Docker, defina a variável no `.env` e rode `docker compose up --build`.
+
+As telas da célula (`/celulas/{id}`, `/ajustes` e `/diagnostico`) seguem a
+mesma variável. No modo `exemplo`, qualquer célula mostra os dados da c08 do
+Figma. No modo `api`, o que a API ainda não tem (experimento, placa,
+calibração em uso, bombas, manutenção, mensagens recebidas) aparece como "—"
+ou com aviso. Os botões dessas ações ficam como no Figma, mas não fazem nada e
+explicam o motivo ao passar o mouse. O único comando que funciona é o
+setpoint de temperatura, pelo `POST /celulas/{id}/setpoint`.
 Os dados são atualizados a cada 20 s (`src/dados/DadosProvider.tsx`).
 
 ## Estrutura
 
 ```
 src/
-  api/            cliente tipado: GET /celulas, /alertas, /celulas/{id}/leituras, /saude
-  dados/          modelo da tela, conversão da API, dados de exemplo, atualização a cada 20 s
-  componentes/    BarraLateral, CardDeCelula, SeloDeStatus, HistoricoOd
-  telas/          VisaoGeral e EmConstrucao (rotas ainda vazias)
+  api/            cliente tipado: /celulas, /alertas, /celulas/{id}/leituras, /saude,
+                  /celulas/{id}/setpoint(s), /integridade
+  dados/          modelo das telas, conversão da API, dados de exemplo, atualização a cada 20 s
+  componentes/    BarraLateral, CardDeCelula, SeloDeStatus, HistoricoOd, Botao, Campo,
+                  GraficoDeLinha, CurvaDeCalibracao
+  telas/          VisaoGeral, celula/ (Visão da célula, Ajustes, Diagnóstico) e
+                  EmConstrucao (rotas ainda vazias)
   estilos/        tokens.css (cores do Figma) e global.css
   assets/icones/  SVGs exportados do Figma
 ```

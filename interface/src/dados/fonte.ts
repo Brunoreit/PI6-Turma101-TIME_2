@@ -101,7 +101,7 @@ function mediaPorHora(leituras: LeituraApi[], inicio: Date): (number | null)[] {
   return somas.map((soma, i) => (contagens[i] ? soma / contagens[i] : null));
 }
 
-function alertaDaApi(alerta: AlertaApi): AlertaResumo {
+export function alertaDaApi(alerta: AlertaApi): AlertaResumo {
   return {
     id: alerta.id_alerta,
     idCelula: alerta.id_celula,

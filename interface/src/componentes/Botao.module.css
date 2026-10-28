@@ -1,0 +1,64 @@
+.botao {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.primario {
+  background: var(--marca\/principal);
+}
+
+.secundario,
+.perigo {
+  background: var(--fundo\/pagina);
+  border-color: var(--borda\/padrao);
+}
+
+.perigo {
+  border-color: var(--status\/alerta-borda);
+  color: var(--status\/alerta);
+}
+
+.primario:hover {
+  filter: brightness(0.95);
+}
+
+.secundario:hover {
+  background: var(--fundo\/sutil);
+}
+
+.perigo:hover {
+  background: var(--status\/alerta-fundo);
+}
+
+.botao[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* Indisponível: o hover não muda nada, para não parecer clicável. */
+.primario[aria-disabled="true"]:hover {
+  filter: none;
+}
+
+.secundario[aria-disabled="true"]:hover,
+.perigo[aria-disabled="true"]:hover {
+  background: var(--fundo\/pagina);
+}
+
+.botao[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.botao:focus-visible {
+  outline: 2px solid var(--marca\/principal);
+  outline-offset: 2px;
+}

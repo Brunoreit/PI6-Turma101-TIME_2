@@ -2,7 +2,7 @@
 // ou pelo broker. O prefixo /api é repassado para a API pelo Vite (em
 // desenvolvimento) e pelo nginx (no Docker).
 
-import type { AlertaApi, CelulaApi, LeituraApi, SaudeApi } from "./tipos";
+import type { AlertaApi, CelulaApi, IntegridadeApi, LeituraApi, PedidoSetpointApi, SaudeApi } from "./tipos";
 
 const BASE = "/api";
 const API_FORA_DO_AR =
@@ -18,10 +18,10 @@ export class ErroDaApi extends Error {
   }
 }
 
-async function buscar<T>(caminho: string, sinal?: AbortSignal): Promise<T> {
+async function buscar<T>(caminho: string, sinal?: AbortSignal, opcoes: RequestInit = {}): Promise<T> {
   let resposta: Response;
   try {
-    resposta = await fetch(`${BASE}${caminho}`, { signal: sinal });
+    resposta = await fetch(`${BASE}${caminho}`, { ...opcoes, signal: sinal });
   } catch (erro) {
     if (erro instanceof DOMException && erro.name === "AbortError") throw erro;
     throw new ErroDaApi(0, API_FORA_DO_AR);
@@ -58,4 +58,21 @@ export function listarLeituras(
 
 export function consultarSaude(sinal?: AbortSignal): Promise<SaudeApi> {
   return buscar("/saude", sinal);
+}
+
+/** Pedidos de setpoint da célula, do mais novo para o mais antigo. */
+export function listarSetpoints(idCelula: string, sinal?: AbortSignal): Promise<PedidoSetpointApi[]> {
+  return buscar(`/celulas/${encodeURIComponent(idCelula)}/setpoints`, sinal);
+}
+
+export function pedirSetpoint(idCelula: string, temperaturaC: number): Promise<PedidoSetpointApi> {
+  return buscar(`/celulas/${encodeURIComponent(idCelula)}/setpoint`, undefined, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ temperatura_c: temperaturaC }),
+  });
+}
+
+export function consultarIntegridade(sinal?: AbortSignal): Promise<IntegridadeApi[]> {
+  return buscar("/integridade", sinal);
 }

@@ -114,7 +114,7 @@ PostgreSQL 16 puro, sem TimescaleDB nem InfluxDB (decisão consciente: volume de
 
 Base funcionando. 27 testes passando no modo local (10 etapas de integração + 17 de unidade). O modo Docker Compose foi escrito e validado com `docker compose config`, mas ainda não foi executado de ponta a ponta.
 
-Interface: barra lateral e tela Visão geral prontas, a partir do Figma (arquivo Telas). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`), porque a API ainda não devolve experimento, estado do consumidor e das regras, nem setpoints aguardando.
+Interface: barra lateral, tela Visão geral e telas da célula (Visão da célula, Ajustes, Diagnóstico) prontas, a partir do Figma (arquivo Telas). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`), porque a API ainda não devolve experimento, estado do consumidor e das regras, nem setpoints aguardando.
 
 ## Problemas conhecidos
 
