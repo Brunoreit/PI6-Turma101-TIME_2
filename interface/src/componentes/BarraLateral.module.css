@@ -1,0 +1,150 @@
+.barra {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  flex-shrink: 0;
+  width: 248px;
+  height: 100vh;
+  padding: 24px 20px;
+  overflow-y: auto;
+  background: var(--fundo\/lateral);
+  border-right: 1px solid var(--borda\/padrao);
+}
+
+.marca {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nome {
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+}
+
+.produto {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--texto\/principal);
+}
+
+.instituicao {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.navegacao {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--texto\/principal);
+}
+
+.item:hover {
+  background: var(--fundo\/sutil);
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--marca\/principal);
+  outline-offset: -2px;
+}
+
+.ativo,
+.ativo:hover {
+  background: var(--marca\/fundo);
+  color: var(--marca\/texto);
+  font-weight: 600;
+}
+
+.icone {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  background-color: var(--texto\/secundario);
+  mask-size: 18px 18px;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 18px 18px;
+  -webkit-mask-repeat: no-repeat;
+}
+
+.ativo .icone {
+  background-color: var(--marca\/texto);
+}
+
+.rotulo {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.contador {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--status\/alerta-fundo);
+  color: var(--status\/alerta);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.espaco {
+  flex: 1 0 0;
+}
+
+.sistema {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.sistemaTitulo {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--texto\/secundario);
+}
+
+.servico {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ponto {
+  display: block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.pontoParado {
+  background: var(--status\/alerta);
+}
+
+.pontoSemDados {
+  background: var(--status\/offline-barra);
+}
+
+.servicoNome {
+  flex: 1 1 0;
+  font-size: 13px;
+  color: var(--texto\/principal);
+}
+
+.servicoEstado {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
