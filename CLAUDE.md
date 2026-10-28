@@ -51,7 +51,7 @@ backend/app/
   regras/            verificações de alerta
   api/               endpoints FastAPI
 simulador/           célula falsa: modelo físico, buffer SQLite, sinais de falha
-interface/           a definir (Dash ou React)
+interface/           React + TypeScript + Vite (ver interface/README.md)
 tests/unidade/       rápidos, sem infraestrutura
 tests/integracao/    primeiro teste ponta a ponta, modo compose ou local
 docs/contrato-mqtt.md  documento do contrato para o grupo do hardware
@@ -63,6 +63,7 @@ docs/contrato-mqtt.md  documento do contrato para o grupo do hardware
 docker compose up --build                    # sobe tudo (broker, banco, backend, 3 células)
 pip install -r requirements-dev.txt
 pytest tests/unidade                         # segundos
+cd interface && npm install && npm run dev  # interface em http://localhost:5173
 pytest tests/integracao -v                   # ~70 s, usa Docker Compose
 AMBIENTE=local pytest tests/integracao -v    # sem Docker, exige PostgreSQL 16 e Mosquitto, não roda como root
 MANTER_AMBIENTE=1 ...                         # não apaga ambiente e logs ao final
@@ -113,6 +114,8 @@ PostgreSQL 16 puro, sem TimescaleDB nem InfluxDB (decisão consciente: volume de
 
 Base funcionando. 27 testes passando no modo local (10 etapas de integração + 17 de unidade). O modo Docker Compose foi escrito e validado com `docker compose config`, mas ainda não foi executado de ponta a ponta.
 
+Interface: barra lateral e tela Visão geral prontas, a partir do Figma (arquivo Telas). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`), porque a API ainda não devolve experimento, estado do consumidor e das regras, nem setpoints aguardando.
+
 ## Problemas conhecidos
 
 - **Alerta falso com consumidor parado.** Sem o consumidor, `ultimo_contato` não é atualizado e a regra `sem_comunicacao` abre alerta para todas as células. Correção planejada: consumidor grava sinal de vida e a regra ignora a checagem quando ele estiver parado.
@@ -123,7 +126,7 @@ Base funcionando. 27 testes passando no modo local (10 etapas de integração + 
 
 1. Rodar o teste de integração pelo Docker Compose
 2. Sinal de vida do consumidor
-3. Escolher Dash ou React e criar `interface/`
+3. Demais telas da interface (Experimentos, Células, Alertas, Calibração, Exportar)
 4. Autenticação na API e senha no broker
 5. Endpoints de experimento
 6. Fechar o contrato com o grupo do hardware

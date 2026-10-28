@@ -1,0 +1,29 @@
+/* Variáveis de cor da coleção "eVOLVER" do Figma (arquivo Telas), com os
+   mesmos nomes. No CSS a barra do nome é escapada: var(--fundo\/pagina). */
+:root {
+  --fundo\/pagina: #ffffff;
+  --fundo\/lateral: #f7f7f5;
+  --fundo\/sutil: #f2f3f5;
+
+  --borda\/padrao: #e3e5e8;
+
+  --texto\/principal: #16191f;
+  --texto\/secundario: #5e6673;
+
+  --marca\/principal: #dd9933;
+  --marca\/clara: #f1d2a3;
+  --marca\/fundo: #fbf2e4;
+  --marca\/texto: #7a4f12;
+
+  --status\/online: #1b7a4c;
+  --status\/online-fundo: #e6f4ec;
+  --status\/alerta: #b42318;
+  --status\/alerta-fundo: #fdecea;
+  --status\/alerta-borda: #f3b8b1;
+  --status\/offline: #5e6673;
+  --status\/offline-fundo: #eef0f2;
+  --status\/offline-barra: #d5d9de;
+
+  --fonte-texto: "IBM Plex Sans", system-ui, sans-serif;
+  --fonte-mono: "IBM Plex Mono", ui-monospace, monospace;
+}

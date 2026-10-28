@@ -1,0 +1,112 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px 16px 14px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.alerta {
+  border-color: var(--status\/alerta-borda);
+}
+
+.identificacao {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.id {
+  font-family: var(--fonte-mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.subtitulo,
+.livre {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.livre {
+  color: var(--marca\/texto);
+}
+
+.medidas {
+  display: flex;
+  gap: 24px;
+}
+
+.medida {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rotulo {
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
+.valor,
+.valorEmAlerta {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.valorEmAlerta {
+  color: var(--status\/alerta);
+}
+
+.od {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.odValor {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.odRotulo {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+}
+
+.historico {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rodape {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+/* Offline: medidas e OD em cinza, como no Figma (c07 na tela de 16 células). */
+.offline .valor,
+.offline .odValor {
+  color: var(--texto\/secundario);
+}
