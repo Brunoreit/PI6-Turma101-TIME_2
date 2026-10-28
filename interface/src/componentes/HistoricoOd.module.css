@@ -1,0 +1,28 @@
+.barras {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 30px;
+  width: 100%;
+}
+
+.barra {
+  flex: 1 1 0;
+  border-radius: 1px;
+}
+
+.normal {
+  background: var(--marca\/clara);
+}
+
+.atual {
+  background: var(--marca\/principal);
+}
+
+.apagada {
+  background: var(--status\/offline-barra);
+}
+
+.vazia {
+  background: var(--fundo\/sutil);
+}

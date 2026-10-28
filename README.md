@@ -29,7 +29,7 @@ evolver-monitor/
 │   ├── calibracao/         OD bruta → OD, guardando o valor original
 │   └── banco/              conexão e todas as consultas
 ├── simulador/              célula simulada: curva, buffer local, falhas, setpoint
-├── interface/              HTML e JS puros, servidos pelo nginx
+├── interface/              React + TypeScript + Vite, servida pelo nginx
 ├── tests/
 │   ├── unidade/            rápidos, sem broker nem banco
 │   └── integracao/         o primeiro teste da arquitetura, ponta a ponta

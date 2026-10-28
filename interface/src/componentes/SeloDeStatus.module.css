@@ -1,0 +1,31 @@
+.selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ponto {
+  display: block;
+  flex-shrink: 0;
+}
+
+.online {
+  background: var(--status\/online-fundo);
+  color: var(--status\/online);
+}
+
+.alerta {
+  background: var(--status\/alerta-fundo);
+  color: var(--status\/alerta);
+}
+
+.offline {
+  background: var(--status\/offline-fundo);
+  color: var(--status\/offline);
+}
