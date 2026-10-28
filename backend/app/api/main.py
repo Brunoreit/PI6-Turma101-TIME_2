@@ -45,7 +45,7 @@ async def ciclo_de_vida(_app: FastAPI):
     estado["pool"].close()
 
 
-app = FastAPI(title="Monitoramento eVOLVER", version="0.1.0", lifespan=ciclo_de_vida)
+app = FastAPI(title="T.U.P.A · Monitoramento", version="0.1.0", lifespan=ciclo_de_vida)
 
 
 def _conexao():

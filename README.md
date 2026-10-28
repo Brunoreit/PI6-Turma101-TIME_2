@@ -1,4 +1,4 @@
-# Monitoramento das células do eVOLVER
+# T.U.P.A
 
 Sistema central de monitoramento das células de cultivo do eVOLVER, projeto PI6 da PUC-Campinas em parceria com o CNPEM.
 
@@ -14,7 +14,7 @@ célula simulada ──MQTT──▶ Mosquitto ──▶ consumidor ──▶ Po
 ## Estrutura
 
 ```
-evolver-monitor/
+PI6-Turma101-TIME_2/
 ├── docker-compose.yml      sobe tudo
 ├── .env.example            portas, faixas e tempos configuráveis
 ├── contrato/               tópicos e mensagens MQTT (fonte única de verdade)

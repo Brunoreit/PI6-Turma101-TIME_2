@@ -46,7 +46,7 @@ export function BarraLateral() {
       <div className={estilos.marca}>
         <img src={simboloCnpem} width={32} height={32} alt="" />
         <div className={estilos.nome}>
-          <span className={estilos.produto}>eVOLVER</span>
+          <span className={estilos.produto}>T.U.P.A</span>
           <span className={estilos.instituicao}>CNPEM · Monitoramento</span>
         </div>
       </div>

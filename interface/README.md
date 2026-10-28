@@ -46,7 +46,7 @@ src/
 
 ## Cores
 
-As variáveis da coleção "eVOLVER" do Figma estão em `src/estilos/tokens.css`
+As variáveis da coleção "T.U.P.A" do Figma estão em `src/estilos/tokens.css`
 com os mesmos nomes. No CSS a barra é escapada:
 
 ```css

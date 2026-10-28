@@ -4,7 +4,7 @@ Contexto do projeto para o Claude Code. Leia antes de mexer no código.
 
 ## O projeto
 
-Sistema central de monitoramento das células de cultivo da plataforma eVOLVER. Projeto acadêmico PI6 de Engenharia de Software da PUC-Campinas, em parceria com o CNPEM (Centro Nacional de Pesquisa em Energia e Materiais). Equipe de 5 alunos.
+**T.U.P.A** é o sistema central de monitoramento das células de cultivo da plataforma eVOLVER. Projeto acadêmico PI6 de Engenharia de Software da PUC-Campinas, em parceria com o CNPEM (Centro Nacional de Pesquisa em Energia e Materiais). Equipe de 5 alunos.
 
 O eVOLVER é um equipamento de cultura contínua de microrganismos. Cada célula (Smart Sleeve) é um frasco com sensores de temperatura, densidade óptica (OD) e pH, e os experimentos duram dias ou semanas sem supervisão. O sistema existe para que o pesquisador acompanhe as culturas de longe e seja avisado quando algo dá errado.
 

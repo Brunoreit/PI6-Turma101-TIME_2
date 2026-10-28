@@ -1,4 +1,4 @@
--- Modelo de dados do sistema de monitoramento do eVOLVER.
+-- Modelo de dados do T.U.P.A, sistema de monitoramento das células do eVOLVER.
 -- Executado automaticamente pelo container do PostgreSQL na primeira subida.
 
 -- Célula de cultivo. Criada sozinha quando a célula se anuncia ou manda a
