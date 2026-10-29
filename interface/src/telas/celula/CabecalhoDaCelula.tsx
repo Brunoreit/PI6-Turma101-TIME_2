@@ -26,7 +26,7 @@ export function CabecalhoDaCelula({ id, aba, subtitulo, acao, erro }: Props) {
   return (
     <>
       <nav className={estilos.trilha} aria-label="Trilha">
-        <Link to="/celulas" className={estilos.trilhaLink}>Células</Link>
+        <Link to="/" className={estilos.trilhaLink}>Visão geral</Link>
         <span aria-hidden>/</span>
         <Link to={base} className={estilos.trilhaLink}>{id}</Link>
         <span aria-hidden>/</span>

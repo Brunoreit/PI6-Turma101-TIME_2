@@ -7,6 +7,19 @@
   background: var(--fundo\/pagina);
   border: 1px solid var(--borda\/padrao);
   border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+/* Cor provisória, bem visível, até ter a variante de hover no Figma. */
+.card:hover {
+  background: #e4e7eb;
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--marca\/principal);
+  outline-offset: 2px;
 }
 
 .alerta {

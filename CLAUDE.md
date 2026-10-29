@@ -126,7 +126,7 @@ Interface: barra lateral, tela Visão geral e telas da célula (Visão da célul
 
 1. Rodar o teste de integração pelo Docker Compose
 2. Sinal de vida do consumidor
-3. Demais telas da interface (Experimentos, Células, Alertas, Calibração, Exportar)
+3. Demais telas da interface (Experimentos, Alertas, Calibração, Exportar)
 4. Autenticação na API e senha no broker
 5. Endpoints de experimento
 6. Fechar o contrato com o grupo do hardware

@@ -1,6 +1,8 @@
 // Componente "Card de célula" do Figma (nó 3:57). Estados: online, com
 // alerta, offline e livre (sem experimento, combinável com os outros).
+// O card inteiro é um link para a Visão da célula.
 
+import { Link } from "react-router-dom";
 import * as formatar from "../dados/formatar";
 import type { CelulaResumo, Experimento } from "../dados/modelo";
 import estilos from "./CardDeCelula.module.css";
@@ -28,7 +30,7 @@ export function CardDeCelula({ celula, agora }: { celula: CelulaResumo; agora: D
     offline || celula.temperaturaC === null ? "—" : formatar.temperatura(celula.temperaturaC);
 
   return (
-    <article className={classes} aria-label={`Célula ${celula.id}`}>
+    <Link to={`/celulas/${celula.id}`} className={classes} aria-label={`Abrir célula ${celula.id}`}>
       <div className={estilos.identificacao}>
         <div className={estilos.topo}>
           <h3 className={estilos.id}>{celula.id}</h3>
@@ -62,6 +64,6 @@ export function CardDeCelula({ celula, agora }: { celula: CelulaResumo; agora: D
           <span>{celula.ultimaLeituraEm ? formatar.tempoDecorrido(celula.ultimaLeituraEm, agora) : "sem leituras"}</span>
         </div>
       </div>
-    </article>
+    </Link>
   );
 }
