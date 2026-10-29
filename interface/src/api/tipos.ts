@@ -43,3 +43,28 @@ export interface SaudeApi {
   banco: boolean;
   broker: boolean;
 }
+
+export type EstadoPedidoApi = "solicitado" | "recebido" | "aplicado" | "atingido" | "recusado";
+
+export interface PedidoSetpointApi {
+  id_pedido: string;
+  id_celula: string;
+  temperatura_c: number;
+  estado: EstadoPedidoApi;
+  motivo: string | null;
+  solicitado_por: string;
+  solicitado_em: string;
+  recebido_em: string | null;
+  aplicado_em: string | null;
+  atingido_em: string | null;
+}
+
+export interface IntegridadeApi {
+  id_celula: string;
+  leituras: number;
+  seq_unicos: number;
+  esperado: number;
+  primeiro_seq: number;
+  ultimo_seq: number;
+  completo: boolean;
+}

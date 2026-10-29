@@ -1,0 +1,625 @@
+/* ---------- faixa de status */
+
+.faixaStatus {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.experimento {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.experimentoLinha {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.experimentoNome {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.experimentoDetalhe {
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.caixa {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+  /* 132 px no Figma; cresce se o valor não couber. */
+  min-width: 132px;
+  padding: 8px 12px;
+  background: var(--fundo\/sutil);
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.caixaRotulo {
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
+.caixaValor {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+/* ---------- linha principal */
+
+.principal {
+  display: grid;
+  grid-template-columns: 256px 288px minmax(0, 1fr) 232px;
+  align-items: stretch;
+  gap: 20px;
+}
+
+.parametros,
+.cultivo,
+.comandos,
+.painelEstreito,
+.informacoes {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 18px 16px 16px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.parametros {
+  gap: 12px;
+}
+
+.cultivo {
+  align-items: center;
+  gap: 8px;
+}
+
+.cultivo > div:first-child {
+  align-self: stretch;
+}
+
+.comandos {
+  gap: 14px;
+}
+
+.painelEstreito {
+  gap: 16px;
+}
+
+.informacoes {
+  flex: 1 0 auto;
+  gap: 12px;
+  padding: 18px 20px 20px;
+}
+
+.colunaAlertas {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* ---------- cards de medida */
+
+.medida {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 160px;
+  padding: 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.medidaTopo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.medidaTopo > img {
+  flex-shrink: 0;
+}
+
+.medidaNome {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.etiquetaAtiva,
+.etiquetaNeutra {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.etiquetaAtiva {
+  background: var(--status\/online-fundo);
+  color: var(--status\/online);
+}
+
+.etiquetaNeutra {
+  background: var(--status\/offline-fundo);
+  color: var(--status\/offline);
+}
+
+.medidaValor {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.medidaNumero {
+  font-size: 30px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.medidaUnidade {
+  font-size: 14px;
+  color: var(--texto\/secundario);
+}
+
+.medidaDetalhe {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+.barra {
+  height: 4px;
+  overflow: hidden;
+  background: var(--fundo\/sutil);
+  border-radius: 2px;
+}
+
+.preenchimento {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+
+.marca {
+  background: var(--marca\/principal);
+}
+
+.neutra {
+  background: var(--texto\/principal);
+}
+
+.ok {
+  background: var(--status\/online);
+}
+
+.alerta {
+  background: var(--status\/alerta);
+}
+
+/* ---------- ilustração da célula de cultivo (medidas do Figma) */
+
+.ilustracao {
+  position: relative;
+  flex-shrink: 0;
+  width: 256px;
+  height: 393.203px;
+}
+
+.frasco {
+  position: absolute;
+  top: 61.91px;
+  left: 67.76px;
+}
+
+.etiqueta {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6.693px;
+  padding: 5.02px 8.366px 5.02px 6.693px;
+  background: var(--fundo\/pagina);
+  border: 0.837px solid var(--borda\/padrao);
+  border-radius: 5.02px;
+  box-shadow: 0 1.673px 5.02px rgba(0, 0, 0, 0.06);
+  white-space: nowrap;
+}
+
+.etiquetaTexto {
+  display: flex;
+  flex-direction: column;
+}
+
+.etiquetaRotulo {
+  font-size: 8.366px;
+  color: var(--texto\/secundario);
+}
+
+.etiquetaValor {
+  font-size: 10.876px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+/* ---------- comandos */
+
+.cardComando,
+.cardBloqueado {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.cardBloqueado {
+  opacity: 0.55;
+}
+
+.bloqueadoDetalhe {
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
+.grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.grupoRotulo {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.linhaEntrada {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.entrada {
+  display: flex;
+  flex: 1 1 0;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 12px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  line-height: inherit;
+  color: var(--texto\/principal);
+}
+
+.entrada:focus-within,
+.entrada:focus {
+  border-color: var(--marca\/principal);
+  outline: 1px solid var(--marca\/principal);
+}
+
+.entradaValor {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.entradaUnidade {
+  font-size: 14px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+.ajuda,
+.ajudaErro {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.ajudaErro {
+  color: var(--status\/alerta);
+}
+
+.ultimoPedido {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  background: var(--fundo\/sutil);
+  border-radius: 6px;
+}
+
+.ultimoPedidoTexto {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.etapas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.etapaFeita,
+.etapaPendente {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.etapaFeita {
+  color: var(--status\/online);
+}
+
+.etapaPendente {
+  color: var(--texto\/secundario);
+}
+
+.etapaVazia {
+  width: 12px;
+  height: 12px;
+  padding: 2px;
+  background-clip: content-box;
+  border: 1.5px solid var(--status\/offline-barra);
+  border-radius: 50%;
+}
+
+.recusado {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--status\/alerta);
+}
+
+.emBreve {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---------- alertas e placa */
+
+.semAlertas {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 12px;
+  background: var(--status\/online-fundo);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.semAlertasTitulo {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--status\/online);
+}
+
+.semAlertasDetalhe {
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
+.listaAlertas {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.alerta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--status\/alerta-fundo);
+  border: 1px solid var(--status\/alerta-borda);
+  border-radius: 6px;
+}
+
+.alertaTitulo {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--status\/alerta);
+}
+
+.alertaMensagem {
+  font-size: 12px;
+  color: var(--texto\/principal);
+}
+
+.alertaTempo {
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
+.dadoEspacado {
+  padding-bottom: 8px;
+}
+
+/* ---------- leituras */
+
+.linhaLeituras {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  align-items: stretch;
+  gap: 20px;
+}
+
+.leiturasTitulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.leiturasTitulo > div:first-child {
+  flex: 1 1 0;
+}
+
+.periodo {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--fundo\/sutil);
+  border-radius: 8px;
+}
+
+.periodoItem,
+.periodoAtivo {
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.periodoItem:hover {
+  color: var(--texto\/principal);
+}
+
+.periodoItem[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.periodoAtivo {
+  background: var(--fundo\/pagina);
+  border-color: var(--borda\/padrao);
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.periodoItem:focus-visible,
+.periodoAtivo:focus-visible {
+  outline: 2px solid var(--marca\/principal);
+  outline-offset: 1px;
+}
+
+.grafico {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.graficoCabecalho {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.graficoNome {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+}
+
+.graficoAtual {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.graficoNota {
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
+/* ---------- tirar do experimento */
+
+.acoes {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.acao {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.perdaDeConexao {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--borda\/padrao);
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.perdaDeConexao > img {
+  flex-shrink: 0;
+}
+
+/* ---------- telas menores que o Figma (1440 px) */
+
+@media (max-width: 1360px) {
+  .principal {
+    grid-template-columns: 256px 288px minmax(0, 1fr);
+  }
+
+  .colunaAlertas {
+    grid-column: 1 / -1;
+    flex-direction: row;
+  }
+
+  .colunaAlertas > * {
+    flex: 1 1 0;
+  }
+}
+
+@media (max-width: 1100px) {
+  .principal,
+  .linhaLeituras {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .faixaStatus {
+    flex-wrap: wrap;
+  }
+}

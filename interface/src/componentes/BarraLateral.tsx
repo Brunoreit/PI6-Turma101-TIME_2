@@ -1,9 +1,8 @@
 // Barra lateral do Figma (nó 87:1743), comum a todas as telas.
 
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import iconeAlertas from "../assets/icones/nav-alertas.svg";
 import iconeCalibracao from "../assets/icones/nav-calibracao.svg";
-import iconeCelulas from "../assets/icones/nav-celulas.svg";
 import iconeExperimentos from "../assets/icones/nav-experimentos.svg";
 import iconeExportar from "../assets/icones/nav-exportar.svg";
 import iconeVisaoGeral from "../assets/icones/nav-visao-geral.svg";
@@ -15,7 +14,6 @@ import estilos from "./BarraLateral.module.css";
 export const ROTAS = [
   { caminho: "/", rotulo: "Visão geral", icone: iconeVisaoGeral },
   { caminho: "/experimentos", rotulo: "Experimentos", icone: iconeExperimentos },
-  { caminho: "/celulas", rotulo: "Células", icone: iconeCelulas },
   { caminho: "/alertas", rotulo: "Alertas", icone: iconeAlertas },
   { caminho: "/calibracao", rotulo: "Calibração", icone: iconeCalibracao },
   { caminho: "/exportar", rotulo: "Exportar dados", icone: iconeExportar },
@@ -40,6 +38,8 @@ export function BarraLateral() {
   const { dados } = useDados();
   const alertas = dados?.alertas.length ?? 0;
   const sistema = dados?.sistema ?? { broker: null, consumidor: null, regras: null };
+  // As telas da célula são abertas pela Visão geral, que fica marcada nelas.
+  const naCelula = useLocation().pathname.startsWith("/celulas/");
 
   return (
     <aside className={estilos.barra}>
@@ -57,7 +57,10 @@ export function BarraLateral() {
             key={rota.caminho}
             to={rota.caminho}
             end={rota.caminho === "/"}
-            className={({ isActive }) => `${estilos.item} ${isActive ? estilos.ativo : ""}`}
+            className={({ isActive }) => {
+              const ativo = isActive || (rota.caminho === "/" && naCelula);
+              return `${estilos.item} ${ativo ? estilos.ativo : ""}`;
+            }}
           >
             {/* O SVG serve de máscara para a cor acompanhar o item ativo. */}
             <span

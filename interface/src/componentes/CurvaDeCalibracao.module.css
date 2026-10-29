@@ -1,0 +1,62 @@
+.grafico {
+  position: relative;
+  height: 190px;
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
+/* Mesmas margens do Figma: 48 px à esquerda para as marcas e 30 px embaixo. */
+.area {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  bottom: 30px;
+  left: 48px;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.faixa {
+  fill: var(--marca\/fundo);
+}
+
+.grade,
+.diagonal {
+  vector-effect: non-scaling-stroke;
+}
+
+.grade {
+  stroke: var(--borda\/padrao);
+  stroke-width: 1;
+}
+
+.diagonal {
+  stroke: var(--marca\/principal);
+  stroke-width: 2;
+}
+
+.padrao {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: var(--texto\/principal);
+}
+
+.marcaVertical {
+  position: absolute;
+  left: -28px;
+  transform: translateY(-50%);
+}
+
+.marcaHorizontal {
+  position: absolute;
+  top: calc(100% + 10px);
+  transform: translateX(-50%);
+}

@@ -12,12 +12,13 @@ const VARIANTES: Record<SituacaoCelula, { rotulo: string; ponto: string }> = {
   offline: { rotulo: "Offline", ponto: pontoOffline },
 };
 
-export function SeloDeStatus({ situacao }: { situacao: SituacaoCelula }) {
-  const { rotulo, ponto } = VARIANTES[situacao];
+/** `rotulo` troca o texto padrão, como o "Em operação" da tela da célula. */
+export function SeloDeStatus({ situacao, rotulo }: { situacao: SituacaoCelula; rotulo?: string }) {
+  const variante = VARIANTES[situacao];
   return (
     <span className={`${estilos.selo} ${estilos[situacao]}`}>
-      <img className={estilos.ponto} src={ponto} width={6} height={6} alt="" />
-      {rotulo}
+      <img className={estilos.ponto} src={variante.ponto} width={6} height={6} alt="" />
+      {rotulo ?? variante.rotulo}
     </span>
   );
 }
