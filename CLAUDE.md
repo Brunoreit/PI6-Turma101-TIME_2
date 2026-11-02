@@ -61,7 +61,7 @@ docs/contrato-mqtt.md  documento do contrato para o grupo do hardware
 
 ```bash
 docker compose up --build                    # sobe tudo (broker, banco, backend, 3 células)
-pip install -r requirements.txt
+pip install -e ".[dev]"                     # dependências e pacotes app, contrato e simulador
 pytest tests/unidade                         # segundos
 cd interface && npm install && npm run dev  # interface em http://localhost:5173
 pytest tests/integracao -v                   # ~70 s, usa Docker Compose
@@ -102,6 +102,7 @@ Estados do pedido de setpoint no banco: `solicitado → recebido → aplicado �
 
 - Código, nomes, comentários, mensagens de log e de erro em **português**.
 - Python 3.12, tipagem nas assinaturas, `str | None` em vez de `Optional`.
+- Dependências: a versão fica no `requirements.txt` da parte que usa (`backend/`, `simulador/` ou `tests/`). O `pyproject.toml` junta os três para desenvolver e guarda a configuração do pytest e do Pyright.
 - Configuração só por variável de ambiente, lida em `config.py`. Novas variáveis vão também em `.env.example` e no `docker-compose.yml`.
 - Mensagens de erro da API dizem o que aconteceu e como resolver, sem pedir desculpas.
 - Toda funcionalidade nova que envolve MQTT ganha uma etapa no teste de integração.

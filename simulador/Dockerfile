@@ -5,8 +5,8 @@ COPY simulador/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY contrato ./contrato
-COPY simulador/*.py ./
+COPY simulador/*.py ./simulador/
 
 ENV PYTHONUNBUFFERED=1
 VOLUME /dados
-CMD ["python", "celula.py"]
+CMD ["python", "-m", "simulador.celula"]

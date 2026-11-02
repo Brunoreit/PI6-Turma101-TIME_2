@@ -134,7 +134,7 @@ class AmbienteLocal:
             "DATABASE_URL": self.url_banco,
             "MQTT_HOST": "127.0.0.1", "MQTT_PORT": str(self.porta_mqtt),
             "BUFFER_DIR": str(self.dir / "celulas"),
-            "PYTHONPATH": f"{RAIZ}:{RAIZ / 'backend'}:{RAIZ / 'simulador'}",
+            "PYTHONPATH": f"{RAIZ}:{RAIZ / 'backend'}",
             "PYTHONUNBUFFERED": "1",
         }
 
@@ -151,7 +151,7 @@ class AmbienteLocal:
                     "--host", "127.0.0.1", "--port", str(self.porta_api)], env
         if nome in CELULAS:
             env.update(ID_CELULA=nome, CENARIO=CELULAS[nome])
-            return [sys.executable, str(RAIZ / "simulador" / "celula.py")], env
+            return [sys.executable, "-m", "simulador.celula"], env
         raise ValueError(nome)
 
     def iniciar_servico(self, nome: str) -> None:

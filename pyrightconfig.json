@@ -1,6 +1,0 @@
-{
-  "venvPath": ".",
-  "venv": ".venv",
-  "extraPaths": ["backend", "simulador"],
-  "pythonVersion": "3.12"
-}

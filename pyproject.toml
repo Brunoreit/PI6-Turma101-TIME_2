@@ -1,0 +1,45 @@
+# Projeto Python do T.U.P.A: backend, contrato MQTT, simulador e testes.
+#
+#   pip install -e ".[dev]"
+#
+# instala tudo para desenvolver e deixa os pacotes app, contrato e simulador
+# importáveis de qualquer pasta. As versões ficam no requirements.txt de cada
+# parte, que o Docker também usa para montar as imagens.
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tupa"
+version = "0.1.0"
+description = "Sistema central de monitoramento das células do eVOLVER"
+requires-python = ">=3.12"
+dynamic = ["optional-dependencies"]
+
+[tool.setuptools.dynamic.optional-dependencies]
+backend = { file = ["backend/requirements.txt"] }
+simulador = { file = ["simulador/requirements.txt"] }
+dev = { file = ["backend/requirements.txt", "simulador/requirements.txt", "tests/requirements.txt"] }
+
+[tool.setuptools]
+# O pacote app mora em backend/app; contrato e simulador ficam na raiz.
+package-dir = { "app" = "backend/app" }
+packages = [
+    "app", "app.api", "app.banco", "app.calibracao", "app.consumidor", "app.regras",
+    "contrato",
+    "simulador",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Os testes funcionam mesmo sem o pip install -e.
+pythonpath = [".", "backend"]
+markers = ["integracao: sobe o sistema inteiro (broker, banco, backend e três células simuladas)"]
+addopts = "-p no:cacheprovider"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+extraPaths = ["backend"]
