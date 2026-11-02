@@ -1,4 +1,4 @@
-"""Primeiro teste da arquitetura.
+"""Teste ponta a ponta da arquitetura.
 
 Três células simuladas publicam leituras. O teste derruba, uma de cada vez,
 a conexão de uma célula, o consumidor e o broker, e confere que o histórico

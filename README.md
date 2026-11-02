@@ -85,7 +85,7 @@ Use `MANTER_AMBIENTE=1` para não apagar o ambiente e os logs ao final.
 
 ## O primeiro teste
 
-`tests/integracao/test_primeiro_teste.py` sobe três células simuladas e passa por estas etapas, em ordem. Leva pouco mais de um minuto porque usa tempos curtos (leitura a cada 1 s).
+`tests/integracao/test_ponta_a_ponta.py` sobe três células simuladas e passa por estas etapas, em ordem. Leva pouco mais de um minuto porque usa tempos curtos (leitura a cada 1 s).
 
 | Etapa | O que acontece | Passa se |
 |---|---|---|
