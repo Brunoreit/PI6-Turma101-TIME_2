@@ -73,7 +73,7 @@ docker compose kill -s SIGUSR2 celula-c02   # restaura
 ## Testes
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 
 pytest tests/unidade                       # segundos, sem Docker
 pytest tests/integracao -v                 # primeiro teste, sobe tudo pelo Docker Compose

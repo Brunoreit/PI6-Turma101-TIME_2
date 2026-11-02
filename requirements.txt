@@ -1,0 +1,7 @@
+# Tudo para desenvolver na sua máquina (backend, simulador e testes):
+#   pip install -r requirements.txt
+# O Docker não usa este arquivo: cada imagem instala o requirements.txt da sua pasta.
+-r backend/requirements.txt
+-r simulador/requirements.txt
+pytest==9.1.1
+requests==2.34.2
