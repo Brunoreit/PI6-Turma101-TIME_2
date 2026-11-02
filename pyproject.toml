@@ -1,10 +1,8 @@
 # Projeto Python do T.U.P.A: backend, contrato MQTT, simulador e testes.
 #
-#   pip install -e ".[dev]"
-#
-# instala tudo para desenvolver e deixa os pacotes app, contrato e simulador
-# importáveis de qualquer pasta. As versões ficam no requirements.txt de cada
-# parte, que o Docker também usa para montar as imagens.
+# Para instalar, use o requirements.txt da raiz (pip install -r requirements.txt).
+# Este arquivo diz quais pastas são pacotes do projeto e guarda a
+# configuração do pytest e do Pyright.
 
 [build-system]
 requires = ["setuptools>=69"]
@@ -15,12 +13,6 @@ name = "tupa"
 version = "0.1.0"
 description = "Sistema central de monitoramento das células do eVOLVER"
 requires-python = ">=3.12"
-dynamic = ["optional-dependencies"]
-
-[tool.setuptools.dynamic.optional-dependencies]
-backend = { file = ["backend/requirements.txt"] }
-simulador = { file = ["simulador/requirements.txt"] }
-dev = { file = ["backend/requirements.txt", "simulador/requirements.txt", "tests/requirements.txt"] }
 
 [tool.setuptools]
 # O pacote app mora em backend/app; contrato e simulador ficam na raiz.
@@ -33,7 +25,7 @@ packages = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Os testes funcionam mesmo sem o pip install -e.
+# Os testes funcionam mesmo sem instalar o projeto.
 pythonpath = [".", "backend"]
 markers = ["integracao: sobe o sistema inteiro (broker, banco, backend e três células simuladas)"]
 addopts = "-p no:cacheprovider"

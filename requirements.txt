@@ -1,0 +1,10 @@
+# Tudo para desenvolver na sua máquina (backend, simulador e testes):
+#   pip install -r requirements.txt
+# O Docker não usa este arquivo: cada imagem instala o requirements.txt da sua pasta.
+-r backend/requirements.txt
+-r simulador/requirements.txt
+-r tests/requirements.txt
+
+# Registra os pacotes app, contrato e simulador (pyproject.toml), para que
+# sejam importáveis de qualquer pasta sem mexer no PYTHONPATH.
+-e .
