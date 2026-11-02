@@ -61,7 +61,7 @@ docs/contrato-mqtt.md  documento do contrato para o grupo do hardware
 
 ```bash
 docker compose up --build                    # sobe tudo (broker, banco, backend, 3 células)
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 pytest tests/unidade                         # segundos
 cd interface && npm install && npm run dev  # interface em http://localhost:5173
 pytest tests/integracao -v                   # ~70 s, usa Docker Compose
