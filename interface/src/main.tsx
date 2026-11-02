@@ -1,15 +1,15 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { ROTAS } from "./componentes/BarraLateral";
-import { DadosProvider } from "./dados/DadosProvider";
-import { Layout } from "./Layout";
-import "./estilos/global.css";
-import { Ajustes } from "./telas/celula/Ajustes";
-import { Diagnostico } from "./telas/celula/Diagnostico";
-import { VisaoDaCelula } from "./telas/celula/VisaoDaCelula";
-import { EmConstrucao } from "./telas/EmConstrucao";
-import { VisaoGeral } from "./telas/VisaoGeral";
+import { ROTAS } from "@/app/BarraLateral";
+import { DadosProvider } from "@/dados/DadosProvider";
+import { Layout } from "@/app/Layout";
+import "@/estilos/global.css";
+import { Ajustes } from "@/funcionalidades/celula/Ajustes";
+import { Diagnostico } from "@/funcionalidades/celula/Diagnostico";
+import { VisaoDaCelula } from "@/funcionalidades/celula/VisaoDaCelula";
+import { EmConstrucao } from "@/app/EmConstrucao";
+import { VisaoGeral } from "@/funcionalidades/visao-geral/VisaoGeral";
 
 createRoot(document.getElementById("raiz")!).render(
   <StrictMode>

@@ -1,8 +1,8 @@
 // O que as telas de uma célula mostram (Visão da célula, Ajustes e
-// Diagnóstico). Vem da API (fonteCelula.ts) ou dos dados de exemplo
-// (exemploCelula.ts). `null` quer dizer "a API ainda não informa isso".
+// Diagnóstico). Vem da API (fonte.ts) ou dos dados de exemplo
+// (exemplo.ts). `null` quer dizer "a API ainda não informa isso".
 
-import type { AlertaResumo, SituacaoCelula } from "./modelo";
+import type { AlertaResumo, SituacaoCelula } from "@/dados/modelo";
 
 /** Mesmos limites que a API aceita (TEMPERATURA_MIN_C e TEMPERATURA_MAX_C). */
 export const TEMPERATURA_MIN_C = 20;

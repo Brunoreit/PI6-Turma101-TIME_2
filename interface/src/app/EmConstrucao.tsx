@@ -1,6 +1,6 @@
 // Rota reservada para as telas que ainda não foram feitas.
 
-import estilos from "./VisaoGeral.module.css";
+import estilos from "./EmConstrucao.module.css";
 
 export function EmConstrucao({ titulo }: { titulo: string }) {
   return (

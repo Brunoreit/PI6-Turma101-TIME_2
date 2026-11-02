@@ -10,13 +10,13 @@ import {
   listarLeituras,
   listarSetpoints,
   pedirSetpoint,
-} from "../api/cliente";
-import type { LeituraApi } from "../api/tipos";
-import { gerarExemploDaCelula } from "./exemploCelula";
-import { alertaDaApi, FONTE_DADOS } from "./fonte";
-import * as formatar from "./formatar";
-import type { SituacaoCelula } from "./modelo";
-import type { DetalheDaCelula, EtapaDoCaminho, Periodo, Series } from "./modeloCelula";
+} from "@/api/cliente";
+import type { LeituraApi } from "@/api/tipos";
+import { gerarExemploDaCelula } from "./exemplo";
+import { alertaDaApi, FONTE_DADOS } from "@/dados/fonte";
+import * as formatar from "@/compartilhado/formatar";
+import type { SituacaoCelula } from "@/dados/modelo";
+import type { DetalheDaCelula, EtapaDoCaminho, Periodo, Series } from "./modelo";
 
 const MINUTO = 60 * 1000;
 const HORA = 60 * MINUTO;

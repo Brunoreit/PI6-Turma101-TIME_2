@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import iconeExportar from "../assets/icones/exportar.svg";
-import { CardDeCelula } from "../componentes/CardDeCelula";
-import { useDados } from "../dados/DadosProvider";
-import * as formatar from "../dados/formatar";
-import type { CelulaResumo, VisaoGeral as Dados } from "../dados/modelo";
+import iconeExportar from "@/assets/icones/exportar.svg";
+import { CardDeCelula } from "./CardDeCelula";
+import { useDados } from "@/dados/DadosProvider";
+import * as formatar from "@/compartilhado/formatar";
+import type { CelulaResumo, VisaoGeral as Dados } from "@/dados/modelo";
 import estilos from "./VisaoGeral.module.css";
 
 type Filtro = "todas" | "alerta" | "offline";

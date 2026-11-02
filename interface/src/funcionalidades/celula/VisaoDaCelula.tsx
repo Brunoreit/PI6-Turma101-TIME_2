@@ -2,32 +2,32 @@
 
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import iconeAgitacao from "../../assets/icones/agitacao.svg";
-import iconeBombas from "../../assets/icones/bombas.svg";
-import iconeCadeado from "../../assets/icones/cadeado.svg";
-import iconeChama from "../../assets/icones/chama.svg";
-import iconeCheckCirculo from "../../assets/icones/check-circulo.svg";
-import iconeCheckEtapa from "../../assets/icones/check-etapa.svg";
-import etiquetaAgitacao from "../../assets/icones/etiqueta-agitacao.svg";
-import etiquetaDescarte from "../../assets/icones/etiqueta-descarte.svg";
-import etiquetaEntrada from "../../assets/icones/etiqueta-entrada.svg";
-import etiquetaOd from "../../assets/icones/etiqueta-od.svg";
-import etiquetaPh from "../../assets/icones/etiqueta-ph.svg";
-import etiquetaTemperatura from "../../assets/icones/etiqueta-temperatura.svg";
-import iconeFrasco from "../../assets/icones/frasco.svg";
-import iconeGota from "../../assets/icones/gota.svg";
-import iconeInfo from "../../assets/icones/info.svg";
-import interruptorLigado from "../../assets/icones/interruptor-ligado.svg";
-import iconeSemConexao from "../../assets/icones/sem-conexao.svg";
-import iconeSino from "../../assets/icones/sino.svg";
-import iconeTermometro from "../../assets/icones/termometro.svg";
-import frascoTupa from "../../assets/ilustracoes/frasco-tupa.svg";
-import { Botao, SEM_API } from "../../componentes/Botao";
-import { GraficoDeLinha } from "../../componentes/GraficoDeLinha";
-import { SeloDeStatus } from "../../componentes/SeloDeStatus";
-import { enviarSetpoint } from "../../dados/fonteCelula";
-import * as formatar from "../../dados/formatar";
-import type { SituacaoCelula } from "../../dados/modelo";
+import iconeAgitacao from "@/assets/icones/agitacao.svg";
+import iconeBombas from "@/assets/icones/bombas.svg";
+import iconeCadeado from "@/assets/icones/cadeado.svg";
+import iconeChama from "@/assets/icones/chama.svg";
+import iconeCheckCirculo from "@/assets/icones/check-circulo.svg";
+import iconeCheckEtapa from "@/assets/icones/check-etapa.svg";
+import etiquetaAgitacao from "@/assets/icones/etiqueta-agitacao.svg";
+import etiquetaDescarte from "@/assets/icones/etiqueta-descarte.svg";
+import etiquetaEntrada from "@/assets/icones/etiqueta-entrada.svg";
+import etiquetaOd from "@/assets/icones/etiqueta-od.svg";
+import etiquetaPh from "@/assets/icones/etiqueta-ph.svg";
+import etiquetaTemperatura from "@/assets/icones/etiqueta-temperatura.svg";
+import iconeFrasco from "@/assets/icones/frasco.svg";
+import iconeGota from "@/assets/icones/gota.svg";
+import iconeInfo from "@/assets/icones/info.svg";
+import interruptorLigado from "@/assets/icones/interruptor-ligado.svg";
+import iconeSemConexao from "@/assets/icones/sem-conexao.svg";
+import iconeSino from "@/assets/icones/sino.svg";
+import iconeTermometro from "@/assets/icones/termometro.svg";
+import frascoTupa from "@/assets/ilustracoes/frasco-tupa.svg";
+import { Botao, SEM_API } from "@/compartilhado/componentes/Botao";
+import { GraficoDeLinha } from "@/compartilhado/componentes/GraficoDeLinha";
+import { SeloDeStatus } from "@/compartilhado/componentes/SeloDeStatus";
+import { enviarSetpoint } from "./fonte";
+import * as formatar from "@/compartilhado/formatar";
+import type { SituacaoCelula } from "@/dados/modelo";
 import {
   TEMPERATURA_MAX_C,
   TEMPERATURA_MIN_C,
@@ -35,8 +35,8 @@ import {
   type EstadoDoPedido,
   type ExperimentoDaCelula,
   type Periodo,
-} from "../../dados/modeloCelula";
-import { useCelula } from "../../dados/useCelula";
+} from "./modelo";
+import { useCelula } from "./useCelula";
 import { CabecalhoDaCelula, CarregandoCelula } from "./CabecalhoDaCelula";
 import comum from "./Celula.module.css";
 import estilos from "./VisaoDaCelula.module.css";

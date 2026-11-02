@@ -1,9 +1,9 @@
 // Componente "Selo de status" do Figma (nó 3:54).
 
-import pontoAlerta from "../assets/icones/ponto-alerta.svg";
-import pontoOffline from "../assets/icones/ponto-offline.svg";
-import pontoOnline from "../assets/icones/ponto-online.svg";
-import type { SituacaoCelula } from "../dados/modelo";
+import pontoAlerta from "@/assets/icones/ponto-alerta.svg";
+import pontoOffline from "@/assets/icones/ponto-offline.svg";
+import pontoOnline from "@/assets/icones/ponto-online.svg";
+import type { SituacaoCelula } from "@/dados/modelo";
 import estilos from "./SeloDeStatus.module.css";
 
 const VARIANTES: Record<SituacaoCelula, { rotulo: string; ponto: string }> = {

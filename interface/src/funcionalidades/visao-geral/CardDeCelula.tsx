@@ -3,11 +3,11 @@
 // O card inteiro é um link para a Visão da célula.
 
 import { Link } from "react-router-dom";
-import * as formatar from "../dados/formatar";
-import type { CelulaResumo, Experimento } from "../dados/modelo";
+import * as formatar from "@/compartilhado/formatar";
+import type { CelulaResumo, Experimento } from "@/dados/modelo";
 import estilos from "./CardDeCelula.module.css";
 import { HistoricoOd } from "./HistoricoOd";
-import { SeloDeStatus } from "./SeloDeStatus";
+import { SeloDeStatus } from "@/compartilhado/componentes/SeloDeStatus";
 
 function descricaoDoExperimento(experimento: Experimento): string {
   const partes = [experimento.nome];

@@ -5,6 +5,8 @@ import react from "@vitejs/plugin-react";
 // Assim a interface fala só com a API e não precisa de CORS.
 export default defineConfig({
   plugins: [react()],
+  // "@/compartilhado/formatar" em vez de "../../compartilhado/formatar".
+  resolve: { alias: { "@": "/src" } },
   server: {
     port: 5173,
     proxy: {
