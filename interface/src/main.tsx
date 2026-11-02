@@ -7,7 +7,7 @@ import { Layout } from "@/app/Layout";
 import "@/estilos/global.css";
 import { Ajustes } from "@/funcionalidades/celula/Ajustes";
 import { Diagnostico } from "@/funcionalidades/celula/Diagnostico";
-import { VisaoDaCelula } from "@/funcionalidades/celula/VisaoDaCelula";
+import { VisaoDaCelula } from "@/funcionalidades/celula/VisaoDaCelula/VisaoDaCelula";
 import { EmConstrucao } from "@/app/EmConstrucao";
 import { VisaoGeral } from "@/funcionalidades/visao-geral/VisaoGeral";
 
