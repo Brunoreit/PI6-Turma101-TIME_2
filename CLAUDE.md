@@ -41,8 +41,9 @@ Três processos Python independentes, mesmo código-base em `backend/app/`:
 
 ```
 contrato/            tópicos e mensagens MQTT (Pydantic). Fonte única do formato
-broker/              mosquitto.conf
-banco/init/          SQL executado na primeira subida do PostgreSQL
+infra/               configuração dos serviços de fora do nosso código
+  mosquitto/         mosquitto.conf do broker
+  postgres/init/     SQL executado na primeira subida do PostgreSQL
 backend/app/
   config.py          configuração por variáveis de ambiente
   banco/             conexão e TODAS as consultas (repositorios.py)

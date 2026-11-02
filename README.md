@@ -20,8 +20,9 @@ PI6-Turma101-TIME_2/
 ├── contrato/               tópicos e mensagens MQTT (fonte única de verdade)
 │   ├── topicos.py
 │   └── mensagens.py
-├── broker/mosquitto.conf   persistência e fila para clientes desconectados
-├── banco/init/             tabelas, criadas na primeira subida do PostgreSQL
+├── infra/
+│   ├── mosquitto/          broker: persistência e fila para clientes desconectados
+│   └── postgres/init/      tabelas, criadas na primeira subida do PostgreSQL
 ├── backend/app/
 │   ├── consumidor/         processo 1: assina o MQTT, valida e grava sem duplicar
 │   ├── regras/             processo 2: alertas e estado "atingido" do setpoint

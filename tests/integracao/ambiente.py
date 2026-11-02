@@ -112,14 +112,14 @@ class AmbienteLocal:
                        check=True, stdout=subprocess.DEVNULL)
         subprocess.run([self.pg_bin / "createdb", "-h", "127.0.0.1", "-p", str(self.porta_pg),
                         "-U", "evolver", "evolver"], check=True)
-        for sql in sorted((RAIZ / "banco" / "init").glob("*.sql")):
+        for sql in sorted((RAIZ / "infra" / "postgres" / "init").glob("*.sql")):
             subprocess.run(["psql", self.url_banco, "-q", "-v", "ON_ERROR_STOP=1", "-f", sql],
                            check=True, stdout=subprocess.DEVNULL)
 
     def _conf_broker(self) -> Path:
         dados = self.dir / "mosquitto"
         dados.mkdir(exist_ok=True)
-        conf = (RAIZ / "broker" / "mosquitto.conf").read_text()
+        conf = (RAIZ / "infra" / "mosquitto" / "mosquitto.conf").read_text()
         conf = conf.replace("listener 1883", f"listener {self.porta_mqtt} 127.0.0.1")
         conf = conf.replace("/mosquitto/data/", f"{dados}/")
         caminho = self.dir / "mosquitto.conf"
