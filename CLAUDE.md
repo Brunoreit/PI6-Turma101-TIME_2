@@ -51,11 +51,13 @@ backend/app/
   consumidor/        cliente MQTT e tratadores de mensagem
   regras/            verificações de alerta
   api/               endpoints FastAPI
-simulador/           célula falsa: modelo físico, buffer SQLite, sinais de falha
+simulador/           célula falsa: modelo físico, buffer SQLite, sinais de falha (python -m simulador.celula)
 interface/           React + TypeScript + Vite (ver interface/README.md)
 tests/unidade/       rápidos, sem infraestrutura
-tests/integracao/    primeiro teste ponta a ponta, modo compose ou local
+tests/integracao/    test_ponta_a_ponta.py, modo compose ou local
 docs/contrato-mqtt.md  documento do contrato para o grupo do hardware
+requirements.txt     instala tudo para desenvolver, inclusive os pacotes do projeto (-e .)
+pyproject.toml       pacotes app, contrato e simulador; configuração do pytest e do Pyright
 ```
 
 ## Comandos
@@ -97,6 +99,7 @@ Estados do pedido de setpoint no banco: `solicitado → recebido → aplicado �
 - **A interface só fala com a API.** Nunca direto com o banco ou o broker.
 - **A API não publica com o broker desconectado.** O paho guardaria a mensagem e enviaria depois, aplicando um pedido que já foi dado como falho.
 - **Consumidor usa `clean_session=False` e `client_id` fixo** (`evolver-consumidor`). Trocar isso quebra a entrega do que chegou enquanto ele estava parado.
+- **Células só sobem depois que o consumidor se inscreve.** Antes da primeira inscrição o broker descarta o que chega. O consumidor cria `/tmp/consumidor-inscrito` ao ter a inscrição confirmada, o healthcheck dele no `docker-compose.yml` olha esse arquivo, e as células dependem dele (`service_healthy`). O modo local do teste faz a mesma espera.
 - **Regras são idempotentes.** Rodar duas vezes não abre alerta duplicado (índice único parcial em `alerta`).
 
 ## Convenções
@@ -114,7 +117,7 @@ PostgreSQL 16 puro, sem TimescaleDB nem InfluxDB (decisão consciente: volume de
 
 ## Estado atual
 
-Base funcionando. 27 testes passando no modo local (10 etapas de integração + 17 de unidade). O modo Docker Compose foi escrito e validado com `docker compose config`, mas ainda não foi executado de ponta a ponta.
+Base funcionando. 17 testes de unidade e as 10 etapas do teste ponta a ponta passando, no modo local e no modo Docker Compose. Em 02/11/2026 o modo Docker Compose passou três vezes seguidas, com o pytest rodando no Windows e os serviços em contêineres Linux.
 
 Interface: barra lateral, tela Visão geral e telas da célula (Visão da célula, Ajustes, Diagnóstico) prontas, a partir do Figma (arquivo Telas). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`), porque a API ainda não devolve experimento, estado do consumidor e das regras, nem setpoints aguardando.
 
@@ -126,9 +129,8 @@ Interface: barra lateral, tela Visão geral e telas da célula (Visão da célul
 
 ## Próximos passos
 
-1. Rodar o teste de integração pelo Docker Compose
-2. Sinal de vida do consumidor
-3. Demais telas da interface (Experimentos, Alertas, Calibração, Exportar)
-4. Autenticação na API e senha no broker
-5. Endpoints de experimento
-6. Fechar o contrato com o grupo do hardware
+1. Sinal de vida do consumidor
+2. Demais telas da interface (Experimentos, Alertas, Calibração, Exportar)
+3. Autenticação na API e senha no broker
+4. Endpoints de experimento
+5. Fechar o contrato com o grupo do hardware

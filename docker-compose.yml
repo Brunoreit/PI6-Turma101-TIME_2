@@ -28,6 +28,7 @@ x-celula: &celula
   volumes: [celulas-dados:/dados]
   depends_on:
     broker: { condition: service_healthy }
+    consumidor: { condition: service_healthy }
 
 x-env-celula: &env-celula
   MQTT_HOST: broker
@@ -69,6 +70,12 @@ services:
   consumidor:
     <<: *backend
     command: ["python", "-m", "app.consumidor.main"]
+    # Saudável depois que o broker confirma a inscrição. Antes disso, o que as
+    # células publicarem se perde, porque o broker ainda não guarda nada para ele.
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/consumidor-inscrito"]
+      interval: 2s
+      retries: 30
 
   regras:
     <<: *backend

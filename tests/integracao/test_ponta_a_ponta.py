@@ -13,7 +13,6 @@ Rodar:
   AMBIENTE=local pytest tests/integracao -v  (sem Docker)
 """
 
-import signal
 import time
 
 import psycopg
@@ -104,7 +103,7 @@ def test_1_celulas_aparecem_sozinhas(banco):
 
 
 def test_2_queda_da_celula_abre_alerta(ambiente, banco):
-    ambiente.sinal("c02", signal.SIGUSR1)
+    ambiente.sinal("c02", "SIGUSR1")
     # O broker percebe a queda em até 1,5 x keepalive e publica offline.
     esperar(lambda: estado_celula(banco, "c02") == "offline", 20, "c02 aparecer offline")
     esperar(lambda: alerta_aberto(banco, "c02", "sem_comunicacao"), 10, "alerta de c02 sem comunicação")
@@ -113,7 +112,7 @@ def test_2_queda_da_celula_abre_alerta(ambiente, banco):
 
 def test_3_reconexao_reenvia_sem_buracos(ambiente, banco):
     antes = contagem(banco)["c02"]
-    ambiente.sinal("c02", signal.SIGUSR2)
+    ambiente.sinal("c02", "SIGUSR2")
     esperar(lambda: estado_celula(banco, "c02") == "online", 20, "c02 voltar a online")
     # Ao voltar, chegam de uma vez as leituras guardadas durante a queda.
     esperar(lambda: contagem(banco)["c02"] >= antes + 8, 20, "reenvio das leituras guardadas")

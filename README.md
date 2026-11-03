@@ -17,6 +17,8 @@ célula simulada ──MQTT──▶ Mosquitto ──▶ consumidor ──▶ Po
 PI6-Turma101-TIME_2/
 ├── docker-compose.yml      sobe tudo
 ├── .env.example            portas, faixas e tempos configuráveis
+├── requirements.txt        instala tudo para desenvolver (pip install -r requirements.txt)
+├── pyproject.toml          pacotes do projeto e configuração do pytest e do Pyright
 ├── contrato/               tópicos e mensagens MQTT (fonte única de verdade)
 │   ├── topicos.py
 │   └── mensagens.py
@@ -30,10 +32,11 @@ PI6-Turma101-TIME_2/
 │   ├── calibracao/         OD bruta → OD, guardando o valor original
 │   └── banco/              conexão e todas as consultas
 ├── simulador/              célula simulada: curva, buffer local, falhas, setpoint
-├── interface/              React + TypeScript + Vite, servida pelo nginx
+│                           (fora do Docker: python -m simulador.celula)
+├── interface/              React + TypeScript + Vite, servida pelo nginx (ver interface/README.md)
 ├── tests/
 │   ├── unidade/            rápidos, sem broker nem banco
-│   └── integracao/         o primeiro teste da arquitetura, ponta a ponta
+│   └── integracao/         test_ponta_a_ponta.py: o sistema inteiro, etapa por etapa
 └── docs/contrato-mqtt.md   documento para combinar com o grupo do hardware
 ```
 
@@ -77,13 +80,13 @@ docker compose kill -s SIGUSR2 celula-c02   # restaura
 pip install -r requirements.txt            # uma vez: dependências e pacotes do projeto
 
 pytest tests/unidade                       # segundos, sem Docker
-pytest tests/integracao -v                 # primeiro teste, sobe tudo pelo Docker Compose
+pytest tests/integracao -v                 # teste ponta a ponta, sobe tudo pelo Docker Compose
 AMBIENTE=local pytest tests/integracao -v  # mesmo teste sem Docker (precisa de PostgreSQL 16 e Mosquitto)
 ```
 
 Use `MANTER_AMBIENTE=1` para não apagar o ambiente e os logs ao final.
 
-## O primeiro teste
+## O teste ponta a ponta
 
 `tests/integracao/test_ponta_a_ponta.py` sobe três células simuladas e passa por estas etapas, em ordem. Leva pouco mais de um minuto porque usa tempos curtos (leitura a cada 1 s).
 
@@ -108,9 +111,11 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
   FROM leitura GROUP BY id_celula;
 ```
 
-## O que o primeiro teste revelou
+## O que o teste ponta a ponta revelou
 
 **Consumidor parado gera alerta falso.** Na etapa 4, com o consumidor parado, ninguém atualiza o último contato das células, e a regra de comunicação abre alerta para as três, mesmo com elas funcionando. Hoje o alerta fecha sozinho quando o consumidor volta. Para produção, vale o consumidor registrar um sinal de vida e a regra distinguir "célula parou" de "consumidor parou".
+
+**A primeira leitura podia se perder.** O broker só guarda mensagens para o consumidor depois que ele se inscreve pela primeira vez. Se uma célula subisse antes, a leitura `seq 0` era descartada, e o teste falhava de vez em quando, conforme a ordem em que os contêineres subiam. Agora o consumidor avisa quando está inscrito (healthcheck) e o Docker Compose só sobe as células depois disso.
 
 **Duplicatas só aparecem quando forçadas.** Nas falhas simuladas, o reenvio não gerou nenhuma leitura repetida, e por isso existe a etapa 9, que publica uma de propósito. Com a placa real e rede instável, elas vão acontecer, e o banco já está preparado.
 
@@ -122,6 +127,7 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 - **Seq contínuo por célula, que não zera ao reiniciar.** É o que permite saber se o histórico tem buracos.
 - **Valor bruto sempre guardado.** Uma nova calibração recalcula a OD de todo o histórico (`POST /celulas/{id}/calibracoes`).
 - **Consumidor, regras e API em processos separados.** A queda de um não para os outros.
+- **Células sobem depois do consumidor.** O healthcheck do consumidor só fica saudável quando o broker confirma a inscrição, e as células dependem dele no `docker-compose.yml`.
 - **Interface só fala com a API.** Validação e registro de quem mudou a temperatura ficam num lugar só.
 
 ## Equipe

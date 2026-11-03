@@ -81,8 +81,10 @@ class AmbienteCompose:
     def iniciar_servico(self, nome: str) -> None:
         self._dc("start", self._servico(nome))
 
-    def sinal(self, nome: str, sig: signal.Signals) -> None:
-        self._dc("kill", "-s", sig.name, self._servico(nome))
+    def sinal(self, nome: str, sinal: str) -> None:
+        # Pelo nome ("SIGUSR1"): quem roda o teste pode ser Windows, que não
+        # tem esses sinais, mas quem recebe é o contêiner Linux.
+        self._dc("kill", "-s", sinal, self._servico(nome))
 
     def encerrar(self) -> None:
         if os.environ.get("MANTER_AMBIENTE") != "1":
@@ -155,6 +157,10 @@ class AmbienteLocal:
         raise ValueError(nome)
 
     def iniciar_servico(self, nome: str) -> None:
+        from app.consumidor.main import ARQUIVO_INSCRITO
+
+        if nome == "consumidor":
+            ARQUIVO_INSCRITO.unlink(missing_ok=True)
         cmd, env = self._comando(nome)
         log = open(self.dir / f"{nome}.log", "a")
         self.processos[nome] = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -162,14 +168,22 @@ class AmbienteLocal:
             _esperar_porta(self.porta_mqtt)
         if nome == "api":
             _esperar_porta(self.porta_api)
+        if nome == "consumidor":
+            # Como o healthcheck do docker-compose.yml: as células só sobem
+            # depois que o broker passa a guardar mensagens para o consumidor.
+            fim = time.time() + 30
+            while not ARQUIVO_INSCRITO.exists():
+                if time.time() > fim:
+                    raise TimeoutError("o consumidor não se inscreveu no broker em 30 s")
+                time.sleep(0.2)
 
     def parar(self, nome: str) -> None:
         proc = self.processos.pop(nome)
         proc.terminate()
         proc.wait(timeout=15)
 
-    def sinal(self, nome: str, sig: signal.Signals) -> None:
-        self.processos[nome].send_signal(sig)
+    def sinal(self, nome: str, sinal: str) -> None:
+        self.processos[nome].send_signal(getattr(signal, sinal))
 
     def iniciar(self) -> None:
         self._iniciar_banco()
