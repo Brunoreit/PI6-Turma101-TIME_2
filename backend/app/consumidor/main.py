@@ -4,13 +4,20 @@ Usa sessão persistente (clean_session=False) com um client_id fixo. Assim,
 se este processo parar, o broker guarda as mensagens com QoS 1 e entrega
 tudo quando ele voltar.
 
+Isso só vale depois da primeira inscrição: antes dela o broker não sabe que
+o consumidor existe e descarta o que chegar. Por isso, ao ter a inscrição
+confirmada, o processo cria ARQUIVO_INSCRITO. O docker-compose usa esse
+arquivo no healthcheck e só sobe as células depois dele.
+
 Executar: python -m app.consumidor.main
 """
 
 import logging
 import os
 import signal
+import tempfile
 import threading
+from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
@@ -23,9 +30,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s consumidor %(levelna
 log = logging.getLogger("consumidor")
 
 CLIENT_ID = "evolver-consumidor"
+# /tmp/consumidor-inscrito no contêiner. Lido pelo healthcheck do docker-compose.yml.
+ARQUIVO_INSCRITO = Path(tempfile.gettempdir()) / "consumidor-inscrito"
 
 
 def main() -> None:
+    ARQUIVO_INSCRITO.unlink(missing_ok=True)
     tratador = Tratador(conectar())
 
     cliente = mqtt.Client(
@@ -39,6 +49,13 @@ def main() -> None:
             return
         cli.subscribe([(t, topicos.QOS) for t in topicos.ASSINATURAS_CONSUMIDOR])
         log.info("conectado ao broker e assinando %d tópicos", len(topicos.ASSINATURAS_CONSUMIDOR))
+
+    def ao_inscrever(_cli, _userdata, _mid, codigos, _props):
+        if any(c.is_failure for c in codigos):
+            log.error("inscrição recusada pelo broker: %s", codigos)
+            return
+        # A partir daqui o broker guarda as mensagens para este client_id.
+        ARQUIVO_INSCRITO.touch()
 
     def ao_desconectar(_cli, _userdata, _flags, codigo, _props):
         log.warning("desconectado do broker (%s), reconectando", codigo)
@@ -54,6 +71,7 @@ def main() -> None:
             os._exit(1)
 
     cliente.on_connect = ao_conectar
+    cliente.on_subscribe = ao_inscrever
     cliente.on_disconnect = ao_desconectar
     cliente.on_message = ao_receber
 

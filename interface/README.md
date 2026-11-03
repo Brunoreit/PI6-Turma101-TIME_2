@@ -44,16 +44,26 @@ Os dados são atualizados a cada 20 s (`src/dados/DadosProvider.tsx`).
 
 ```
 src/
-  api/            cliente tipado: /celulas, /alertas, /celulas/{id}/leituras, /saude,
-                  /celulas/{id}/setpoint(s), /integridade
-  dados/          modelo das telas, conversão da API, dados de exemplo, atualização a cada 20 s
-  componentes/    BarraLateral, CardDeCelula, SeloDeStatus, HistoricoOd, Botao, Campo,
-                  GraficoDeLinha, CurvaDeCalibracao
-  telas/          VisaoGeral, celula/ (Visão da célula, Ajustes, Diagnóstico) e
-                  EmConstrucao (rotas ainda vazias)
-  estilos/        tokens.css (cores do Figma) e global.css
-  assets/icones/  SVGs exportados do Figma
+  main.tsx              rotas
+  app/                  casca do app: Layout, BarraLateral e EmConstrucao (rotas ainda vazias)
+  api/                  cliente tipado: /celulas, /alertas, /celulas/{id}/leituras, /saude,
+                        /celulas/{id}/setpoint(s), /integridade
+  dados/                dados gerais, atualizados a cada 20 s e usados por todas as telas:
+                        modelo, fonte (API ou exemplo), exemplo e DadosProvider
+  compartilhado/        formatar.ts e componentes reaproveitáveis: Botao, Campo,
+                        GraficoDeLinha, SeloDeStatus, CurvaDeCalibracao
+  funcionalidades/      uma pasta por funcionalidade, com tudo dela junto
+    visao-geral/        VisaoGeral, CardDeCelula, HistoricoOd
+    celula/             VisaoDaCelula/, Ajustes, Diagnostico e os dados próprios da
+                        célula (modelo, fonte, exemplo, useCelula)
+  estilos/              tokens.css (cores do Figma) e global.css
+  assets/               SVGs exportados do Figma
 ```
+
+Imports entre pastas usam o atalho `@/`, que aponta para `src/`
+(`import * as formatar from "@/compartilhado/formatar"`). Dentro da mesma
+pasta, use `./`. Um componente vai para `compartilhado/` quando é genérico
+ou usado por mais de uma funcionalidade; senão, fica na pasta da funcionalidade.
 
 ## Cores
 

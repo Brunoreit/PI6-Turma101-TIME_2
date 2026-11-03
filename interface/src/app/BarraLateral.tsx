@@ -1,14 +1,14 @@
 // Barra lateral do Figma (nó 87:1743), comum a todas as telas.
 
 import { NavLink, useLocation } from "react-router-dom";
-import iconeAlertas from "../assets/icones/nav-alertas.svg";
-import iconeCalibracao from "../assets/icones/nav-calibracao.svg";
-import iconeExperimentos from "../assets/icones/nav-experimentos.svg";
-import iconeExportar from "../assets/icones/nav-exportar.svg";
-import iconeVisaoGeral from "../assets/icones/nav-visao-geral.svg";
-import pontoSistema from "../assets/icones/ponto-sistema.svg";
-import simboloCnpem from "../assets/icones/simbolo-cnpem.svg";
-import { useDados } from "../dados/DadosProvider";
+import iconeAlertas from "@/assets/icones/nav-alertas.svg";
+import iconeCalibracao from "@/assets/icones/nav-calibracao.svg";
+import iconeExperimentos from "@/assets/icones/nav-experimentos.svg";
+import iconeExportar from "@/assets/icones/nav-exportar.svg";
+import iconeVisaoGeral from "@/assets/icones/nav-visao-geral.svg";
+import pontoSistema from "@/assets/icones/ponto-sistema.svg";
+import simboloCnpem from "@/assets/icones/simbolo-cnpem.svg";
+import { useDados } from "@/dados/DadosProvider";
 import estilos from "./BarraLateral.module.css";
 
 export const ROTAS = [

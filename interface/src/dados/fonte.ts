@@ -6,8 +6,8 @@
 // No modo api, o que a API ainda não informa (experimento, estado do
 // consumidor e das regras, setpoints aguardando) fica como "sem dados".
 
-import { consultarSaude, listarAlertas, listarCelulas, listarLeituras } from "../api/cliente";
-import type { AlertaApi, CelulaApi, LeituraApi, TipoAlerta } from "../api/tipos";
+import { consultarSaude, listarAlertas, listarCelulas, listarLeituras } from "@/api/cliente";
+import type { AlertaApi, CelulaApi, LeituraApi, TipoAlerta } from "@/api/tipos";
 import { gerarExemplo } from "./exemplo";
 import {
   HORAS_DE_HISTORICO,

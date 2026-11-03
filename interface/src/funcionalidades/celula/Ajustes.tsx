@@ -4,15 +4,15 @@
 
 import { useState } from "react";
 import { useParams } from "react-router-dom";
-import iconeAlertaSelo from "../../assets/icones/alerta-selo.svg";
-import iconeCheckSelo from "../../assets/icones/check-selo.svg";
-import iconeChave from "../../assets/icones/chave.svg";
-import { Botao, SEM_API } from "../../componentes/Botao";
-import { Campo } from "../../componentes/Campo";
-import { CurvaDeCalibracao } from "../../componentes/CurvaDeCalibracao";
-import * as formatar from "../../dados/formatar";
-import type { Bomba, DetalheDaCelula, VersaoDeCalibracao } from "../../dados/modeloCelula";
-import { useCelula } from "../../dados/useCelula";
+import iconeAlertaSelo from "@/assets/icones/alerta-selo.svg";
+import iconeCheckSelo from "@/assets/icones/check-selo.svg";
+import iconeChave from "@/assets/icones/chave.svg";
+import { Botao, SEM_API } from "@/compartilhado/componentes/Botao";
+import { Campo } from "@/compartilhado/componentes/Campo";
+import { CurvaDeCalibracao } from "@/compartilhado/componentes/CurvaDeCalibracao";
+import * as formatar from "@/compartilhado/formatar";
+import type { Bomba, DetalheDaCelula, VersaoDeCalibracao } from "./modelo";
+import { useCelula } from "./useCelula";
 import estilos from "./Ajustes.module.css";
 import { CabecalhoDaCelula, CarregandoCelula } from "./CabecalhoDaCelula";
 import comum from "./Celula.module.css";

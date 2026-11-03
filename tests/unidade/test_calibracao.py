@@ -1,5 +1,5 @@
 from app.calibracao.conversao import Curva, converter
-from modelo import ModeloCultivo
+from simulador.modelo import ModeloCultivo
 
 CURVA_PADRAO = Curva(id_calibracao=1, a=0.0005, b=-0.05)
 

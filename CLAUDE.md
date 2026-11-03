@@ -41,8 +41,9 @@ Três processos Python independentes, mesmo código-base em `backend/app/`:
 
 ```
 contrato/            tópicos e mensagens MQTT (Pydantic). Fonte única do formato
-broker/              mosquitto.conf
-banco/init/          SQL executado na primeira subida do PostgreSQL
+infra/               configuração dos serviços de fora do nosso código
+  mosquitto/         mosquitto.conf do broker
+  postgres/init/     SQL executado na primeira subida do PostgreSQL
 backend/app/
   config.py          configuração por variáveis de ambiente
   banco/             conexão e TODAS as consultas (repositorios.py)
@@ -50,18 +51,20 @@ backend/app/
   consumidor/        cliente MQTT e tratadores de mensagem
   regras/            verificações de alerta
   api/               endpoints FastAPI
-simulador/           célula falsa: modelo físico, buffer SQLite, sinais de falha
+simulador/           célula falsa: modelo físico, buffer SQLite, sinais de falha (python -m simulador.celula)
 interface/           React + TypeScript + Vite (ver interface/README.md)
 tests/unidade/       rápidos, sem infraestrutura
-tests/integracao/    primeiro teste ponta a ponta, modo compose ou local
+tests/integracao/    test_ponta_a_ponta.py, modo compose ou local
 docs/contrato-mqtt.md  documento do contrato para o grupo do hardware
+requirements.txt     instala tudo para desenvolver, inclusive os pacotes do projeto (-e .)
+pyproject.toml       pacotes app, contrato e simulador; configuração do pytest e do Pyright
 ```
 
 ## Comandos
 
 ```bash
 docker compose up --build                    # sobe tudo (broker, banco, backend, 3 células)
-pip install -r requirements.txt
+pip install -r requirements.txt             # dependências e pacotes app, contrato e simulador
 pytest tests/unidade                         # segundos
 cd interface && npm install && npm run dev  # interface em http://localhost:5173
 pytest tests/integracao -v                   # ~70 s, usa Docker Compose
@@ -96,12 +99,14 @@ Estados do pedido de setpoint no banco: `solicitado → recebido → aplicado �
 - **A interface só fala com a API.** Nunca direto com o banco ou o broker.
 - **A API não publica com o broker desconectado.** O paho guardaria a mensagem e enviaria depois, aplicando um pedido que já foi dado como falho.
 - **Consumidor usa `clean_session=False` e `client_id` fixo** (`evolver-consumidor`). Trocar isso quebra a entrega do que chegou enquanto ele estava parado.
+- **Células só sobem depois que o consumidor se inscreve.** Antes da primeira inscrição o broker descarta o que chega. O consumidor cria `/tmp/consumidor-inscrito` ao ter a inscrição confirmada, o healthcheck dele no `docker-compose.yml` olha esse arquivo, e as células dependem dele (`service_healthy`). O modo local do teste faz a mesma espera.
 - **Regras são idempotentes.** Rodar duas vezes não abre alerta duplicado (índice único parcial em `alerta`).
 
 ## Convenções
 
 - Código, nomes, comentários, mensagens de log e de erro em **português**.
 - Python 3.12, tipagem nas assinaturas, `str | None` em vez de `Optional`.
+- Dependências: a versão fica no `requirements.txt` da parte que usa (`backend/`, `simulador/` ou `tests/`). O `requirements.txt` da raiz junta os três para desenvolver. O `pyproject.toml` registra os pacotes do projeto e guarda a configuração do pytest e do Pyright.
 - Configuração só por variável de ambiente, lida em `config.py`. Novas variáveis vão também em `.env.example` e no `docker-compose.yml`.
 - Mensagens de erro da API dizem o que aconteceu e como resolver, sem pedir desculpas.
 - Toda funcionalidade nova que envolve MQTT ganha uma etapa no teste de integração.
@@ -112,7 +117,7 @@ PostgreSQL 16 puro, sem TimescaleDB nem InfluxDB (decisão consciente: volume de
 
 ## Estado atual
 
-Base funcionando. 27 testes passando no modo local (10 etapas de integração + 17 de unidade). O modo Docker Compose foi escrito e validado com `docker compose config`, mas ainda não foi executado de ponta a ponta.
+Base funcionando. 17 testes de unidade e as 10 etapas do teste ponta a ponta passando, no modo local e no modo Docker Compose. Em 02/11/2026 o modo Docker Compose passou três vezes seguidas, com o pytest rodando no Windows e os serviços em contêineres Linux.
 
 Interface: barra lateral, tela Visão geral e telas da célula (Visão da célula, Ajustes, Diagnóstico) prontas, a partir do Figma (arquivo Telas). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`), porque a API ainda não devolve experimento, estado do consumidor e das regras, nem setpoints aguardando.
 
@@ -124,9 +129,8 @@ Interface: barra lateral, tela Visão geral e telas da célula (Visão da célul
 
 ## Próximos passos
 
-1. Rodar o teste de integração pelo Docker Compose
-2. Sinal de vida do consumidor
-3. Demais telas da interface (Experimentos, Alertas, Calibração, Exportar)
-4. Autenticação na API e senha no broker
-5. Endpoints de experimento
-6. Fechar o contrato com o grupo do hardware
+1. Sinal de vida do consumidor
+2. Demais telas da interface (Experimentos, Alertas, Calibração, Exportar)
+3. Autenticação na API e senha no broker
+4. Endpoints de experimento
+5. Fechar o contrato com o grupo do hardware

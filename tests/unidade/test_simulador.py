@@ -1,5 +1,5 @@
-from buffer import Buffer
-from modelo import ModeloCultivo
+from simulador.buffer import Buffer
+from simulador.modelo import ModeloCultivo
 
 
 def test_temperatura_converge_ao_setpoint():

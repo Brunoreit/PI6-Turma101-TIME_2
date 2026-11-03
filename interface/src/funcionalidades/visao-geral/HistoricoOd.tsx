@@ -1,6 +1,6 @@
 // Barras da OD média de cada hora nas últimas 24 h, dentro do card de célula.
 
-import { ESCALA_OD } from "../dados/modelo";
+import { ESCALA_OD } from "@/dados/modelo";
 import estilos from "./HistoricoOd.module.css";
 
 const ALTURA_MINIMA_PX = 2;

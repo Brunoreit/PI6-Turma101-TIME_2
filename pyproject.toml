@@ -1,0 +1,37 @@
+# Projeto Python do T.U.P.A: backend, contrato MQTT, simulador e testes.
+#
+# Para instalar, use o requirements.txt da raiz (pip install -r requirements.txt).
+# Este arquivo diz quais pastas são pacotes do projeto e guarda a
+# configuração do pytest e do Pyright.
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tupa"
+version = "0.1.0"
+description = "Sistema central de monitoramento das células do eVOLVER"
+requires-python = ">=3.12"
+
+[tool.setuptools]
+# O pacote app mora em backend/app; contrato e simulador ficam na raiz.
+package-dir = { "app" = "backend/app" }
+packages = [
+    "app", "app.api", "app.banco", "app.calibracao", "app.consumidor", "app.regras",
+    "contrato",
+    "simulador",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Os testes funcionam mesmo sem instalar o projeto.
+pythonpath = [".", "backend"]
+markers = ["integracao: sobe o sistema inteiro (broker, banco, backend e três células simuladas)"]
+addopts = "-p no:cacheprovider"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+extraPaths = ["backend"]

@@ -28,6 +28,7 @@ x-celula: &celula
   volumes: [celulas-dados:/dados]
   depends_on:
     broker: { condition: service_healthy }
+    consumidor: { condition: service_healthy }
 
 x-env-celula: &env-celula
   MQTT_HOST: broker
@@ -43,7 +44,7 @@ services:
     restart: unless-stopped
     ports: ["${PORTA_MQTT:-1883}:1883"]
     volumes:
-      - ./broker/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - broker-dados:/mosquitto/data
     healthcheck:
       test: ["CMD", "mosquitto_sub", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
@@ -59,7 +60,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-evolver}
     ports: ["${PORTA_BANCO:-5432}:5432"]
     volumes:
-      - ./banco/init:/docker-entrypoint-initdb.d:ro
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
       - banco-dados:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "evolver", "-d", "evolver"]
@@ -69,6 +70,12 @@ services:
   consumidor:
     <<: *backend
     command: ["python", "-m", "app.consumidor.main"]
+    # Saudável depois que o broker confirma a inscrição. Antes disso, o que as
+    # células publicarem se perde, porque o broker ainda não guarda nada para ele.
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/consumidor-inscrito"]
+      interval: 2s
+      retries: 30
 
   regras:
     <<: *backend

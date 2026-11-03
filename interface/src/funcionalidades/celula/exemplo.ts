@@ -2,7 +2,7 @@
 // Telas, nós 105:1629, 85:1321 e 87:1343). Qualquer célula aberta no modo
 // exemplo mostra estes dados, só com o id trocado.
 
-import type { DetalheDaCelula, Periodo, Series } from "./modeloCelula";
+import type { DetalheDaCelula, Periodo, Series } from "./modelo";
 
 const SEGUNDO = 1000;
 

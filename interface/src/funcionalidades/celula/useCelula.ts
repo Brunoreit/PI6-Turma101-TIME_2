@@ -2,9 +2,9 @@
 // visão geral. Trocar o período busca de novo sem apagar a tela.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { INTERVALO_DE_ATUALIZACAO_MS } from "./DadosProvider";
-import { carregarCelula } from "./fonteCelula";
-import type { DetalheDaCelula, Periodo } from "./modeloCelula";
+import { INTERVALO_DE_ATUALIZACAO_MS } from "@/dados/DadosProvider";
+import { carregarCelula } from "./fonte";
+import type { DetalheDaCelula, Periodo } from "./modelo";
 
 interface EstadoDaCelula {
   dados: DetalheDaCelula | null;

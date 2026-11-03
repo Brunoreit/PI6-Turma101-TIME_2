@@ -13,7 +13,7 @@ Falha de rede sob comando, para os testes:
   SIGUSR1  corta a rede sem desconectar de forma limpa (o broker publica offline)
   SIGUSR2  restaura a rede
 
-Executar: python celula.py
+Executar: python -m simulador.celula
 """
 
 import logging
@@ -26,9 +26,9 @@ from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
-from buffer import Buffer
 from contrato import Estado, Leitura, PedidoSetpoint, RespostaSetpoint, topicos
-from modelo import ModeloCultivo
+from simulador.buffer import Buffer
+from simulador.modelo import ModeloCultivo
 
 ID = os.environ.get("ID_CELULA", "c01")
 CENARIO = os.environ.get("CENARIO", "normal")

@@ -1,5 +1,5 @@
 import { Outlet } from "react-router-dom";
-import { BarraLateral } from "./componentes/BarraLateral";
+import { BarraLateral } from "./BarraLateral";
 import estilos from "./Layout.module.css";
 
 export function Layout() {
