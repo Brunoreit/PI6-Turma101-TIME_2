@@ -84,3 +84,27 @@
   justify-content: space-between;
   white-space: nowrap;
 }
+
+.area {
+  cursor: crosshair;
+}
+
+.cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--texto\/secundario);
+  pointer-events: none;
+}
+
+.pontoCursor {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: var(--fundo\/pagina);
+  border: 2px solid var(--marca\/principal);
+  pointer-events: none;
+}

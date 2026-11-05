@@ -1,6 +1,7 @@
 // Dados de exemplo iguais aos das telas da célula c08 no Figma (arquivo
 // Telas, nós 105:1629, 85:1321 e 87:1343). Qualquer célula aberta no modo
-// exemplo mostra estes dados, só com o id trocado.
+// exemplo mostra estes dados, só com o id trocado. As células livres da
+// Visão geral (c04) seguem a tela "Célula c04 · livre" (nó 153:1633).
 
 import type { DetalheDaCelula, Periodo, Series } from "./modelo";
 
@@ -59,7 +60,32 @@ function seriesDoPeriodo(periodo: Periodo): Series {
   }
 }
 
+/** Células sem experimento nos dados de exemplo da Visão geral. */
+const CELULAS_LIVRES = new Set(["c04"]);
+
 export function gerarExemploDaCelula(id: string, periodo: Periodo, agora: Date = new Date()): DetalheDaCelula {
+  const dados = exemploDaC08(id, periodo, agora);
+  if (!CELULAS_LIVRES.has(id)) return dados;
+  const ajustar = (valores: (number | null)[], de: number, para: number) => valores.map((v) => (v === null ? null : v - de + para));
+  return {
+    ...dados,
+    experimento: null,
+    placa: { ...dados.placa, mac: "24:6F:28:B7:01:9A" },
+    temperaturaC: 29.9,
+    od: 0.198,
+    odBruto: 496,
+    ph: 6.97,
+    ultimaLeituraEm: new Date(agora.getTime() - 3 * SEGUNDO),
+    pedido: null,
+    series: {
+      temperatura: ajustar(dados.series.temperatura, 30.2, 29.9),
+      od: ajustar(dados.series.od, 0.344, 0.198),
+      ph: ajustar(dados.series.ph, 6.93, 6.97),
+    },
+  };
+}
+
+function exemploDaC08(id: string, periodo: Periodo, agora: Date): DetalheDaCelula {
   const antes = (ms: number) => new Date(agora.getTime() - ms);
 
   return {

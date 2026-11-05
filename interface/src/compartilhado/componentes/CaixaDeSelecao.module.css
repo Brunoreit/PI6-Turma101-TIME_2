@@ -1,0 +1,37 @@
+.opcao,
+.indisponivel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.indisponivel {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.caixa {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 4px;
+  background: var(--fundo\/pagina);
+  cursor: inherit;
+}
+
+.caixa:checked {
+  border-color: var(--marca\/principal);
+  background: var(--marca\/principal) url("@/assets/icones/caixa-check.svg") center / 12px 12px no-repeat;
+}
+
+.caixa:focus-visible {
+  outline: 2px solid var(--marca\/principal);
+  outline-offset: 2px;
+}

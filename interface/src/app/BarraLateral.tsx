@@ -2,20 +2,21 @@
 
 import { NavLink, useLocation } from "react-router-dom";
 import iconeAlertas from "@/assets/icones/nav-alertas.svg";
-import iconeCalibracao from "@/assets/icones/nav-calibracao.svg";
 import iconeExperimentos from "@/assets/icones/nav-experimentos.svg";
 import iconeExportar from "@/assets/icones/nav-exportar.svg";
+import iconeHistoriador from "@/assets/icones/nav-historiador.svg";
 import iconeVisaoGeral from "@/assets/icones/nav-visao-geral.svg";
 import pontoSistema from "@/assets/icones/ponto-sistema.svg";
 import simboloCnpem from "@/assets/icones/simbolo-cnpem.svg";
 import { useDados } from "@/dados/DadosProvider";
+import { ContaDoUsuario } from "./ContaDoUsuario";
 import estilos from "./BarraLateral.module.css";
 
 export const ROTAS = [
   { caminho: "/", rotulo: "Visão geral", icone: iconeVisaoGeral },
   { caminho: "/experimentos", rotulo: "Experimentos", icone: iconeExperimentos },
+  { caminho: "/historiador", rotulo: "Historiador", icone: iconeHistoriador },
   { caminho: "/alertas", rotulo: "Alertas", icone: iconeAlertas },
-  { caminho: "/calibracao", rotulo: "Calibração", icone: iconeCalibracao },
   { caminho: "/exportar", rotulo: "Exportar dados", icone: iconeExportar },
 ] as const;
 
@@ -87,6 +88,8 @@ export function BarraLateral() {
         <ItemDoSistema nome="Consumidor" ok={sistema.consumidor} rotuloOk="ativo" />
         <ItemDoSistema nome="Regras" ok={sistema.regras} rotuloOk="ativo" />
       </section>
+
+      <ContaDoUsuario />
     </aside>
   );
 }

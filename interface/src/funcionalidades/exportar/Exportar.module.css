@@ -1,0 +1,357 @@
+.tela {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 32px 40px 40px;
+}
+
+.cabecalho {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cabecalho h1 {
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.cabecalho p {
+  font-size: 14px;
+  color: var(--texto\/secundario);
+}
+
+.corpo {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.coluna,
+.lateral {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.coluna {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.lateral {
+  flex-shrink: 0;
+  width: 380px;
+}
+
+.painel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 20px 20px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.painelTitulo {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.painelTexto {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.rotulo,
+.campoSeletor > span {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ajuda {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---------- seletor de modo */
+
+.modo {
+  display: flex;
+  padding: 3px;
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+}
+
+.modoItem,
+.modoAtivo {
+  flex: 1 1 0;
+  padding: 7px 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+  cursor: pointer;
+}
+
+.modoAtivo {
+  background: var(--fundo\/pagina);
+  border-color: var(--borda\/padrao);
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.campoSeletor {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.seletor,
+.data {
+  width: 100%;
+  padding: 8px 34px 8px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina);
+  font: inherit;
+  font-size: 14px;
+  color: var(--texto\/principal);
+}
+
+.seletor {
+  appearance: none;
+  background: var(--fundo\/pagina) url("@/assets/icones/seta-baixo-16.svg") right 10px center / 16px 16px no-repeat;
+  cursor: pointer;
+}
+
+.data {
+  padding-right: 10px;
+}
+
+div.data {
+  background: var(--fundo\/pagina) url("@/assets/icones/calendario.svg") right 10px center / 16px 16px no-repeat;
+}
+
+.seletor:focus,
+.data:focus {
+  border-color: var(--marca\/principal);
+  outline: 1px solid var(--marca\/principal);
+}
+
+/* ---------- chips */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip,
+.chipAtivo {
+  padding: 6px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 16px;
+  background: var(--fundo\/pagina);
+  font-size: 13px;
+  color: var(--texto\/principal);
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--fundo\/sutil);
+}
+
+.chipAtivo {
+  background: var(--marca\/fundo);
+  border-color: var(--marca\/principal);
+  font-weight: 600;
+  color: var(--marca\/texto);
+}
+
+.mono {
+  font-family: var(--fonte-mono);
+}
+
+.periodo {
+  display: flex;
+  gap: 12px;
+}
+
+.medidas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 24px;
+}
+
+/* ---------- agrupamento */
+
+.agrupamentos {
+  display: flex;
+  gap: 12px;
+}
+
+.agrupamento,
+.agrupamentoAtivo {
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina);
+  text-align: left;
+  cursor: pointer;
+}
+
+.agrupamentoAtivo {
+  background: var(--marca\/fundo);
+  border-color: var(--marca\/principal);
+}
+
+.agrupamento img,
+.agrupamentoAtivo img {
+  flex-shrink: 0;
+}
+
+.agrupamentoTextos {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.agrupamentoTitulo {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.intervalo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.intervaloCampo {
+  display: flex;
+  width: 140px;
+}
+
+.intervaloCampo[data-ativo] > div > div {
+  border-color: var(--marca\/principal);
+}
+
+.anexos {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---------- resumo */
+
+.resumo {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.resumo div {
+  display: flex;
+  gap: 12px;
+}
+
+.resumo dt {
+  flex: 1 1 0;
+  color: var(--texto\/secundario);
+}
+
+.resumo dd {
+  margin: 0;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.abas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.aba {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--fundo\/sutil);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+}
+
+.nota {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.nota img {
+  flex-shrink: 0;
+}
+
+/* ---------- exportações recentes */
+
+.recente {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.recenteTextos {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+.recenteNome {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.baixar {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: not-allowed;
+}

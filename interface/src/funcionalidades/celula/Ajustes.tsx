@@ -38,7 +38,7 @@ function TituloDoPainel({ id, nome, descricao }: { id: string; nome: string; des
 
 // ---------------------------------------------------------------- calibração
 
-function CalibracaoDeOd({ calibracao }: { calibracao: DetalheDaCelula["calibracao"] }) {
+function CalibracaoDeOd({ idCelula, calibracao }: { idCelula: string; calibracao: DetalheDaCelula["calibracao"] }) {
   const atual = calibracao?.atual;
   const padroes = atual?.padroes ?? [];
   const faixa = padroes.length
@@ -85,15 +85,15 @@ function CalibracaoDeOd({ calibracao }: { calibracao: DetalheDaCelula["calibraca
       )}
 
       <div className={estilos.botoes}>
-        <Botao tipo="primario" indisponivel={SEM_API}>Nova calibração</Botao>
+        <Botao tipo="primario" para={`/celulas/${encodeURIComponent(idCelula)}/ajustes/calibracao`}>Nova calibração</Botao>
         {atual && <Botao indisponivel={SEM_API}>Recalcular histórico com a versão {atual.versao}</Botao>}
       </div>
 
       <div className={estilos.passos}>
-        <p className={estilos.passosTitulo}>A nova calibração é guiada em 3 passos</p>
+        <p className={estilos.passosTitulo}>A nova calibração abre um passo a passo</p>
         <ol className={estilos.passosLista}>
-          <li>Ler o branco, com o frasco só com meio de cultura.</li>
-          <li>Ler pelo menos 3 padrões de OD conhecida, entre 0,2 e 0,8.</li>
+          <li>Registrar a leitura do branco, com o frasco só com meio de cultura.</li>
+          <li>Digitar pelo menos 3 padrões de OD conhecida, entre 0,2 e 0,8, com o valor bruto de cada um.</li>
           <li>Conferir a curva e o R² antes de salvar.</li>
         </ol>
       </div>
@@ -246,7 +246,7 @@ export function Ajustes() {
         erro={erro}
       />
       <div className={estilos.corpo}>
-        <CalibracaoDeOd calibracao={dados.calibracao} />
+        <CalibracaoDeOd idCelula={dados.id} calibracao={dados.calibracao} />
         <div className={estilos.colunaDireita}>
           <Bombas dados={dados} />
           {/* key: ao trocar de célula, o campo volta ao valor dela. */}

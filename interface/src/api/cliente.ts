@@ -73,6 +73,18 @@ export function pedirSetpoint(idCelula: string, temperaturaC: number): Promise<P
   });
 }
 
+/** Cadastra uma nova versão da curva de OD. Com `recalcular`, a API refaz a
+ *  OD das leituras gravadas: todas, ou só as de `desde` em diante. */
+export function cadastrarCalibracao(
+  idCelula: string, a: number, b: number, recalcular: boolean, desde: Date | null,
+): Promise<unknown> {
+  return buscar(`/celulas/${encodeURIComponent(idCelula)}/calibracoes`, undefined, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ a, b, recalcular, recalcular_desde: desde?.toISOString() ?? null }),
+  });
+}
+
 export function consultarIntegridade(sinal?: AbortSignal): Promise<IntegridadeApi[]> {
   return buscar("/integridade", sinal);
 }

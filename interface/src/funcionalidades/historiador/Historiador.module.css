@@ -1,0 +1,636 @@
+.tela {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 32px 40px 40px;
+}
+
+.cabecalho {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.tituloBloco {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tituloBloco h1 {
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.tituloBloco p {
+  font-size: 14px;
+  color: var(--texto\/secundario);
+}
+
+.avisoAcesso {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.rotulo {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+.ajuda {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.erro {
+  font-size: 13px;
+  color: var(--status\/alerta);
+}
+
+.mono {
+  font-family: var(--fonte-mono);
+}
+
+.forte {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+/* ---------- barra de ferramentas */
+
+.ferramentas {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.linhaCelulas,
+.filtros,
+.variaveis {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filtros {
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.variaveis {
+  flex: 1 1 0;
+}
+
+.espaco {
+  flex: 1 1 0;
+}
+
+.celula {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 14px;
+  background: var(--fundo\/sutil);
+  font-family: var(--fonte-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.celula button {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.pontoCor {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.adicionar,
+.escolherCelula {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 1px dashed var(--borda\/padrao);
+  border-radius: 14px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--marca\/texto);
+  cursor: pointer;
+}
+
+.variavel,
+.variavelAtiva {
+  padding: 5px 10px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 14px;
+  background: var(--fundo\/pagina);
+  font-size: 12px;
+  color: var(--texto\/secundario);
+  cursor: pointer;
+}
+
+.variavel:disabled {
+  cursor: not-allowed;
+}
+
+.variavelAtiva {
+  background: var(--fundo\/sutil);
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.periodo {
+  display: flex;
+  padding: 3px;
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+}
+
+.periodoItem,
+.periodoAtivo {
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+  cursor: pointer;
+}
+
+.periodoAtivo {
+  background: var(--fundo\/pagina);
+  border-color: var(--borda\/padrao);
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.intervalo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  font-family: var(--fonte-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.navegar {
+  display: flex;
+  gap: 4px;
+}
+
+.navegar button {
+  display: flex;
+  padding: 6px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina);
+  cursor: pointer;
+}
+
+.navegar button:hover {
+  background: var(--fundo\/sutil);
+}
+
+.navegar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------- painéis */
+
+.painel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 20px 20px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.painel h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.painel h2 + p,
+.painelCabecalho p {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.painelCabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.legenda {
+  display: flex;
+  gap: 16px;
+  font-family: var(--fonte-mono);
+  font-size: 12px;
+}
+
+.legenda > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tracoLegenda {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+/* ---------- gráfico */
+
+.grafico {
+  --margem-marcas: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
+.contexto {
+  display: flex;
+  gap: 24px;
+}
+
+.eixoRotulo {
+  flex-shrink: 0;
+  width: 46px;
+}
+
+.faixasContexto {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.faixaExperimento,
+.faixaLivre {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--serie\/2) 22%, white);
+  font-size: 11px;
+  color: var(--texto\/principal);
+}
+
+.faixaLivre {
+  background: var(--fundo\/sutil);
+  color: var(--texto\/secundario);
+}
+
+.areaGraficos {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  cursor: crosshair;
+}
+
+.linhaGrafico {
+  display: grid;
+  grid-template-columns: var(--margem-marcas) 1fr;
+  height: 120px;
+}
+
+/* O título da variável fica numa faixa própria, acima das linhas. */
+.marcas {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 22px 8px 0 0;
+}
+
+.desenho {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--borda\/padrao);
+  border-bottom: 1px solid var(--borda\/padrao);
+}
+
+.tituloVariavel {
+  padding: 5px 6px 0;
+  height: 22px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.desenho svg {
+  display: block;
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 0;
+  overflow: visible;
+}
+
+.curva {
+  fill: none;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+
+.buraco {
+  fill: var(--status\/alerta-fundo);
+}
+
+.cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--texto\/secundario);
+  pointer-events: none;
+}
+
+.valoresNoCursor {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  min-width: 200px;
+  padding: 10px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina);
+  box-shadow: 0 6px 16px rgba(26, 26, 26, 0.1);
+  font-size: 11px;
+  color: var(--texto\/secundario);
+  pointer-events: none;
+}
+
+.valoresTitulo {
+  margin-bottom: 6px;
+  font-family: var(--fonte-mono);
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.valoresNoCursor table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.valoresNoCursor th,
+.valoresNoCursor td {
+  padding: 2px 0 2px 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.valoresNoCursor th:first-child,
+.valoresNoCursor td:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+
+.valoresNoCursor th {
+  font-family: var(--fonte-mono);
+}
+
+.valoresNoCursor td + td {
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.eixoTempo {
+  display: flex;
+  justify-content: space-between;
+  padding-left: var(--margem-marcas);
+  font-family: var(--fonte-mono);
+}
+
+/* ---------- detalhes */
+
+.detalhes {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.eventos {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.colunaDireita {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 24px;
+  width: 400px;
+}
+
+.tabela {
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cabecalhoTabela,
+.linha {
+  display: grid;
+  grid-template-columns: 90px 60px 110px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.cabecalhoTabela {
+  background: var(--fundo\/sutil);
+  font-weight: 500;
+  color: var(--texto\/secundario);
+}
+
+.linha {
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.celulaEvento {
+  font-family: var(--fonte-mono);
+  font-weight: 600;
+}
+
+.tipoComando,
+.tipoAlerta,
+.tipoResolvido,
+.tipoComunicacao {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.tipoComando {
+  background: var(--marca\/fundo);
+  color: var(--marca\/texto);
+}
+
+.tipoAlerta {
+  background: var(--status\/alerta-fundo);
+  color: var(--status\/alerta);
+}
+
+.tipoResolvido {
+  background: var(--status\/online-fundo);
+  color: var(--status\/online);
+}
+
+.tipoComunicacao {
+  background: var(--fundo\/sutil);
+  color: var(--texto\/secundario);
+}
+
+.vazio {
+  padding: 14px 12px;
+  border-top: 1px solid var(--borda\/padrao);
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.estatisticas {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.estatisticas th {
+  padding: 6px 0;
+  background: var(--fundo\/sutil);
+  font-weight: 500;
+  color: var(--texto\/secundario);
+  text-align: right;
+}
+
+.estatisticas th:first-child,
+.estatisticas td:first-child {
+  padding-left: 8px;
+  text-align: left;
+}
+
+.estatisticas th:last-child,
+.estatisticas td:last-child {
+  padding-right: 8px;
+}
+
+.estatisticas td {
+  padding: 5px 0 5px 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.estatisticas td:nth-child(2) {
+  text-align: left;
+}
+
+.inicioDoGrupo td {
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.gravacaoContinua {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.gravacaoContinua img {
+  flex-shrink: 0;
+}
+
+.diagnostico {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.linhaDiagnostico {
+  display: flex;
+  gap: 10px;
+}
+
+.duracao {
+  display: flex;
+  flex-shrink: 0;
+  width: 90px;
+}
+
+.sessoes {
+  display: flex;
+  flex-direction: column;
+}
+
+.sessoes > .ajuda {
+  font-weight: 500;
+}
+
+.sessao {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--borda\/padrao);
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.sessao > div {
+  flex: 1 1 0;
+}
+
+.sessaoNome {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.sessao button {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: not-allowed;
+}

@@ -29,3 +29,8 @@
   background: var(--status\/offline-fundo);
   color: var(--status\/offline);
 }
+
+.espera {
+  background: var(--marca\/fundo);
+  color: var(--marca\/texto);
+}

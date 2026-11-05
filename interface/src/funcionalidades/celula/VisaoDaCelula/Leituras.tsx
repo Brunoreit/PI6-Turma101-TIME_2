@@ -27,6 +27,22 @@ function rotulosDoTempo(periodo: Periodo, experimento: ExperimentoDaCelula | nul
   }
 }
 
+const HORA = 3_600_000;
+
+/** Quanto tempo o gráfico cobre, até a última atualização. */
+function duracaoDoPeriodo(periodo: Periodo, experimento: ExperimentoDaCelula | null | undefined): number {
+  switch (periodo) {
+    case "6h":
+      return 6 * HORA;
+    case "24h":
+      return 24 * HORA;
+    case "7d":
+      return 7 * 24 * HORA;
+    case "experimento":
+      return Math.max(1, experimento?.dia ?? 1) * 24 * HORA;
+  }
+}
+
 /** Escala do eixo vertical com três marcas redondas: múltiplos de `passo`
  *  que cobrem os valores, com a marca do meio também redonda. */
 function escala(valores: (number | null)[], passo: number, extras: number[]) {
@@ -49,6 +65,13 @@ export function Leituras({ dados, periodo, aoMudarPeriodo }: { dados: DetalheDaC
   const tempo = rotulosDoTempo(periodo, dados.experimento);
   const { media } = PERIODOS.find((p) => p.valor === periodo)!;
   const { series } = dados;
+  const duracao = duracaoDoPeriodo(periodo, dados.experimento);
+  // Ponto i de n: os pontos se espalham igualmente pelo período, o último é agora.
+  const rotuloDoPonto = (n: number) => (i: number) => {
+    const fim = dados.atualizadoEm.getTime();
+    const t = new Date(n > 1 ? fim - (duracao * (n - 1 - i)) / (n - 1) : fim);
+    return i === n - 1 ? `agora · ${formatar.diaHora(t)}` : `média · ${formatar.diaHora(t)}`;
+  };
 
   const graficos = [
     {
@@ -57,6 +80,7 @@ export function Leituras({ dados, periodo, aoMudarPeriodo }: { dados: DetalheDaC
       valores: series.temperatura,
       ...escala(series.temperatura, 1, alvo === null ? [] : [alvo]),
       formatarMarca: (v: number) => `${formatar.inteiro(v)} °C`,
+      formatarValor: formatar.temperatura,
       referencia: alvo,
       faixa: null,
       nota: alvo === null ? null : "Linha tracejada: temperatura alvo",
@@ -67,6 +91,7 @@ export function Leituras({ dados, periodo, aoMudarPeriodo }: { dados: DetalheDaC
       valores: series.od,
       ...escala(series.od, 0.1, []),
       formatarMarca: (v: number) => formatar.decimal(v, 1),
+      formatarValor: (v: number) => formatar.decimal(v, 3),
       referencia: null,
       faixa: null,
       nota: null,
@@ -77,6 +102,7 @@ export function Leituras({ dados, periodo, aoMudarPeriodo }: { dados: DetalheDaC
       valores: series.ph,
       ...escala(series.ph, 0.4, faixa ?? []),
       formatarMarca: (v: number) => formatar.decimal(v, 1),
+      formatarValor: (v: number) => formatar.decimal(v, 2),
       referencia: null,
       faixa,
       nota: faixa ? "Faixa verde: pH de referência do experimento" : null,
@@ -129,6 +155,9 @@ export function Leituras({ dados, periodo, aoMudarPeriodo }: { dados: DetalheDaC
             referencia={grafico.referencia}
             faixa={grafico.faixa}
             descricao={`${grafico.nome}, média ${media}, de ${tempo[0]} até agora`}
+            nome={grafico.nome}
+            formatarValor={grafico.formatarValor}
+            rotuloDoPonto={rotuloDoPonto(grafico.valores.length)}
           />
           {grafico.nota && <p className={estilos.graficoNota}>{grafico.nota}</p>}
         </div>

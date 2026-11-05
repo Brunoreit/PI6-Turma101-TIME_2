@@ -1,0 +1,385 @@
+.tela {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 32px 40px 40px;
+}
+
+.cabecalho {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.tituloBloco {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tituloBloco h1 {
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.tituloBloco p {
+  font-size: 14px;
+  color: var(--texto\/secundario);
+}
+
+/* ---------- abas */
+
+.abas {
+  display: flex;
+  gap: 24px;
+}
+
+.aba,
+.abaAtiva {
+  padding: 0 0 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font-size: 14px;
+  color: var(--texto\/secundario);
+  cursor: pointer;
+}
+
+.aba:hover {
+  color: var(--texto\/principal);
+}
+
+.abaAtiva {
+  border-bottom-color: var(--marca\/principal);
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+/* ---------- regras */
+
+.corpo {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.tabela {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cabecalhoTabela,
+.linha,
+.linhaDestacada {
+  display: grid;
+  grid-template-columns: minmax(180px, 214px) minmax(130px, 160px) 52px 96px 48px 36px;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  font-size: 13px;
+}
+
+.cabecalhoTabela {
+  padding: 10px 16px;
+  background: var(--fundo\/sutil);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+}
+
+.linha,
+.linhaDestacada {
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.linhaDestacada {
+  background: var(--marca\/fundo);
+}
+
+.colunaRegra {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.nomeRegra {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.descricao {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.seloCritica,
+.seloHardware {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--status\/alerta-fundo);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--status\/alerta);
+  white-space: nowrap;
+}
+
+.seloHardware {
+  background: var(--fundo\/sutil);
+  color: var(--texto\/secundario);
+}
+
+.codigo {
+  font-family: var(--fonte-mono);
+}
+
+.canais {
+  display: flex;
+  gap: 6px;
+}
+
+.chave {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.chave:focus-visible {
+  outline: 2px solid var(--marca\/principal);
+  outline-offset: 2px;
+  border-radius: 9px;
+}
+
+/* ---------- nova regra */
+
+.painel {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 16px;
+  width: 380px;
+  padding: 18px 20px 20px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.painelTitulo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.painelTitulo h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.painelTitulo p {
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.linhaCampos {
+  display: flex;
+  gap: 12px;
+}
+
+.campoSeletor {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.seletor {
+  width: 100%;
+  appearance: none;
+  padding: 8px 34px 8px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina) url("@/assets/icones/seta-baixo-16.svg") right 10px center / 16px 16px no-repeat;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--texto\/principal);
+  cursor: pointer;
+}
+
+.seletor:focus {
+  border-color: var(--marca\/principal);
+  outline: 1px solid var(--marca\/principal);
+}
+
+.ajuda {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.erro {
+  font-size: 12px;
+  color: var(--status\/alerta);
+}
+
+.segmentos {
+  display: flex;
+  padding: 3px;
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+}
+
+.segmento,
+.segmentoAtivo {
+  flex: 1 1 0;
+  padding: 6px 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+  cursor: pointer;
+}
+
+.segmentoAtivo {
+  background: var(--fundo\/pagina);
+  border-color: var(--borda\/padrao);
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.canaisOpcoes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.canaisOpcoes legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.previa {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.previa img {
+  flex-shrink: 0;
+}
+
+.testar {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--marca\/texto);
+  cursor: pointer;
+}
+
+.botoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ---------- abertos e histórico */
+
+.lista {
+  display: flex;
+  flex-direction: column;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.alerta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.alerta + .alerta {
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.pontoAlerta,
+.pontoFechado {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status\/alerta);
+}
+
+.pontoFechado {
+  background: var(--status\/offline-barra);
+}
+
+.alertaTextos {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.alertaTitulo {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.alertaTempo {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+.link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--marca\/texto);
+  white-space: nowrap;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.vazio {
+  padding: 20px 16px;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}

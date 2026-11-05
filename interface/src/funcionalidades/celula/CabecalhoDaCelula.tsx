@@ -1,8 +1,9 @@
 // Trilha, título e abas comuns às telas da célula (Visão da célula, Ajustes
-// e Diagnóstico).
+// e Diagnóstico). "Ver no historiador" aparece em todas, antes da ação da tela.
 
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
+import { Botao } from "@/compartilhado/componentes/Botao";
 import estilos from "./Celula.module.css";
 
 const ABAS = [
@@ -15,7 +16,7 @@ interface Props {
   id: string;
   aba: (typeof ABAS)[number]["rotulo"];
   subtitulo: string;
-  /** Botão à direita do título. */
+  /** Botão à direita do "Ver no historiador". */
   acao?: ReactNode;
   /** Falha na última atualização. */
   erro?: string | null;
@@ -39,6 +40,7 @@ export function CabecalhoDaCelula({ id, aba, subtitulo, acao, erro }: Props) {
           <p className={estilos.subtitulo}>{subtitulo}</p>
           {erro && <p className={estilos.erro}>Falha na última atualização: {erro}</p>}
         </div>
+        <Botao para={`/historiador?celulas=${encodeURIComponent(id)}`}>Ver no historiador</Botao>
         {acao}
       </header>
 

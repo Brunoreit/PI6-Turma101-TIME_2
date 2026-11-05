@@ -1,0 +1,44 @@
+.dica {
+  position: absolute;
+  z-index: 5;
+  min-width: 150px;
+  padding: 10px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina);
+  box-shadow: 0 6px 16px rgba(26, 26, 26, 0.1);
+  font-size: 11px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.titulo {
+  margin-bottom: 6px;
+  font-family: var(--fonte-mono);
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.dica dl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.dica dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dica dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.forte {
+  color: var(--marca\/texto);
+}

@@ -1,5 +1,7 @@
-// Tela "Célula c08 · visão da célula" do Figma (nó 105:1629). Cada painel
-// fica num arquivo desta pasta; aqui só a montagem da tela.
+// Telas "Célula c08 · visão da célula" e "Célula c04 · livre" do Figma (nós
+// 105:1629 e 153:1633). Cada painel fica num arquivo desta pasta; aqui só a
+// montagem da tela. Sem experimento, Atribuir experimento entra no lugar dos
+// Comandos e o Histórico da célula no lugar de Tirar do experimento.
 
 import { useState } from "react";
 import { useParams } from "react-router-dom";
@@ -8,9 +10,11 @@ import { CabecalhoDaCelula, CarregandoCelula } from "@/funcionalidades/celula/Ca
 import type { Periodo } from "@/funcionalidades/celula/modelo";
 import { useCelula } from "@/funcionalidades/celula/useCelula";
 import { Alertas } from "./Alertas";
+import { AtribuirExperimento } from "./AtribuirExperimento";
 import { CelulaDeCultivo } from "./CelulaDeCultivo";
 import { Comandos } from "./Comandos";
 import { FaixaDeStatus } from "./FaixaDeStatus";
+import { HistoricoDaCelula } from "./HistoricoDaCelula";
 import { InformacoesDaPlaca } from "./InformacoesDaPlaca";
 import { Leituras } from "./Leituras";
 import { Parametros } from "./Parametros";
@@ -34,7 +38,13 @@ export function VisaoDaCelula() {
         aba="Visão da célula"
         subtitulo="Acompanhe a célula em tempo real: medidas, comando de temperatura e tendências do experimento."
         erro={erro}
-        acao={experimento && <Botao para={`/experimentos/${encodeURIComponent(experimento.codigo)}`}>Abrir experimento</Botao>}
+        acao={
+          experimento ? (
+            <Botao para={`/experimentos/${encodeURIComponent(experimento.codigo)}`}>Abrir experimento</Botao>
+          ) : (
+            <Botao para="/experimentos">Ver experimentos</Botao>
+          )
+        }
       />
 
       <FaixaDeStatus dados={dados} />
@@ -43,16 +53,20 @@ export function VisaoDaCelula() {
         <Parametros dados={dados} />
         <CelulaDeCultivo dados={dados} />
         {/* key: ao trocar de célula, os campos voltam aos valores dela. */}
-        <Comandos key={id} dados={dados} aoEnviar={recarregar} />
+        {experimento === null ? (
+          <AtribuirExperimento key={id} dados={dados} />
+        ) : (
+          <Comandos key={id} dados={dados} aoEnviar={recarregar} />
+        )}
         <div className={estilos.colunaAlertas}>
           <Alertas dados={dados} />
           <InformacoesDaPlaca dados={dados} />
         </div>
       </div>
 
-      <div className={experimento ? estilos.linhaLeituras : undefined}>
+      <div className={experimento !== undefined ? estilos.linhaLeituras : undefined}>
         <Leituras dados={dados} periodo={periodo} aoMudarPeriodo={setPeriodo} />
-        {experimento && <TirarDoExperimento experimento={experimento} />}
+        {experimento ? <TirarDoExperimento experimento={experimento} /> : experimento === null && <HistoricoDaCelula dados={dados} />}
       </div>
     </div>
   );

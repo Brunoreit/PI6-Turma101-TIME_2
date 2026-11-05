@@ -60,3 +60,18 @@
   top: calc(100% + 10px);
   transform: translateX(-50%);
 }
+
+/* Área maior que a bolinha, para o mouse achar o padrão com facilidade. */
+.padrao::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+
+.padrao {
+  cursor: crosshair;
+}
+
+.padraoApontado {
+  box-shadow: 0 0 0 3px var(--marca\/clara);
+}

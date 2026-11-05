@@ -62,3 +62,19 @@
   outline: 2px solid var(--marca\/principal);
   outline-offset: 2px;
 }
+
+.cheio {
+  justify-content: center;
+  width: 100%;
+  padding: 11px 14px;
+}
+
+/* Sem acesso: continua clicável, para mostrar o Aviso de acesso. */
+.semAcesso {
+  gap: 6px;
+  opacity: 0.45;
+}
+
+.semAcesso:hover {
+  background: var(--fundo\/pagina);
+}
