@@ -197,7 +197,34 @@ def test_9_leitura_repetida_e_descartada(ambiente, banco):
     assert historico_completo(banco)
 
 
-def test_10_integridade_final(ambiente, banco):
+def test_10_calibracao_recalcula_so_o_pedido(ambiente, banco):
+    """Nova calibração da c02 sem recalcular e depois a partir de um instante.
+    As leituras de antes ficam como estavam; o valor bruto nunca muda."""
+    url = f"{ambiente.url_api}/celulas/c02/calibracoes"
+    antes = {l["seq"]: l for l in banco.execute(
+        "SELECT seq, ts_origem, od_bruto::float8 AS od_bruto, od::float8 AS od FROM leitura WHERE id_celula = 'c02' ORDER BY seq").fetchall()}
+
+    resposta = requests.post(url, json={"a": 0.001, "b": 0.0, "recalcular": False}, timeout=10)
+    assert resposta.status_code == 201, resposta.text
+    assert resposta.json()["leituras_reprocessadas"] == 0
+    depois = {l["seq"]: l for l in banco.execute(
+        "SELECT seq, od_bruto::float8 AS od_bruto, od::float8 AS od FROM leitura WHERE id_celula = 'c02' AND seq <= %s", (max(antes),)).fetchall()}
+    assert all(depois[s]["od"] == antes[s]["od"] and depois[s]["od_bruto"] == antes[s]["od_bruto"] for s in antes)
+
+    # Recalcula só a segunda metade das leituras que já existiam.
+    meio = sorted(antes)[len(antes) // 2]
+    desde = antes[meio]["ts_origem"]
+    resposta = requests.post(url, json={"a": 0.002, "b": 0.01, "recalcular_desde": desde.isoformat()}, timeout=10)
+    assert resposta.status_code == 201, resposta.text
+    linhas = banco.execute(
+        "SELECT seq, ts_origem, od_bruto::float8 AS od_bruto, od::float8 AS od FROM leitura WHERE id_celula = 'c02' AND od_bruto IS NOT NULL").fetchall()
+    recalculadas = [l for l in linhas if l["ts_origem"] >= desde]
+    assert resposta.json()["leituras_reprocessadas"] == len(recalculadas) > 0
+    assert all(abs(l["od"] - (0.002 * l["od_bruto"] + 0.01)) <= 0.00005 + 1e-9 for l in recalculadas)
+    assert all(l["od"] == antes[l["seq"]]["od"] for l in linhas if l["ts_origem"] < desde)
+
+
+def test_11_integridade_final(ambiente, banco):
     integridade = requests.get(f"{ambiente.url_api}/integridade", timeout=5).json()
     assert len(integridade) == len(CELULAS)
     assert all(linha["completo"] for linha in integridade), integridade

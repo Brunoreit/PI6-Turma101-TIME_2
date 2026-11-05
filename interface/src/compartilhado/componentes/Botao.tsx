@@ -3,6 +3,8 @@
 
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import cadeadoPerigo from "@/assets/icones/cadeado-13-perigo.svg";
+import cadeado from "@/assets/icones/cadeado-13.svg";
 import estilos from "./Botao.module.css";
 
 /** Para as ações que a API ainda não oferece: o botão aparece como no
@@ -19,10 +21,23 @@ interface Props {
   indisponivel?: string;
   ocupado?: boolean;
   submit?: boolean;
+  /** Ocupa a largura toda, como nos cartões de login. */
+  cheio?: boolean;
+  /** Acesso=Sem acesso do Figma: esmaecido, com cadeado. O clique chama
+   *  esta função, que deve mostrar o Aviso de acesso. */
+  semAcesso?: () => void;
 }
 
-export function Botao({ children, tipo = "secundario", para, onClick, indisponivel, ocupado = false, submit = false }: Props) {
-  const classe = `${estilos.botao} ${estilos[tipo]}`;
+export function Botao({ children, tipo = "secundario", para, onClick, indisponivel, ocupado = false, submit = false, cheio = false, semAcesso }: Props) {
+  const classe = `${estilos.botao} ${estilos[tipo]} ${cheio ? estilos.cheio : ""}`;
+  if (semAcesso) {
+    return (
+      <button type="button" className={`${classe} ${estilos.semAcesso}`} onClick={semAcesso}>
+        <img src={tipo === "perigo" ? cadeadoPerigo : cadeado} width={13} height={13} alt="Sem acesso:" />
+        {children}
+      </button>
+    );
+  }
   if (para && !indisponivel) {
     return (
       <Link to={para} className={classe}>

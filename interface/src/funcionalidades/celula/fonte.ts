@@ -3,6 +3,7 @@
 // placa, calibração, bombas, manutenção, mensagens recebidas) fica `null`.
 
 import {
+  cadastrarCalibracao,
   consultarIntegridade,
   consultarSaude,
   listarAlertas,
@@ -44,6 +45,14 @@ export async function enviarSetpoint(id: string, temperaturaC: number): Promise<
     throw new Error("Modo exemplo: o pedido não foi enviado. Rode com VITE_FONTE_DADOS=api para comandar a célula.");
   }
   await pedirSetpoint(id, temperaturaC);
+}
+
+/** Salva a nova versão da curva de OD. No modo exemplo não há para onde enviar. */
+export async function salvarCalibracao(id: string, a: number, b: number, recalcular: boolean, desde: Date | null): Promise<void> {
+  if (FONTE_DADOS === "exemplo") {
+    throw new Error("Modo exemplo: a calibração não foi salva. Rode com VITE_FONTE_DADOS=api para gravar a nova versão.");
+  }
+  await cadastrarCalibracao(id, a, b, recalcular, desde);
 }
 
 async function carregarDaApi(id: string, periodo: Periodo, sinal?: AbortSignal): Promise<DetalheDaCelula> {

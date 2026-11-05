@@ -1,0 +1,350 @@
+.tela {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 32px 40px 40px;
+}
+
+.trilha {
+  display: flex;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.trilha a {
+  color: var(--marca\/texto);
+}
+
+.trilha a:hover {
+  text-decoration: underline;
+}
+
+.vazio {
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+/* ---------- cabeçalho */
+
+.cabecalho {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.tituloBloco {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tituloLinha {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tituloLinha h1 {
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.codigo {
+  font-family: var(--fonte-mono);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+}
+
+.subtitulo {
+  font-size: 14px;
+  color: var(--texto\/secundario);
+}
+
+.acoes {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.botoes {
+  display: flex;
+  gap: 10px;
+}
+
+.legendaAcoes {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+/* ---------- aviso de só leitura */
+
+.avisoLeitura {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--marca\/fundo);
+  color: var(--marca\/texto);
+  font-size: 13px;
+}
+
+.avisoLeitura > img {
+  flex-shrink: 0;
+}
+
+.avisoTextos {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.avisoTitulo {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pedidoEnviado {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---------- prazo */
+
+.prazo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 20px 16px;
+  border-radius: 8px;
+  background: var(--fundo\/lateral);
+}
+
+.prazoLinha {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  white-space: nowrap;
+}
+
+.prazoDia {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.prazoDatas {
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.trilho {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--fundo\/sutil);
+  overflow: hidden;
+}
+
+.trilhoAndando,
+.trilhoEncerrado {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--marca\/principal);
+}
+
+.trilhoEncerrado {
+  background: var(--status\/offline-barra);
+}
+
+/* ---------- painéis */
+
+.painel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 24px 22px;
+  background: var(--fundo\/pagina);
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.painelTitulo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.painelTitulo h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.painelTitulo p {
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+/* ---------- taxa de crescimento */
+
+.eixo {
+  display: flex;
+  padding-left: 90px;
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
+.eixoTrilho {
+  position: relative;
+  flex: 0 1 560px;
+  height: 16px;
+}
+
+.eixoTrilho span {
+  position: absolute;
+  top: 0;
+}
+
+.condicao {
+  display: flex;
+  align-items: center;
+}
+
+.condicaoRotulo {
+  flex-shrink: 0;
+  width: 90px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.trilhoTaxa {
+  position: relative;
+  flex: 0 1 560px;
+  height: 28px;
+  border-radius: 4px;
+  background: var(--fundo\/sutil);
+}
+
+.barra,
+.barraMaior {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  background: var(--marca\/clara);
+}
+
+.barraMaior {
+  background: var(--marca\/principal);
+}
+
+.pontoTaxa {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: var(--texto\/principal);
+}
+
+.valores {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 20px;
+}
+
+.valorMedia {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.valorCelulas {
+  font-family: var(--fonte-mono);
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.valorAviso {
+  font-size: 12px;
+  color: var(--status\/alerta);
+}
+
+/* ---------- células no experimento */
+
+.tabela {
+  display: flex;
+  flex-direction: column;
+}
+
+.cabecalhoTabela,
+.linha {
+  display: grid;
+  grid-template-columns: 90px 110px 140px 130px 140px 90px 180px 130px 54px;
+  align-items: center;
+  border-bottom: 1px solid var(--borda\/padrao);
+  white-space: nowrap;
+}
+
+.cabecalhoTabela {
+  padding: 8px 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+}
+
+.linha {
+  padding: 11px 0;
+  font-size: 14px;
+}
+
+.idCelula {
+  font-family: var(--fonte-mono);
+  font-weight: 600;
+}
+
+.abrir {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--marca\/texto);
+}
+
+.abrir:hover {
+  text-decoration: underline;
+}
+
+.historiador {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0 2px;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.historiadorLink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--marca\/texto);
+}
+
+.historiadorLink:hover {
+  text-decoration: underline;
+}

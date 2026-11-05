@@ -18,6 +18,7 @@ import {
   type EstadoDoPedido,
 } from "@/funcionalidades/celula/modelo";
 import { faixaDePh, temperaturaAlvo } from "./calculos";
+import { ConfirmarTemperatura } from "./ConfirmarTemperatura";
 import comum from "@/funcionalidades/celula/Celula.module.css";
 import estilos from "./VisaoDaCelula.module.css";
 
@@ -66,15 +67,22 @@ export function Comandos({ dados, aoEnviar }: { dados: DetalheDaCelula; aoEnviar
   const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState<{ erro: boolean; texto: string } | null>(null);
 
-  async function aplicar(evento: FormEvent) {
+  const [confirmando, setConfirmando] = useState<number | null>(null);
+
+  // Aplicar valida e abre a confirmação; o pedido só sai ao confirmar.
+  function aplicar(evento: FormEvent) {
     evento.preventDefault();
     const valor = Number(temperatura.trim().replace(",", "."));
     if (!temperatura.trim() || !Number.isFinite(valor) || valor < TEMPERATURA_MIN_C || valor > TEMPERATURA_MAX_C) {
       setAviso({ erro: true, texto: `Digite uma temperatura entre ${TEMPERATURA_MIN_C} e ${TEMPERATURA_MAX_C} °C.` });
       return;
     }
-    setEnviando(true);
     setAviso(null);
+    setConfirmando(valor);
+  }
+
+  async function confirmar(valor: number) {
+    setEnviando(true);
     try {
       await enviarSetpoint(dados.id, valor);
       setAviso({ erro: false, texto: `Pedido de ${formatar.temperatura(valor)} enviado. Acompanhe as etapas abaixo.` });
@@ -83,6 +91,7 @@ export function Comandos({ dados, aoEnviar }: { dados: DetalheDaCelula; aoEnviar
       setAviso({ erro: true, texto: erro instanceof Error ? erro.message : String(erro) });
     } finally {
       setEnviando(false);
+      setConfirmando(null);
     }
   }
 
@@ -140,6 +149,17 @@ export function Comandos({ dados, aoEnviar }: { dados: DetalheDaCelula; aoEnviar
         <ComandoEmBreve icone={iconeAgitacao} nome="Agitação" detalhe="Controlada pela placa · em breve" />
         <ComandoEmBreve icone={iconeBombas} nome="Bombas de diluição" detalhe="Depende do hardware · em breve" />
       </div>
+
+      {confirmando !== null && (
+        <ConfirmarTemperatura
+          dados={dados}
+          atual={alvo}
+          novo={confirmando}
+          enviando={enviando}
+          onConfirmar={() => confirmar(confirmando)}
+          onCancelar={() => setConfirmando(null)}
+        />
+      )}
     </section>
   );
 }

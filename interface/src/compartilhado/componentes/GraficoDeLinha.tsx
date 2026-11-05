@@ -1,7 +1,9 @@
 // Gráfico de linha do painel Leituras (Figma, nó 146:1647). A linha é SVG
 // esticado na largura do painel; textos e o ponto final são HTML, para não
-// deformarem junto.
+// deformarem junto. Ao passar o mouse, mostra o valor do ponto mais próximo.
 
+import { useState, type MouseEvent } from "react";
+import { DicaDoGrafico, type LinhaDaDica } from "./DicaDoGrafico";
 import estilos from "./GraficoDeLinha.module.css";
 
 const LARGURA = 1000;
@@ -21,9 +23,18 @@ interface Props {
   /** Faixa verde, como o pH de referência. */
   faixa?: [number, number] | null;
   descricao: string;
+  /** Nome da medida na dica, como "Temperatura". */
+  nome: string;
+  formatarValor: (valor: number) => string;
+  /** Quando foi o ponto i, como "14:00" ou "06/10 18:00". */
+  rotuloDoPonto: (i: number) => string;
 }
 
-export function GraficoDeLinha({ valores, minimo, maximo, marcas, formatarMarca, rotulosTempo, referencia, faixa, descricao }: Props) {
+export function GraficoDeLinha({
+  valores, minimo, maximo, marcas, formatarMarca, rotulosTempo, referencia, faixa, descricao,
+  nome, formatarValor, rotuloDoPonto,
+}: Props) {
+  const [cursor, setCursor] = useState<number | null>(null);
   const y = (valor: number) => {
     const fracao = (maximo - valor) / (maximo - minimo);
     return Math.min(Math.max(fracao, 0), 1) * ALTURA;
@@ -45,9 +56,23 @@ export function GraficoDeLinha({ valores, minimo, maximo, marcas, formatarMarca,
   let ultimo = valores.length - 1;
   while (ultimo >= 0 && valores[ultimo] === null) ultimo--;
 
+  function mover(evento: MouseEvent<HTMLDivElement>) {
+    const caixa = evento.currentTarget.getBoundingClientRect();
+    const fracao = (evento.clientX - caixa.left) / caixa.width;
+    if (valores.length === 0 || fracao < 0 || fracao > 1) return setCursor(null);
+    setCursor(valores.length > 1 ? Math.round(fracao * (valores.length - 1)) : 0);
+  }
+
+  const valorNoCursor = cursor === null ? null : valores[cursor];
+  const linhasDaDica: LinhaDaDica[] = [
+    { rotulo: nome, valor: valorNoCursor == null ? "sem leitura" : formatarValor(valorNoCursor), forte: true },
+    ...(referencia != null ? [{ rotulo: "Alvo", valor: formatarValor(referencia) }] : []),
+    ...(faixa ? [{ rotulo: "Referência", valor: `${formatarValor(faixa[0])} a ${formatarValor(faixa[1])}` }] : []),
+  ];
+
   return (
     <div className={estilos.grafico} role="img" aria-label={descricao}>
-      <div className={estilos.area}>
+      <div className={estilos.area} onMouseMove={mover} onMouseLeave={() => setCursor(null)}>
         <svg className={estilos.svg} viewBox={`0 0 ${LARGURA} ${ALTURA}`} preserveAspectRatio="none" aria-hidden>
           {faixa && (
             <rect
@@ -73,6 +98,15 @@ export function GraficoDeLinha({ valores, minimo, maximo, marcas, formatarMarca,
           />
         )}
         {ultimo < 0 && <span className={estilos.vazio}>Sem leituras neste período</span>}
+        {cursor !== null && (
+          <>
+            <span className={estilos.cursor} style={{ left: `${(x(cursor) / LARGURA) * 100}%` }} />
+            {valorNoCursor != null && (
+              <span className={estilos.pontoCursor} style={{ left: `${(x(cursor) / LARGURA) * 100}%`, top: y(valorNoCursor) }} />
+            )}
+            <DicaDoGrafico titulo={rotuloDoPonto(cursor)} linhas={linhasDaDica} x={x(cursor) / LARGURA} />
+          </>
+        )}
       </div>
 
       {marcas.map((marca) => (

@@ -1,0 +1,116 @@
+.fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 160px 20px 40px;
+  overflow-y: auto;
+  background: rgba(22, 25, 31, 0.32);
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 480px;
+  max-width: 100%;
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--fundo\/pagina);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+.cabecalho {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.textos {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.textos h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.textos p {
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.fechar {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.dePara {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 18px 20px;
+  border-radius: 8px;
+  background: var(--fundo\/sutil);
+}
+
+.atual,
+.novo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.atual span,
+.novo span {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.atual strong,
+.novo strong {
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.atual strong {
+  color: var(--texto\/secundario);
+}
+
+.itens {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.itens li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.itens img {
+  flex-shrink: 0;
+}
+
+.botoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}

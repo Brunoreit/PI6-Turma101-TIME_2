@@ -52,7 +52,7 @@ backend/app/
   regras/            verificações de alerta
   api/               endpoints FastAPI
 simulador/           célula falsa: modelo físico, buffer SQLite, sinais de falha (python -m simulador.celula)
-interface/           React + TypeScript + Vite (ver interface/README.md)
+interface/           React + TypeScript + Vite, uma pasta por tela em src/funcionalidades/ (ver interface/README.md)
 tests/unidade/       rápidos, sem infraestrutura
 tests/integracao/    test_ponta_a_ponta.py, modo compose ou local
 docs/contrato-mqtt.md  documento do contrato para o grupo do hardware
@@ -94,7 +94,7 @@ Estados do pedido de setpoint no banco: `solicitado → recebido → aplicado �
 - **Mudou o contrato, atualize três lugares:** `contrato/`, `docs/contrato-mqtt.md` e os testes. Mudança incompatível vira `v2` no tópico, nunca altera a `v1`.
 - **Idempotência em tudo que vem do MQTT.** QoS 1 entrega ao menos uma vez, então toda mensagem pode chegar repetida. Leituras usam `ON CONFLICT (id_celula, seq) DO NOTHING`. Setpoint nunca volta estado para trás (`avancar_pedido`).
 - **`seq` é contínuo por célula e nunca zera.** É o que permite provar que o histórico está completo.
-- **Nunca sobrescrever `od_bruto`.** A OD convertida pode ser recalculada, o valor bruto é o dado original.
+- **Nunca sobrescrever `od_bruto`.** A OD convertida pode ser recalculada, o valor bruto é o dado original. Uma calibração nova recalcula tudo, só a partir de `recalcular_desde` ou nada (`recalcular: false`).
 - **SQL só em `backend/app/banco/repositorios.py`.** Consumidor, regras e API chamam funções de lá.
 - **A interface só fala com a API.** Nunca direto com o banco ou o broker.
 - **A API não publica com o broker desconectado.** O paho guardaria a mensagem e enviaria depois, aplicando um pedido que já foi dado como falho.
@@ -117,20 +117,20 @@ PostgreSQL 16 puro, sem TimescaleDB nem InfluxDB (decisão consciente: volume de
 
 ## Estado atual
 
-Base funcionando. 17 testes de unidade e as 10 etapas do teste ponta a ponta passando, no modo local e no modo Docker Compose. Em 02/11/2026 o modo Docker Compose passou três vezes seguidas, com o pytest rodando no Windows e os serviços em contêineres Linux.
+Base funcionando. 17 testes de unidade e as 11 etapas do teste ponta a ponta passando no modo Docker Compose (a 10, de calibração, entrou em 04/11/2026). Em 02/11/2026 o modo Docker Compose passou três vezes seguidas, com o pytest rodando no Windows e os serviços em contêineres Linux.
 
-Interface: barra lateral, tela Visão geral e telas da célula (Visão da célula, Ajustes, Diagnóstico) prontas, a partir do Figma (arquivo Telas). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`), porque a API ainda não devolve experimento, estado do consumidor e das regras, nem setpoints aguardando.
+Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 · Antiga" e "Login · conta CNPEM (guardado)", que não serão usadas. São Login e as telas de conta, Visão geral, telas da célula (inclusive a célula livre e o modal de confirmar temperatura), Experimentos (lista, novo, detalhe, compartilhar, só leitura), Historiador, Alertas, Exportar dados e a nova calibração de OD (pela aba Ajustes da célula; a Calibração saiu da barra lateral). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`), porque a API ainda não devolve experimento, estado do consumidor e das regras, nem setpoints aguardando. Experimentos, regras de alerta, contas e exportação agrupada ainda não existem na API: essas telas usam dados de exemplo e guardam as mudanças só no navegador (detalhes em `interface/README.md`).
 
 ## Problemas conhecidos
 
 - **Alerta falso com consumidor parado.** Sem o consumidor, `ultimo_contato` não é atualizado e a regra `sem_comunicacao` abre alerta para todas as células. Correção planejada: consumidor grava sinal de vida e a regra ignora a checagem quando ele estiver parado.
-- Sem autenticação na API e broker com `allow_anonymous true`. Aceitável só em desenvolvimento.
+- Sem autenticação na API e broker com `allow_anonymous true`. Aceitável só em desenvolvimento. O login da interface é só de demonstração: as contas ficam no `localStorage` do navegador.
 - Sem endpoints para criar e encerrar experimentos (tabela existe).
 
 ## Próximos passos
 
 1. Sinal de vida do consumidor
-2. Demais telas da interface (Experimentos, Alertas, Calibração, Exportar)
-3. Autenticação na API e senha no broker
-4. Endpoints de experimento
+2. Autenticação na API e senha no broker, ligando as telas de login a ela
+3. Endpoints de experimento (criar, encerrar, atribuir célula, compartilhar), ligando as telas de Experimentos a eles
+4. Endpoints de regras de alerta e de exportação agrupada (média por hora ou dia, Excel)
 5. Fechar o contrato com o grupo do hardware

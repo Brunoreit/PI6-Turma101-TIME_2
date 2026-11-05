@@ -58,7 +58,7 @@ export function CardDeCelula({ celula, agora }: { celula: CelulaResumo; agora: D
       </p>
 
       <div className={estilos.historico}>
-        <HistoricoOd valores={celula.historicoOd} apagado={offline} />
+        <HistoricoOd valores={celula.historicoOd} apagado={offline} agora={agora} />
         <div className={estilos.rodape}>
           <span>OD nas últimas 24 h</span>
           <span>{celula.ultimaLeituraEm ? formatar.tempoDecorrido(celula.ultimaLeituraEm, agora) : "sem leituras"}</span>

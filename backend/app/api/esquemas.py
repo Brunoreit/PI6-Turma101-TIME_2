@@ -1,5 +1,7 @@
 """Formatos de entrada da API (os de saída seguem as linhas do banco)."""
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -11,3 +13,11 @@ class NovoSetpoint(BaseModel):
 class NovaCalibracao(BaseModel):
     a: float = Field(description="Coeficiente angular: od = a * od_bruto + b")
     b: float = Field(description="Coeficiente linear")
+    recalcular: bool = Field(
+        default=True,
+        description="Recalcula a OD das leituras já gravadas. Se falso, só as próximas leituras usam a nova versão.",
+    )
+    recalcular_desde: datetime | None = Field(
+        default=None,
+        description="Com recalcular, só as leituras a partir deste instante. Vazio recalcula o histórico todo.",
+    )

@@ -1,0 +1,252 @@
+.fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 110px 20px 40px;
+  overflow-y: auto;
+  background: rgba(22, 25, 31, 0.32);
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 600px;
+  max-width: 100%;
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--fundo\/pagina);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+.cabecalho {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.textos {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.textos h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.textos p {
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.fechar,
+.remover {
+  display: flex;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.fechar:hover,
+.remover:hover {
+  opacity: 0.7;
+}
+
+.rotulo {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.convidar,
+.pessoas {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pessoas {
+  gap: 8px;
+}
+
+.linhaConvite {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.entradaEmail {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7.5px 11.5px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+}
+
+.entradaEmail:focus-within {
+  border: 1.5px solid var(--marca\/principal);
+  padding: 7px 11px;
+}
+
+.entradaEmail[data-erro] {
+  border-color: var(--status\/alerta);
+}
+
+.entradaEmail input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: 14px;
+}
+
+.entradaEmail input::placeholder {
+  color: var(--texto\/secundario);
+}
+
+/* Seletor do Figma: caixa branca com a seta para baixo. */
+.seletor {
+  flex-shrink: 0;
+  appearance: none;
+  padding: 8px 30px 8px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina) url("@/assets/icones/seta-baixo-14.svg") right 10px center / 14px 14px no-repeat;
+  font: inherit;
+  font-size: 13px;
+  color: var(--texto\/principal);
+  cursor: pointer;
+}
+
+.seletor:focus-visible {
+  outline: 2px solid var(--marca\/principal);
+  outline-offset: 1px;
+}
+
+.erro {
+  font-size: 12px;
+  color: var(--status\/alerta);
+}
+
+.lista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+}
+
+.pessoa {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.pessoa + .pessoa {
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.avatar,
+.avatarPendente {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background: var(--marca\/fundo);
+  color: var(--marca\/texto);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.avatarPendente {
+  background: var(--fundo\/sutil);
+  color: var(--texto\/secundario);
+}
+
+.pessoaTextos {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.pessoaNome {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: pre;
+}
+
+.pessoaEmail {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+  text-overflow: ellipsis;
+}
+
+.seloResponsavel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--fundo\/sutil);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+}
+
+.permissoes {
+  display: flex;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--fundo\/sutil);
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.permissoes > div {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.permissaoTitulo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.rodape {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.rodape p {
+  flex: 1 1 0;
+}

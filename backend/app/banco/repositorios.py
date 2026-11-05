@@ -141,9 +141,13 @@ def curva_ativa(conn: psycopg.Connection, id_celula: str) -> Curva | None:
     return Curva(**linha) if linha else None
 
 
-def nova_calibracao(conn: psycopg.Connection, id_celula: str, a: float, b: float) -> dict:
-    """Cadastra uma nova versão da curva e recalcula a OD de todo o histórico
-    da célula a partir do valor bruto, que nunca é alterado."""
+def nova_calibracao(
+    conn: psycopg.Connection, id_celula: str, a: float, b: float,
+    recalcular: bool = True, desde: datetime | None = None,
+) -> dict:
+    """Cadastra uma nova versão da curva. Com `recalcular`, refaz a OD das
+    leituras já gravadas a partir do valor bruto, que nunca é alterado: todas,
+    ou só as de `desde` em diante. Sem, só as próximas leituras usam a versão."""
     with conn.transaction():
         conn.execute("UPDATE calibracao SET ativa = false WHERE id_celula = %s AND ativa", (id_celula,))
         nova = conn.execute(
@@ -154,13 +158,16 @@ def nova_calibracao(conn: psycopg.Connection, id_celula: str, a: float, b: float
             """,
             (id_celula, id_celula, a, b),
         ).fetchone()
-        reprocessadas = conn.execute(
-            """
-            UPDATE leitura SET od = round((%s * od_bruto + %s)::numeric, 4), id_calibracao = %s
-             WHERE id_celula = %s AND od_bruto IS NOT NULL
-            """,
-            (a, b, nova["id_calibracao"], id_celula),
-        ).rowcount
+        reprocessadas = 0
+        if recalcular:
+            reprocessadas = conn.execute(
+                """
+                UPDATE leitura SET od = round((%s * od_bruto + %s)::numeric, 4), id_calibracao = %s
+                 WHERE id_celula = %s AND od_bruto IS NOT NULL
+                   AND (%s::timestamptz IS NULL OR ts_origem >= %s::timestamptz)
+                """,
+                (a, b, nova["id_calibracao"], id_celula, desde, desde),
+            ).rowcount
     return {**nova, "leituras_reprocessadas": reprocessadas}
 
 

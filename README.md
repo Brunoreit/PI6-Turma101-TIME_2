@@ -53,7 +53,7 @@ Depois de alguns segundos:
 
 | O quê | Onde |
 |---|---|
-| Interface web | http://localhost:8080 |
+| Interface web | http://localhost:8080 (conta de demonstração: `pedro.ximenes@cnpem.br`, senha `evolver123`) |
 | Documentação interativa da API | http://localhost:8000/docs |
 | Estado das células | http://localhost:8000/celulas |
 | Histórico completo e sem repetições? | http://localhost:8000/integridade |
@@ -101,7 +101,8 @@ Use `MANTER_AMBIENTE=1` para não apagar o ambiente e os logs ao final.
 | 7 | Setpoint de 80 °C | A API recusa por estar fora da faixa |
 | 8 | Setpoint na c03, que ignora pedidos | O pedido fica em solicitado e abre alerta |
 | 9 | Leitura repetida publicada três vezes | O banco mantém a original |
-| 10 | Conferência final | Para cada célula, total = seq distintos = esperado |
+| 10 | Duas calibrações novas na c02: sem recalcular e a partir de um instante | Só as leituras pedidas mudam de OD, e o valor bruto nunca muda |
+| 11 | Conferência final | Para cada célula, total = seq distintos = esperado |
 
 A conferência de integridade é esta consulta:
 
@@ -125,7 +126,7 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 - **Sessão persistente no consumidor.** Se ele parar, o broker guarda as mensagens e entrega quando voltar.
 - **Mensagens retidas para estado e setpoint.** Quem conecta depois recebe o último valor na hora.
 - **Seq contínuo por célula, que não zera ao reiniciar.** É o que permite saber se o histórico tem buracos.
-- **Valor bruto sempre guardado.** Uma nova calibração recalcula a OD de todo o histórico (`POST /celulas/{id}/calibracoes`).
+- **Valor bruto sempre guardado.** Uma nova calibração (`POST /celulas/{id}/calibracoes`) pode recalcular a OD do histórico todo, só a partir de um instante (`recalcular_desde`) ou nenhuma (`recalcular: false`, só as próximas leituras usam a versão nova).
 - **Consumidor, regras e API em processos separados.** A queda de um não para os outros.
 - **Células sobem depois do consumidor.** O healthcheck do consumidor só fica saudável quando o broker confirma a inscrição, e as células dependem dele no `docker-compose.yml`.
 - **Interface só fala com a API.** Validação e registro de quem mudou a temperatura ficam num lugar só.
@@ -145,7 +146,7 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 ## Próximos passos
 
 - Fechar o contrato de mensagens com o grupo do hardware (`docs/contrato-mqtt.md`)
-- Tela de calibração na interface
-- Autenticação na API e senha no broker
+- Autenticação na API e senha no broker. Hoje o login da interface é só de demonstração, com as contas no navegador
+- Endpoints para as telas que ainda usam dados de exemplo: experimentos, regras de alerta e exportação agrupada
 - Sinal de vida do consumidor, para evitar o alerta falso
 - Cadastro e encerramento de experimentos pela API

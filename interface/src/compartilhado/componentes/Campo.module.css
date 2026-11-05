@@ -63,3 +63,25 @@
 .erro {
   color: var(--status\/alerta);
 }
+
+.entrada:has(.valor[aria-invalid="true"]) {
+  border-color: var(--status\/alerta);
+}
+
+.valor::placeholder {
+  color: var(--texto\/secundario);
+  opacity: 1;
+}
+
+.mostrar {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mostrar:hover {
+  color: var(--texto\/principal);
+}

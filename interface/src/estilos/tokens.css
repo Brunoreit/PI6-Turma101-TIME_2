@@ -27,3 +27,12 @@
   --fonte-texto: "IBM Plex Sans", system-ui, sans-serif;
   --fonte-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
+
+/* Cores das linhas de cada célula no Historiador. O Figma usa as duas
+   primeiras sem variável; as outras duas completam o limite de 4 células. */
+:root {
+  --serie\/1: #e07b12;
+  --serie\/2: #0b71b6;
+  --serie\/3: #1b7a4c;
+  --serie\/4: #7b4fb8;
+}

@@ -26,8 +26,8 @@ export function FaixaDeStatus({ dados }: { dados: DetalheDaCelula }) {
   let nome = "Experimento não informado pela API";
   let detalhe = "A API ainda não devolve o experimento da célula.";
   if (experimento === null) {
-    nome = "Livre · sem experimento";
-    detalhe = "A célula está disponível para um novo experimento.";
+    nome = "Sem experimento";
+    detalhe = "A célula está medindo, mas as leituras não entram em nenhum experimento.";
   } else if (experimento) {
     nome = `${experimento.codigo} · ${experimento.nome}`;
     detalhe = `${experimento.modo} · na célula desde ${formatar.data(experimento.naCelulaDesde)} · responsável ${experimento.responsavel}`;
@@ -37,7 +37,11 @@ export function FaixaDeStatus({ dados }: { dados: DetalheDaCelula }) {
     <section className={estilos.faixaStatus} aria-label="Situação da célula">
       <div className={estilos.experimento}>
         <div className={estilos.experimentoLinha}>
-          <SeloDeStatus situacao={dados.situacao} rotulo={SELO[dados.situacao]} />
+          {experimento === null && dados.situacao === "online" ? (
+            <SeloDeStatus situacao="espera" rotulo="Livre" />
+          ) : (
+            <SeloDeStatus situacao={dados.situacao} rotulo={SELO[dados.situacao]} />
+          )}
           <span className={estilos.experimentoNome}>{nome}</span>
         </div>
         <p className={estilos.experimentoDetalhe}>{detalhe}</p>

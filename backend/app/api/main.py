@@ -172,7 +172,10 @@ def buscar_setpoint(conn: Conexao, id_pedido: str):
 @app.post("/celulas/{id_celula}/calibracoes", status_code=201)
 def cadastrar_calibracao(conn: Conexao, id_celula: str, corpo: NovaCalibracao):
     _exigir_celula(conn, id_celula)
-    return repo.nova_calibracao(conn, id_celula, corpo.a, corpo.b)
+    return repo.nova_calibracao(
+        conn, id_celula, corpo.a, corpo.b,
+        recalcular=corpo.recalcular, desde=corpo.recalcular_desde,
+    )
 
 
 @app.get("/alertas")

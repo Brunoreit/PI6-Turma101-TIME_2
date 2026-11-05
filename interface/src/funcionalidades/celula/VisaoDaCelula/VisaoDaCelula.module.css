@@ -623,3 +623,114 @@
     flex-wrap: wrap;
   }
 }
+
+/* ---------- célula livre: atribuir experimento e histórico */
+
+.seletorExperimento {
+  position: relative;
+  min-height: 44px;
+  padding: 6px 34px 6px 12px;
+  border: 1.5px solid var(--marca\/principal);
+  border-radius: 6px;
+  background: var(--fundo\/pagina) url("@/assets/icones/seta-baixo-16.svg") right 10px center / 16px 16px no-repeat;
+}
+
+.seletorExperimento select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.seletorExperimento:focus-within {
+  outline: 1px solid var(--marca\/principal);
+}
+
+.seletorTextos {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.seletorCodigo {
+  font-family: var(--fonte-mono);
+  font-size: 11px;
+  color: var(--marca\/texto);
+}
+
+.seletorNome {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linhaFaixa {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.linhaFaixa strong {
+  font-weight: 500;
+  color: var(--texto\/principal);
+}
+
+.antesDeIniciar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+}
+
+.antesDeIniciar ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.antesDeIniciar li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.historicoCelula {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.historicoCelula li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 0;
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.historicoCelula img {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.historicoTitulo {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.historicoDetalhe {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}

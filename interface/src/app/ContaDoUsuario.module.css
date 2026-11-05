@@ -1,0 +1,53 @@
+.conta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background: var(--marca\/fundo);
+  color: var(--marca\/texto);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.nome {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sair {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sair:hover {
+  background: var(--fundo\/sutil);
+}
+
+.sair img {
+  display: block;
+}
