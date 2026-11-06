@@ -1033,6 +1033,16 @@ Comportamento atual da rota `POST /celulas/{id}/setpoint`, que a D6 segue: se o 
 | `listar_leituras_do_cultivo` | Mesmas colunas de `listar_leituras`, sem `extras` |
 | `atualizar_celula` | Fica para a etapa 7a, junto com o `PATCH /celulas/{id}` |
 
+### Decisões da etapa 3 (contrato e consumidor, 06/11/2026)
+
+| Ponto | Decisão |
+|---|---|
+| **Desvio de G.4:** leitura com campo a mais | Sem etapa no ponta a ponta. Gravar uma leitura nova exige um `seq` novo: em c01 a c03 ele colidiria com o que o simulador vai mandar, e uma quarta célula quebraria as conferências de integridade (`historico_completo` e `len(CELULAS)`). O caso é coberto em `test_modelo_dados.py` pelo `Tratador` do consumidor com o banco do teste, sem broker: gravação em `extras`, contagem de inválidas que não sobe e aviso único no log. Nenhuma quarta célula é criada |
+| Firmware | `celula.firmware` só é atualizado quando a mensagem de estado traz `versao`. Um `online` sem `versao` e o `offline` do LWT não apagam o valor gravado |
+| Aviso de colisão no log | Um aviso por colisão, sem a deduplicação usada para os campos extras (P-12). O alerta `colisao_seq` continua sendo um só por célula |
+| Extras de mensagem descartada | Numa duplicata ou colisão, os campos extras da mensagem descartada não são gravados: a leitura original é mantida inteira |
+| Numeração do ponta a ponta | As etapas novas entram antes da integridade, que continua sendo a última e muda de número (`test_11_integridade_final` virou `test_13_integridade_final`; o que ela verifica não muda) |
+
 ### Correções do texto
 
 | Onde | Texto atual | Correção |
