@@ -1043,6 +1043,13 @@ Comportamento atual da rota `POST /celulas/{id}/setpoint`, que a D6 segue: se o 
 | Extras de mensagem descartada | Numa duplicata ou colisão, os campos extras da mensagem descartada não são gravados: a leitura original é mantida inteira |
 | Numeração do ponta a ponta | As etapas novas entram antes da integridade, que continua sendo a última e muda de número (`test_11_integridade_final` virou `test_13_integridade_final`; o que ela verifica não muda) |
 
+### Decisões da etapa 4 (regra `ph_fora_da_faixa`, 06/11/2026)
+
+| Ponto | Decisão |
+|---|---|
+| Etapa 13 do ponta a ponta | Cria a pessoa, o experimento e o cultivo da c01 pelos repositórios, não pela API, e continua assim depois da etapa 7a. A integridade passou a ser a etapa 14 |
+| Registros deixados no banco do ponta a ponta | A etapa 13 deixa a pessoa `teste-ph@cnpem.br`, um experimento e um cultivo encerrado na c01. Aceito: não interferem nas conferências de integridade, que só olham `leitura` |
+
 ### Correções do texto
 
 | Onde | Texto atual | Correção |
