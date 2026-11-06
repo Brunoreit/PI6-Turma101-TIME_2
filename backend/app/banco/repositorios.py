@@ -397,8 +397,9 @@ def atualizar_experimento(conn: psycopg.Connection, id_experimento: int, **campo
 def cancelar_experimento(conn: psycopg.Connection, id_experimento: int, id_pessoa: int,
                          motivo: str) -> dict | None:
     """Cancela o experimento e, junto, os cultivos abertos, com o mesmo
-    motivo. Só vale para experimento cadastrado ou em andamento. Nada é
-    apagado. None se o experimento não existe."""
+    motivo. O motivo fica também em metadados.motivo_cancelamento. Só vale
+    para experimento cadastrado ou em andamento. Nada é apagado. None se o
+    experimento não existe."""
     if not motivo or not motivo.strip():
         raise ValueError("cancelar um experimento exige motivo")
     with conn.transaction():
@@ -420,10 +421,12 @@ def cancelar_experimento(conn: psycopg.Connection, id_experimento: int, id_pesso
         )
         return conn.execute(
             """
-            UPDATE experimento SET status = 'cancelado', encerrado_em = now()
+            UPDATE experimento
+               SET status = 'cancelado', encerrado_em = now(),
+                   metadados = metadados || jsonb_build_object('motivo_cancelamento', %s::text)
              WHERE id_experimento = %s RETURNING *
             """,
-            (id_experimento,),
+            (motivo, id_experimento),
         ).fetchone()
 
 

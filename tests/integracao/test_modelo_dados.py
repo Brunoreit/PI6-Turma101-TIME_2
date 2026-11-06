@@ -504,11 +504,13 @@ def test_encerrar_e_cancelar_so_agem_em_cultivo_em_andamento(cenario):
 
 def test_cancelar_experimento_cancela_os_cultivos_abertos(cenario):
     conn, e = cenario.conn, cenario.experimento
+    repo.atualizar_experimento(conn, e["id_experimento"], metadados={"organismo": "E. coli"})
     ja_encerrado = repo.encerrar_cultivo(conn, cenario.iniciar(0)["id_cultivo"], cenario.henry, "fim")
     cenario.iniciar(1)
     cenario.iniciar(2)
     cancelado = repo.cancelar_experimento(conn, e["id_experimento"], cenario.ana, "contaminação")
     assert cancelado["status"] == "cancelado" and cancelado["encerrado_em"] is not None
+    assert cancelado["metadados"] == {"organismo": "E. coli", "motivo_cancelamento": "contaminação"}
 
     cultivos = {c["id_cultivo"]: c for c in cenario.cultivos(e["id_experimento"])}
     assert cultivos.pop(ja_encerrado["id_cultivo"]) == ja_encerrado
@@ -524,7 +526,8 @@ def test_cancelar_experimento_cancela_os_cultivos_abertos(cenario):
 
 def test_cancelar_experimento_cadastrado_sem_cultivos(cenario):
     cancelado = repo.cancelar_experimento(cenario.conn, cenario.experimento["id_experimento"], cenario.ana, "desistimos")
-    assert (cancelado["status"], cancelado["iniciado_em"]) == ("cancelado", None)
+    assert (cancelado["status"], cancelado["iniciado_em"], cancelado["metadados"]) == (
+        "cancelado", None, {"motivo_cancelamento": "desistimos"})
 
 
 def test_duplicar_copia_a_ficha_e_nada_mais(cenario):
