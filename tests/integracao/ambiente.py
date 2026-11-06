@@ -53,7 +53,8 @@ def _esperar_porta(porta: int, timeout: float = 30) -> None:
 
 class AmbienteCompose:
     PROJETO = "evolver-teste"
-    PORTAS = {"PORTA_BANCO": "55432", "PORTA_API": "58000", "PORTA_MQTT": "51883"}
+    PORTAS = {"PORTA_BANCO": "55432", "PORTA_API": "58000", "PORTA_MQTT": "51883",
+              "PORTA_INTERFACE": "58080"}
 
     def __init__(self):
         self.url_banco = f"postgresql://evolver:evolver@localhost:{self.PORTAS['PORTA_BANCO']}/evolver"

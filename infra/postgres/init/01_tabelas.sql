@@ -13,16 +13,6 @@ CREATE TABLE celula (
     ultimo_contato   TIMESTAMPTZ
 );
 
--- Um cultivo numa célula. Uma célula passa por vários experimentos.
-CREATE TABLE experimento (
-    id_experimento SERIAL PRIMARY KEY,
-    id_celula      TEXT NOT NULL REFERENCES celula,
-    nome           TEXT NOT NULL,
-    organismo      TEXT,
-    inicio         TIMESTAMPTZ NOT NULL DEFAULT now(),
-    fim            TIMESTAMPTZ
-);
-
 -- Curva de calibração da densidade óptica: od = a * od_bruto + b.
 -- Cada nova calibração é uma nova versão, e só uma fica ativa por célula.
 CREATE TABLE calibracao (
