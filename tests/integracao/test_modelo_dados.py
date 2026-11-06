@@ -1,16 +1,18 @@
 """Testes do esquema do modelo de dados do MVP (infra/postgres/init/03_modelo_mvp.sql).
 
 Conferem direto por SQL, sem API, as restrições que o próprio banco garante,
-a visão leitura_cultivo e a aplicação do 03 num banco que já existe.
+a visão leitura_cultivo e a aplicação do 03 num banco que já existe. No fim,
+as operações de pessoas, experimentos, acessos e cultivos de repositorios.py.
 
-Cada teste roda numa transação desfeita no final, então nada fica no banco
-que as células simuladas estão usando. Os cenários de banco antigo usam um
-banco separado no mesmo servidor.
+Os testes de restrição rodam numa transação desfeita no final. Os cenários
+de banco antigo usam um banco separado no mesmo servidor. Os de repositório
+gravam de verdade, com pessoas e células próprias de cada teste.
 
 Rodar:
   pytest tests/integracao/test_modelo_dados.py -v
 """
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -20,6 +22,7 @@ from psycopg import errors
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from app.banco import repositorios as repo
 from tests.integracao.ambiente import RAIZ, criar_ambiente
 
 pytestmark = pytest.mark.integracao
@@ -374,3 +377,252 @@ def test_03_para_sem_mudar_nada_se_a_tabela_antiga_tem_dados(outro_banco):
     assert conn.execute("""SELECT count(*) AS n FROM information_schema.columns
                             WHERE table_name = 'celula' AND column_name = 'apelido'""").fetchone()["n"] == 0
     assert conn.execute("SELECT count(*) AS n FROM pg_extension WHERE extname = 'btree_gist'").fetchone()["n"] == 0
+
+
+# ------------------------------------------------------------------ repositórios
+#
+# Estes gravam de verdade (cada operação na sua transação, como na API),
+# porque o início e o fim de cada cultivo vêm do now() do banco. Cada teste
+# usa pessoas e células próprias.
+
+
+class Cenario:
+    """Três pessoas, três células e um experimento cadastrado da Ana, com
+    nomes únicos para o teste."""
+
+    def __init__(self, conn):
+        sufixo = uuid.uuid4().hex[:6]
+        self.conn = conn
+        self.ana, self.henry, self.bia = (
+            repo.criar_pessoa(conn, nome, f"{nome.lower()}-{sufixo}@cnpem.br", "x")["id_pessoa"]
+            for nome in ("Ana", "Henry", "Bia"))
+        self.celulas = [f"r{sufixo}{n}" for n in range(3)]
+        for id_celula in self.celulas:
+            repo.registrar_celula(conn, id_celula, "online")
+        self.experimento = self.novo_experimento(self.ana)
+
+    def novo_experimento(self, responsavel: int, **campos) -> dict:
+        return repo.criar_experimento(self.conn, responsavel, **{
+            "nome": "Crescimento de E. coli", "modo": "curva_crescimento", **campos})
+
+    def iniciar(self, n: int, experimento: dict | None = None, **campos) -> dict:
+        return repo.iniciar_cultivo(self.conn, (experimento or self.experimento)["id_experimento"],
+                                    self.celulas[n], self.henry, **campos)
+
+    def cultivos(self, id_experimento: int) -> list[dict]:
+        return self.conn.execute("SELECT * FROM cultivo WHERE id_experimento = %s ORDER BY id_cultivo",
+                                 (id_experimento,)).fetchall()
+
+
+@pytest.fixture
+def cenario(banco):
+    return Cenario(banco)
+
+
+def test_pessoa_nunca_sai_com_o_resumo_da_senha_exceto_no_login(cenario):
+    pessoa = repo.buscar_pessoa(cenario.conn, cenario.ana)
+    assert "senha_hash" not in pessoa
+    assert repo.buscar_pessoa_por_email(cenario.conn, pessoa["email"])["senha_hash"] == "x"
+    assert repo.buscar_pessoa_por_email(cenario.conn, "ninguem@cnpem.br") is None
+
+
+def test_experimento_novo_nasce_cadastrado_com_o_responsavel(cenario):
+    e = cenario.novo_experimento(cenario.ana, metadados={"organismo": "E. coli K-12"}, ph_ref_min=6.5)
+    assert (e["status"], e["id_responsavel"], e["metadados"], e["iniciado_em"]) == (
+        "cadastrado", cenario.ana, {"organismo": "E. coli K-12"}, None)
+    with pytest.raises(ValueError):
+        cenario.novo_experimento(cenario.ana, status="em_andamento")
+
+
+def test_primeiro_cultivo_inicia_o_experimento_e_copia_a_faixa_de_ph(cenario):
+    e = cenario.novo_experimento(cenario.ana, ph_ref_min=6.5, ph_ref_max=7.5)
+    primeiro = cenario.iniciar(0, e, condicao="30 °C", replica=1)
+    assert (primeiro["status"], primeiro["ph_ref_min"], primeiro["ph_ref_max"], primeiro["id_iniciado_por"]) == (
+        "em_andamento", 6.5, 7.5, cenario.henry)
+    depois = repo.buscar_experimento(cenario.conn, e["id_experimento"])
+    assert depois["status"] == "em_andamento"
+    assert depois["iniciado_em"] == primeiro["iniciado_em"]
+
+    segundo = cenario.iniciar(1, e)
+    assert segundo["iniciado_em"] > primeiro["iniciado_em"]
+    assert repo.buscar_experimento(cenario.conn, e["id_experimento"])["iniciado_em"] == primeiro["iniciado_em"]
+    assert repo.cultivo_aberto_da_celula(cenario.conn, cenario.celulas[1])["id_cultivo"] == segundo["id_cultivo"]
+
+
+@pytest.mark.parametrize("status", ["encerrado", "cancelado"])
+def test_cultivo_em_experimento_fechado_e_recusado_sem_gravar(cenario, status):
+    e = cenario.experimento
+    cenario.iniciar(0)
+    if status == "cancelado":
+        repo.cancelar_experimento(cenario.conn, e["id_experimento"], cenario.ana, "contaminação")
+    else:
+        # encerrar_experimento ainda não existe (P-9).
+        cenario.conn.execute("UPDATE cultivo SET status = 'encerrado', encerrado_em = now() WHERE id_experimento = %s",
+                             (e["id_experimento"],))
+        cenario.conn.execute("UPDATE experimento SET status = 'encerrado', encerrado_em = now() WHERE id_experimento = %s",
+                             (e["id_experimento"],))
+    antes = cenario.cultivos(e["id_experimento"])
+    with pytest.raises(repo.OperacaoRecusada):
+        cenario.iniciar(1)
+    assert cenario.cultivos(e["id_experimento"]) == antes
+    assert repo.cultivo_aberto_da_celula(cenario.conn, cenario.celulas[1]) is None
+
+
+def test_cultivo_em_celula_ocupada_nao_muda_o_experimento(cenario):
+    cenario.iniciar(0)
+    outro = cenario.novo_experimento(cenario.henry)
+    with pytest.raises(errors.ExclusionViolation):
+        cenario.iniciar(0, outro)
+    depois = repo.buscar_experimento(cenario.conn, outro["id_experimento"])
+    assert (depois["status"], depois["iniciado_em"], depois["cultivos"]) == ("cadastrado", None, [])
+
+
+def test_cultivo_em_experimento_inexistente_devolve_none(cenario):
+    assert repo.iniciar_cultivo(cenario.conn, -1, cenario.celulas[0], cenario.ana) is None
+
+
+def test_encerrar_e_cancelar_so_agem_em_cultivo_em_andamento(cenario):
+    conn = cenario.conn
+    encerrado = repo.encerrar_cultivo(conn, cenario.iniciar(0)["id_cultivo"], cenario.ana)
+    assert (encerrado["status"], encerrado["id_encerrado_por"], encerrado["motivo_encerramento"]) == (
+        "encerrado", cenario.ana, None)
+    assert encerrado["encerrado_em"] >= encerrado["iniciado_em"]
+    assert repo.encerrar_cultivo(conn, encerrado["id_cultivo"], cenario.ana) is None
+    assert repo.cancelar_cultivo(conn, encerrado["id_cultivo"], cenario.ana, "x") is None
+    assert repo.encerrar_cultivo(conn, -1, cenario.ana) is None
+
+    aberto = cenario.iniciar(1)["id_cultivo"]
+    for motivo in (None, "  "):
+        with pytest.raises(errors.CheckViolation):
+            repo.cancelar_cultivo(conn, aberto, cenario.ana, motivo)
+    assert repo.buscar_cultivo(conn, aberto)["status"] == "em_andamento"
+    cancelado = repo.cancelar_cultivo(conn, aberto, cenario.ana, "placa queimou")
+    assert (cancelado["status"], cancelado["motivo_encerramento"]) == ("cancelado", "placa queimou")
+    # A célula fica livre para outro cultivo.
+    cenario.iniciar(1)
+
+
+def test_cancelar_experimento_cancela_os_cultivos_abertos(cenario):
+    conn, e = cenario.conn, cenario.experimento
+    ja_encerrado = repo.encerrar_cultivo(conn, cenario.iniciar(0)["id_cultivo"], cenario.henry, "fim")
+    cenario.iniciar(1)
+    cenario.iniciar(2)
+    cancelado = repo.cancelar_experimento(conn, e["id_experimento"], cenario.ana, "contaminação")
+    assert cancelado["status"] == "cancelado" and cancelado["encerrado_em"] is not None
+
+    cultivos = {c["id_cultivo"]: c for c in cenario.cultivos(e["id_experimento"])}
+    assert cultivos.pop(ja_encerrado["id_cultivo"]) == ja_encerrado
+    assert [(c["status"], c["motivo_encerramento"], c["id_encerrado_por"]) for c in cultivos.values()] == [
+        ("cancelado", "contaminação", cenario.ana)] * 2
+
+    with pytest.raises(repo.OperacaoRecusada):
+        repo.cancelar_experimento(conn, e["id_experimento"], cenario.ana, "de novo")
+    assert repo.cancelar_experimento(conn, -1, cenario.ana, "x") is None
+    with pytest.raises(ValueError):
+        repo.cancelar_experimento(conn, cenario.novo_experimento(cenario.ana)["id_experimento"], cenario.ana, " ")
+
+
+def test_cancelar_experimento_cadastrado_sem_cultivos(cenario):
+    cancelado = repo.cancelar_experimento(cenario.conn, cenario.experimento["id_experimento"], cenario.ana, "desistimos")
+    assert (cancelado["status"], cancelado["iniciado_em"]) == ("cancelado", None)
+
+
+def test_duplicar_copia_a_ficha_e_nada_mais(cenario):
+    conn = cenario.conn
+    original = cenario.novo_experimento(
+        cenario.ana, descricao="30 e 34 °C", duracao_prevista_dias=30, temperatura_alvo_c=30.0,
+        ph_ref_min=6.5, ph_ref_max=7.5, metadados={"organismo": "E. coli K-12"})
+    cenario.iniciar(0, original)
+    repo.conceder_acesso(conn, original["id_experimento"], cenario.henry, "edicao")
+
+    copia = repo.duplicar_experimento(conn, original["id_experimento"], cenario.henry)
+    assert {k: copia[k] for k in repo._CAMPOS_FICHA} == {k: original[k] for k in repo._CAMPOS_FICHA}
+    assert (copia["status"], copia["id_origem"], copia["id_responsavel"], copia["iniciado_em"]) == (
+        "cadastrado", original["id_experimento"], cenario.henry, None)
+    completa = repo.buscar_experimento(conn, copia["id_experimento"])
+    assert (completa["cultivos"], completa["acessos"]) == ([], [])
+    assert repo.duplicar_experimento(conn, -1, cenario.henry) is None
+
+
+def test_lista_mostra_so_os_do_responsavel_e_os_compartilhados(cenario):
+    conn = cenario.conn
+    meu = cenario.experimento["id_experimento"]
+    cenario.iniciar(0)
+    do_henry = cenario.novo_experimento(cenario.henry)["id_experimento"]
+    da_bia = cenario.novo_experimento(cenario.bia)["id_experimento"]
+    repo.conceder_acesso(conn, do_henry, cenario.ana, "leitura")
+
+    def ver(filtro):
+        return {e["id_experimento"]: (e["acesso"], e["cultivos_abertos"])
+                for e in repo.listar_experimentos_visiveis(conn, cenario.ana, filtro)}
+
+    assert ver("todos") == {meu: ("responsavel", 1), do_henry: ("leitura", 0)}
+    assert ver("meus") == {meu: ("responsavel", 1)}
+    assert ver("compartilhados") == {do_henry: ("leitura", 0)}
+    assert da_bia not in {e["id_experimento"] for e in repo.listar_experimentos_visiveis(conn, cenario.bia, "compartilhados")}
+    with pytest.raises(ValueError):
+        repo.listar_experimentos_visiveis(conn, cenario.ana, "outros")
+
+
+def test_conceder_de_novo_troca_a_permissao_e_revogar_tira(cenario):
+    conn, e = cenario.conn, cenario.experimento["id_experimento"]
+    assert repo.acesso_de(conn, e, cenario.ana) == "responsavel"
+    assert repo.acesso_de(conn, e, cenario.henry) is None
+    repo.conceder_acesso(conn, e, cenario.henry, "leitura")
+    assert repo.conceder_acesso(conn, e, cenario.henry, "edicao")["permissao"] == "edicao"
+    assert repo.acesso_de(conn, e, cenario.henry) == "edicao"
+    acessos = repo.buscar_experimento(conn, e)["acessos"]
+    assert [(a["id_pessoa"], a["permissao"]) for a in acessos] == [(cenario.henry, "edicao")]
+    assert "senha_hash" not in acessos[0]
+    assert repo.revogar_acesso(conn, e, cenario.henry) is True
+    assert repo.revogar_acesso(conn, e, cenario.henry) is False
+    assert repo.acesso_de(conn, e, cenario.henry) is None
+    assert repo.acesso_de(conn, -1, cenario.ana) is None
+
+
+def test_atualizar_experimento_muda_so_os_campos_recebidos(cenario):
+    conn, e = cenario.conn, cenario.experimento
+    depois = repo.atualizar_experimento(conn, e["id_experimento"], descricao="nova", metadados={"meio": "LB"})
+    assert (depois["descricao"], depois["metadados"], depois["nome"], depois["modo"]) == (
+        "nova", {"meio": "LB"}, e["nome"], e["modo"])
+    assert repo.atualizar_experimento(conn, e["id_experimento"]) == depois
+    assert repo.atualizar_experimento(conn, -1, nome="x") is None
+    with pytest.raises(ValueError):
+        repo.atualizar_experimento(conn, e["id_experimento"], id_responsavel=cenario.bia)
+
+
+def test_atualizar_cultivo_so_em_andamento(cenario):
+    conn = cenario.conn
+    cultivo = cenario.iniciar(0, condicao="30 °C")["id_cultivo"]
+    depois = repo.atualizar_cultivo(conn, cultivo, ph_ref_min=6.0, ph_ref_max=7.0)
+    assert (depois["ph_ref_min"], depois["ph_ref_max"], depois["condicao"]) == (6.0, 7.0, "30 °C")
+    with pytest.raises(errors.CheckViolation):
+        repo.atualizar_cultivo(conn, cultivo, ph_ref_min=8.0)
+    with pytest.raises(ValueError):
+        repo.atualizar_cultivo(conn, cultivo, id_celula=cenario.celulas[1])
+    repo.encerrar_cultivo(conn, cultivo, cenario.ana)
+    assert repo.atualizar_cultivo(conn, cultivo, condicao="34 °C") is None
+    assert repo.buscar_cultivo(conn, cultivo)["condicao"] == "30 °C"
+
+
+def test_leituras_do_cultivo_sao_as_do_periodo_e_nada_apaga_leituras(cenario):
+    conn, celula = cenario.conn, cenario.celulas[0]
+    cultivo = cenario.iniciar(0)
+    inicio = cultivo["iniciado_em"]
+    gravar = lambda seq, ts: repo.gravar_leitura(conn, celula, seq, ts, 30.0, 1000.0, 0.45, 7.0, None)
+    gravar(0, inicio - timedelta(minutes=1))
+    gravar(1, inicio)
+    gravar(2, inicio + timedelta(microseconds=1))
+    fim = repo.encerrar_cultivo(conn, cultivo["id_cultivo"], cenario.ana)["encerrado_em"]
+    gravar(3, fim)
+    gravar(4, fim + timedelta(minutes=1))
+
+    assert [l["seq"] for l in repo.listar_leituras_do_cultivo(conn, cultivo["id_cultivo"])] == [1, 2]
+    assert [l["seq"] for l in repo.listar_leituras_do_cultivo(conn, cultivo["id_cultivo"], desde=inicio, limite=1)] == [2]
+    assert set(repo.listar_leituras_do_cultivo(conn, cultivo["id_cultivo"])[0]) == set(repo.listar_leituras(conn, celula)[0])
+
+    # Cancelar, duplicar e cancelar o experimento não apagam nada.
+    cenario.iniciar(0)
+    repo.duplicar_experimento(conn, cenario.experimento["id_experimento"], cenario.ana)
+    repo.cancelar_experimento(conn, cenario.experimento["id_experimento"], cenario.ana, "fim")
+    assert [l["seq"] for l in repo.listar_leituras(conn, celula)] == [0, 1, 2, 3, 4]

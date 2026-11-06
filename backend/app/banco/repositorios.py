@@ -256,3 +256,323 @@ def listar_alertas(conn: psycopg.Connection, somente_abertos: bool = True) -> li
         """,
         (somente_abertos,),
     ).fetchall()
+
+
+# ---------------------------------------------------------------- pessoas
+
+# Colunas devolvidas ao resto do sistema. O resumo da senha fica de fora:
+# só buscar_pessoa_por_email o devolve, para conferir o login.
+_PESSOA = "id_pessoa, nome, email, criado_em"
+
+
+def criar_pessoa(conn: psycopg.Connection, nome: str, email: str, senha_hash: str) -> dict:
+    """Cadastra a pessoa. E-mail repetido levanta UniqueViolation."""
+    return conn.execute(
+        f"INSERT INTO pessoa (nome, email, senha_hash) VALUES (%s, %s, %s) RETURNING {_PESSOA}",
+        (nome, email, senha_hash),
+    ).fetchone()
+
+
+def buscar_pessoa_por_email(conn: psycopg.Connection, email: str) -> dict | None:
+    """Inclui senha_hash, para conferir o login. Não devolver isto na API."""
+    return conn.execute(
+        f"SELECT {_PESSOA}, senha_hash FROM pessoa WHERE email = %s", (email,)
+    ).fetchone()
+
+
+def buscar_pessoa(conn: psycopg.Connection, id_pessoa: int) -> dict | None:
+    return conn.execute(f"SELECT {_PESSOA} FROM pessoa WHERE id_pessoa = %s", (id_pessoa,)).fetchone()
+
+
+# ---------------------------------------------------------------- experimentos
+
+
+class OperacaoRecusada(Exception):
+    """A operação não vale para o estado atual do registro, por exemplo
+    iniciar um cultivo num experimento encerrado. Nada foi gravado."""
+
+
+# Campos da ficha que quem cria ou edita o experimento informa.
+_CAMPOS_FICHA = ("nome", "descricao", "modo", "duracao_prevista_dias", "temperatura_alvo_c",
+                 "ph_ref_min", "ph_ref_max", "metadados")
+
+
+def _valores_ficha(campos: dict) -> dict:
+    desconhecidos = set(campos) - set(_CAMPOS_FICHA)
+    if desconhecidos:
+        raise ValueError(f"campos fora da ficha do experimento: {sorted(desconhecidos)}")
+    return {k: json.dumps(v) if k == "metadados" else v for k, v in campos.items()}
+
+
+def criar_experimento(conn: psycopg.Connection, id_responsavel: int, **campos) -> dict:
+    """Experimento novo, sempre cadastrado e com o responsável informado.
+    `campos` são os da ficha (nome e modo obrigatórios)."""
+    valores = {**_valores_ficha(campos), "id_responsavel": id_responsavel}
+    return conn.execute(
+        f"""
+        INSERT INTO experimento ({", ".join(valores)})
+        VALUES ({", ".join(["%s"] * len(valores))}) RETURNING *
+        """,
+        tuple(valores.values()),
+    ).fetchone()
+
+
+def buscar_experimento(conn: psycopg.Connection, id_experimento: int) -> dict | None:
+    """O experimento com seus cultivos e com quem ele é compartilhado."""
+    experimento = conn.execute(
+        "SELECT * FROM experimento WHERE id_experimento = %s", (id_experimento,)
+    ).fetchone()
+    if experimento is None:
+        return None
+    experimento["cultivos"] = conn.execute(
+        "SELECT * FROM cultivo WHERE id_experimento = %s ORDER BY iniciado_em, id_cultivo",
+        (id_experimento,),
+    ).fetchall()
+    experimento["acessos"] = conn.execute(
+        """
+        SELECT a.id_pessoa, p.nome, p.email, a.permissao, a.concedido_em
+          FROM experimento_acesso a JOIN pessoa p USING (id_pessoa)
+         WHERE a.id_experimento = %s ORDER BY p.nome
+        """,
+        (id_experimento,),
+    ).fetchall()
+    return experimento
+
+
+def listar_experimentos_visiveis(conn: psycopg.Connection, id_pessoa: int,
+                                 filtro: str = "todos") -> list[dict]:
+    """Os experimentos de que a pessoa é responsável (`meus`), os
+    compartilhados com ela (`compartilhados`) ou os dois (`todos`). Cada um
+    diz o acesso da pessoa e quantos cultivos estão abertos."""
+    if filtro not in ("todos", "meus", "compartilhados"):
+        raise ValueError(f"filtro desconhecido: {filtro!r}")
+    return conn.execute(
+        """
+        SELECT e.*,
+               CASE WHEN e.id_responsavel = %(p)s THEN 'responsavel' ELSE a.permissao END AS acesso,
+               (SELECT count(*) FROM cultivo c
+                 WHERE c.id_experimento = e.id_experimento AND c.status = 'em_andamento') AS cultivos_abertos
+          FROM experimento e
+          LEFT JOIN experimento_acesso a ON a.id_experimento = e.id_experimento AND a.id_pessoa = %(p)s
+         WHERE (e.id_responsavel = %(p)s AND %(f)s IN ('todos', 'meus'))
+            OR (e.id_responsavel <> %(p)s AND a.id_pessoa IS NOT NULL AND %(f)s IN ('todos', 'compartilhados'))
+         ORDER BY e.criado_em DESC, e.id_experimento DESC
+        """,
+        {"p": id_pessoa, "f": filtro},
+    ).fetchall()
+
+
+def acesso_de(conn: psycopg.Connection, id_experimento: int, id_pessoa: int) -> str | None:
+    """responsavel, edicao, leitura, ou None se a pessoa não tem acesso
+    (ou o experimento não existe)."""
+    linha = conn.execute(
+        """
+        SELECT CASE WHEN e.id_responsavel = %s THEN 'responsavel' ELSE a.permissao END AS acesso
+          FROM experimento e
+          LEFT JOIN experimento_acesso a ON a.id_experimento = e.id_experimento AND a.id_pessoa = %s
+         WHERE e.id_experimento = %s
+        """,
+        (id_pessoa, id_pessoa, id_experimento),
+    ).fetchone()
+    return linha and linha["acesso"]
+
+
+def atualizar_experimento(conn: psycopg.Connection, id_experimento: int, **campos) -> dict | None:
+    """Altera só os campos da ficha recebidos. O que pode ser alterado em
+    cada status é decidido pela API."""
+    valores = _valores_ficha(campos)
+    if not valores:
+        return conn.execute(
+            "SELECT * FROM experimento WHERE id_experimento = %s", (id_experimento,)
+        ).fetchone()
+    return conn.execute(
+        f"""
+        UPDATE experimento SET {", ".join(f"{coluna} = %s" for coluna in valores)}
+         WHERE id_experimento = %s RETURNING *
+        """,
+        (*valores.values(), id_experimento),
+    ).fetchone()
+
+
+def cancelar_experimento(conn: psycopg.Connection, id_experimento: int, id_pessoa: int,
+                         motivo: str) -> dict | None:
+    """Cancela o experimento e, junto, os cultivos abertos, com o mesmo
+    motivo. Só vale para experimento cadastrado ou em andamento. Nada é
+    apagado. None se o experimento não existe."""
+    if not motivo or not motivo.strip():
+        raise ValueError("cancelar um experimento exige motivo")
+    with conn.transaction():
+        experimento = conn.execute(
+            "SELECT status FROM experimento WHERE id_experimento = %s FOR UPDATE", (id_experimento,)
+        ).fetchone()
+        if experimento is None:
+            return None
+        if experimento["status"] not in ("cadastrado", "em_andamento"):
+            raise OperacaoRecusada(f"o experimento já está {experimento['status']}")
+        conn.execute(
+            """
+            UPDATE cultivo
+               SET status = 'cancelado', encerrado_em = now(),
+                   motivo_encerramento = %s, id_encerrado_por = %s
+             WHERE id_experimento = %s AND status = 'em_andamento'
+            """,
+            (motivo, id_pessoa, id_experimento),
+        )
+        return conn.execute(
+            """
+            UPDATE experimento SET status = 'cancelado', encerrado_em = now()
+             WHERE id_experimento = %s RETURNING *
+            """,
+            (id_experimento,),
+        ).fetchone()
+
+
+def duplicar_experimento(conn: psycopg.Connection, id_experimento: int, id_pessoa: int) -> dict | None:
+    """Cópia cadastrada da ficha, com a pessoa como responsável. Cultivos,
+    leituras e acessos não são copiados. None se o original não existe."""
+    colunas = ", ".join(_CAMPOS_FICHA)
+    return conn.execute(
+        f"""
+        INSERT INTO experimento ({colunas}, id_responsavel, id_origem)
+        SELECT {colunas}, %s, id_experimento FROM experimento WHERE id_experimento = %s
+        RETURNING *
+        """,
+        (id_pessoa, id_experimento),
+    ).fetchone()
+
+
+# ---------------------------------------------------------------- acessos
+
+
+def conceder_acesso(conn: psycopg.Connection, id_experimento: int, id_pessoa: int,
+                    permissao: str) -> dict:
+    """Concede o acesso ou, se a pessoa já tem, troca a permissão."""
+    return conn.execute(
+        """
+        INSERT INTO experimento_acesso (id_experimento, id_pessoa, permissao) VALUES (%s, %s, %s)
+        ON CONFLICT (id_experimento, id_pessoa) DO UPDATE SET permissao = EXCLUDED.permissao
+        RETURNING *
+        """,
+        (id_experimento, id_pessoa, permissao),
+    ).fetchone()
+
+
+def revogar_acesso(conn: psycopg.Connection, id_experimento: int, id_pessoa: int) -> bool:
+    return conn.execute(
+        "DELETE FROM experimento_acesso WHERE id_experimento = %s AND id_pessoa = %s",
+        (id_experimento, id_pessoa),
+    ).rowcount == 1
+
+
+# ---------------------------------------------------------------- cultivos
+
+
+def iniciar_cultivo(conn: psycopg.Connection, id_experimento: int, id_celula: str, id_pessoa: int,
+                    condicao: str | None = None, replica: int | None = None,
+                    continua_de: int | None = None) -> dict | None:
+    """Põe a célula no experimento a partir de agora, com a faixa de pH do
+    experimento. O primeiro cultivo passa o experimento a em andamento.
+
+    Célula já ocupada levanta ExclusionViolation e nada é gravado.
+    Experimento encerrado ou cancelado levanta OperacaoRecusada.
+    None se o experimento não existe."""
+    with conn.transaction():
+        # A trava impede que o experimento seja cancelado no meio do caminho.
+        experimento = conn.execute(
+            "SELECT status, ph_ref_min, ph_ref_max FROM experimento WHERE id_experimento = %s FOR UPDATE",
+            (id_experimento,),
+        ).fetchone()
+        if experimento is None:
+            return None
+        if experimento["status"] not in ("cadastrado", "em_andamento"):
+            raise OperacaoRecusada(f"o experimento está {experimento['status']}")
+        cultivo = conn.execute(
+            """
+            INSERT INTO cultivo (id_experimento, id_celula, condicao, replica,
+                                 ph_ref_min, ph_ref_max, id_iniciado_por, continua_de)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *
+            """,
+            (id_experimento, id_celula, condicao, replica,
+             experimento["ph_ref_min"], experimento["ph_ref_max"], id_pessoa, continua_de),
+        ).fetchone()
+        conn.execute(
+            """
+            UPDATE experimento SET status = 'em_andamento', iniciado_em = %s
+             WHERE id_experimento = %s AND status = 'cadastrado'
+            """,
+            (cultivo["iniciado_em"], id_experimento),
+        )
+    return cultivo
+
+
+def _fechar_cultivo(conn: psycopg.Connection, id_cultivo: int, status: str, id_pessoa: int,
+                    motivo: str | None) -> dict | None:
+    return conn.execute(
+        """
+        UPDATE cultivo
+           SET status = %s, encerrado_em = now(), motivo_encerramento = %s, id_encerrado_por = %s
+         WHERE id_cultivo = %s AND status = 'em_andamento' RETURNING *
+        """,
+        (status, motivo, id_pessoa, id_cultivo),
+    ).fetchone()
+
+
+def encerrar_cultivo(conn: psycopg.Connection, id_cultivo: int, id_pessoa: int,
+                     motivo: str | None = None) -> dict | None:
+    """Tira a célula do experimento a partir de agora. None se o cultivo
+    não existe ou não estava em andamento."""
+    return _fechar_cultivo(conn, id_cultivo, "encerrado", id_pessoa, motivo)
+
+
+def cancelar_cultivo(conn: psycopg.Connection, id_cultivo: int, id_pessoa: int,
+                     motivo: str) -> dict | None:
+    """Como encerrar, marcando que o cultivo não valeu. Sem motivo, o banco
+    recusa (CheckViolation). Nada é apagado."""
+    return _fechar_cultivo(conn, id_cultivo, "cancelado", id_pessoa, motivo)
+
+
+_CAMPOS_CULTIVO = ("condicao", "replica", "ph_ref_min", "ph_ref_max")
+
+
+def atualizar_cultivo(conn: psycopg.Connection, id_cultivo: int, **campos) -> dict | None:
+    """Altera só os campos recebidos, e só em cultivo em andamento. None se
+    o cultivo não existe ou já foi fechado."""
+    desconhecidos = set(campos) - set(_CAMPOS_CULTIVO)
+    if desconhecidos:
+        raise ValueError(f"campos que não podem ser alterados no cultivo: {sorted(desconhecidos)}")
+    if not campos:
+        return conn.execute(
+            "SELECT * FROM cultivo WHERE id_cultivo = %s AND status = 'em_andamento'", (id_cultivo,)
+        ).fetchone()
+    return conn.execute(
+        f"""
+        UPDATE cultivo SET {", ".join(f"{coluna} = %s" for coluna in campos)}
+         WHERE id_cultivo = %s AND status = 'em_andamento' RETURNING *
+        """,
+        (*campos.values(), id_cultivo),
+    ).fetchone()
+
+
+def buscar_cultivo(conn: psycopg.Connection, id_cultivo: int) -> dict | None:
+    return conn.execute("SELECT * FROM cultivo WHERE id_cultivo = %s", (id_cultivo,)).fetchone()
+
+
+def cultivo_aberto_da_celula(conn: psycopg.Connection, id_celula: str) -> dict | None:
+    return conn.execute(
+        "SELECT * FROM cultivo WHERE id_celula = %s AND status = 'em_andamento'", (id_celula,)
+    ).fetchone()
+
+
+def listar_leituras_do_cultivo(conn: psycopg.Connection, id_cultivo: int,
+                               desde: datetime | None = None, limite: int = 1000) -> list[dict]:
+    """Leituras medidas no período do cultivo, na mesma forma de listar_leituras."""
+    return conn.execute(
+        """
+        SELECT seq, ts_origem, ts_recebido, temperatura_c, od_bruto, od, ph, id_calibracao
+          FROM leitura_cultivo
+         WHERE id_cultivo = %s AND (%s::timestamptz IS NULL OR ts_origem >= %s)
+         ORDER BY seq DESC
+         LIMIT %s
+        """,
+        (id_cultivo, desde, desde, limite),
+    ).fetchall()[::-1]
