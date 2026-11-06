@@ -25,7 +25,9 @@ class Tratador:
     def __init__(self, conn: psycopg.Connection):
         self.conn = conn
         self._curvas: dict[str, tuple[float, Curva | None]] = {}
-        self.contagem = {"gravadas": 0, "duplicadas": 0, "invalidas": 0}
+        # (célula, campo) já avisados no log, para não repetir a cada leitura.
+        self._extras_avisados: set[tuple[str, str]] = set()
+        self.contagem = {"gravadas": 0, "duplicadas": 0, "colisoes": 0, "invalidas": 0}
 
     def tratar(self, topico: str, payload: bytes) -> None:
         try:
@@ -53,17 +55,27 @@ class Tratador:
 
     def _estado(self, id_celula: str, msg: Estado) -> None:
         sensores = msg.sensores if msg.estado == "online" else None
-        if repo.registrar_celula(self.conn, id_celula, msg.estado, sensores):
+        if repo.registrar_celula(self.conn, id_celula, msg.estado, sensores, firmware=msg.versao):
             log.info("célula nova cadastrada: %s", id_celula)
         log.info("célula %s %s", id_celula, msg.estado)
 
     def _leitura(self, id_celula: str, msg: Leitura) -> None:
         curva = self._curva(id_celula)
-        gravou = repo.gravar_leitura(
+        extras = msg.model_extra or None
+        if extras:
+            novos = sorted(campo for campo in extras if (id_celula, campo) not in self._extras_avisados)
+            if novos:
+                self._extras_avisados.update((id_celula, campo) for campo in novos)
+                log.warning("célula %s mandou campos fora do contrato, guardados em extras: %s",
+                            id_celula, ", ".join(novos))
+        resultado = repo.gravar_leitura(
             self.conn, id_celula, msg.seq, msg.ts, msg.temperatura_c,
-            msg.od_bruto, converter(msg.od_bruto, curva), msg.ph, curva,
+            msg.od_bruto, converter(msg.od_bruto, curva), msg.ph, curva, extras=extras,
         )
-        self.contagem["gravadas" if gravou else "duplicadas"] += 1
+        if resultado == "colisao":
+            log.warning("colisão de seq na célula %s: seq %d chegou com outro horário, "
+                        "a leitura original foi mantida", id_celula, msg.seq)
+        self.contagem[{"gravada": "gravadas", "duplicada": "duplicadas", "colisao": "colisoes"}[resultado]] += 1
 
     def _curva(self, id_celula: str) -> Curva | None:
         agora = time.monotonic()

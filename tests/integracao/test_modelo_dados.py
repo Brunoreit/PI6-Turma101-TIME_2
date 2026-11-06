@@ -629,3 +629,93 @@ def test_leituras_do_cultivo_sao_as_do_periodo_e_nada_apaga_leituras(cenario):
     repo.duplicar_experimento(conn, cenario.experimento["id_experimento"], cenario.ana)
     repo.cancelar_experimento(conn, cenario.experimento["id_experimento"], cenario.ana, "fim")
     assert [l["seq"] for l in repo.listar_leituras(conn, celula)] == [0, 1, 2, 3, 4]
+
+
+# ------------------------------------------------------------------ consumidor
+#
+# O tratador do consumidor de verdade, com o banco do teste e sem broker:
+# recebe o tópico e o payload como o cliente MQTT os entregaria.
+
+
+@pytest.fixture
+def tratador(banco):
+    from app.consumidor.tratadores import Tratador
+
+    return Tratador(banco)
+
+
+@pytest.fixture
+def celula(banco):
+    id_celula = f"m{uuid.uuid4().hex[:6]}"
+    repo.registrar_celula(banco, id_celula, "online")
+    return id_celula
+
+
+def _leitura(seq: int, ts: datetime, **campos) -> bytes:
+    from contrato import Leitura
+
+    return Leitura(seq=seq, ts=ts, **{"temperatura_c": 30.0, "od_bruto": 1000.0, "ph": 7.0, **campos}).para_json()
+
+
+def test_gravar_leitura_distingue_gravada_duplicada_e_colisao(banco, celula):
+    gravar = lambda ts, temperatura: repo.gravar_leitura(banco, celula, 0, ts, temperatura, 1000.0, 0.45, 7.0, None)
+    assert gravar(T0, 30.0) == "gravada"
+    assert gravar(T0, 30.0) == "duplicada"
+    assert not banco.execute("SELECT 1 FROM alerta WHERE id_celula = %s", (celula,)).fetchone()
+
+    # Ainda conta como sinal de vida da célula, como antes (D1).
+    banco.execute("UPDATE celula SET ultimo_contato = %s WHERE id_celula = %s", (T0, celula))
+    assert gravar(T0, 30.0) == "duplicada"
+    assert banco.execute("SELECT ultimo_contato FROM celula WHERE id_celula = %s", (celula,)).fetchone()["ultimo_contato"] > T0
+
+    assert gravar(T0 + DIA, 99.0) == "colisao"
+    assert gravar(T0 + 2 * DIA, 98.0) == "colisao"
+    alertas = banco.execute("SELECT tipo, mensagem FROM alerta WHERE id_celula = %s AND fechado_em IS NULL",
+                            (celula,)).fetchall()
+    assert [a["tipo"] for a in alertas] == ["colisao_seq"]
+    assert "seq 0" in alertas[0]["mensagem"]
+    original = banco.execute("SELECT ts_origem, temperatura_c FROM leitura WHERE id_celula = %s AND seq = 0",
+                             (celula,)).fetchone()
+    assert (original["ts_origem"], original["temperatura_c"]) == (T0, 30.0)
+
+
+def test_consumidor_grava_campos_a_mais_em_extras(tratador, banco, celula, caplog):
+    from contrato import topicos
+
+    topico = topicos.leitura(celula)
+    tratador.tratar(topico, _leitura(0, T0, o2_pct=21.0, agitacao_rpm=300))
+    tratador.tratar(topico, _leitura(1, T0 + DIA, o2_pct=20.5))
+    linhas = banco.execute("SELECT seq, temperatura_c, extras FROM leitura WHERE id_celula = %s ORDER BY seq",
+                           (celula,)).fetchall()
+    assert [(l["seq"], l["temperatura_c"], l["extras"]) for l in linhas] == [
+        (0, 30.0, {"o2_pct": 21.0, "agitacao_rpm": 300}), (1, 30.0, {"o2_pct": 20.5})]
+    assert tratador.contagem == {"gravadas": 2, "duplicadas": 0, "colisoes": 0, "invalidas": 0}
+    # Um aviso por campo e célula, não um por leitura.
+    avisos = [r.getMessage() for r in caplog.records if "fora do contrato" in r.getMessage()]
+    assert avisos == [f"célula {celula} mandou campos fora do contrato, guardados em extras: agitacao_rpm, o2_pct"]
+
+
+def test_consumidor_aceita_ph_fora_de_0_a_14_e_conta_colisao(tratador, banco, celula):
+    from contrato import topicos
+
+    topico = topicos.leitura(celula)
+    tratador.tratar(topico, _leitura(0, T0, ph=15.2))
+    tratador.tratar(topico, _leitura(0, T0, ph=15.2))
+    tratador.tratar(topico, _leitura(0, T0 + DIA))
+    tratador.tratar(topico, b'{"seq": -1, "ts": "2026-11-01T00:00:00Z"}')
+    assert banco.execute("SELECT ph, extras FROM leitura WHERE id_celula = %s", (celula,)).fetchone() == {
+        "ph": 15.2, "extras": None}
+    assert tratador.contagem == {"gravadas": 1, "duplicadas": 1, "colisoes": 1, "invalidas": 1}
+
+
+def test_consumidor_grava_o_firmware_e_offline_nao_o_apaga(tratador, banco, celula):
+    from contrato import topicos
+
+    firmware = lambda: banco.execute("SELECT firmware FROM celula WHERE id_celula = %s", (celula,)).fetchone()["firmware"]
+    tratador.tratar(topicos.estado(celula), b'{"estado": "online", "versao": "fw-1.0"}')
+    assert firmware() == "fw-1.0"
+    tratador.tratar(topicos.estado(celula), b'{"estado": "offline"}')
+    tratador.tratar(topicos.estado(celula), b'{"estado": "online"}')
+    assert firmware() == "fw-1.0"
+    tratador.tratar(topicos.estado(celula), b'{"estado": "online", "versao": "fw-1.1"}')
+    assert firmware() == "fw-1.1"

@@ -32,16 +32,27 @@ def test_leitura_ida_e_volta_em_json():
     assert Leitura.de_json(original.para_json()) == original
 
 
-def test_leitura_rejeita_campo_desconhecido():
-    with pytest.raises(ValidationError):
-        Leitura.de_json(b'{"seq": 1, "ts": "2026-10-06T00:00:00Z", "temperatura": 30}')
+def test_leitura_aceita_campo_desconhecido_e_o_guarda_a_parte():
+    leitura = Leitura.de_json(b'{"seq": 1, "ts": "2026-10-06T00:00:00Z", "temperatura": 30}')
+    assert leitura.model_extra == {"temperatura": 30}
+    assert leitura.temperatura_c is None
 
 
-def test_leitura_rejeita_seq_negativo_e_ph_impossivel():
+def test_leitura_aceita_qualquer_ph_e_rejeita_seq_negativo():
+    for ph in (15, -1):
+        assert Leitura(seq=1, ts=datetime.now(timezone.utc), ph=ph).ph == ph
     with pytest.raises(ValidationError):
         Leitura(seq=-1, ts=datetime.now(timezone.utc))
+
+
+@pytest.mark.parametrize("modelo, payload", [
+    (Estado, b'{"estado": "online", "firmware": "1.0"}'),
+    (PedidoSetpoint, b'{"id": "sp-1", "temperatura_c": 37, "urgente": true}'),
+    (RespostaSetpoint, b'{"id": "sp-1", "estado": "aplicado", "obs": "ok"}'),
+])
+def test_outras_mensagens_rejeitam_campo_desconhecido(modelo, payload):
     with pytest.raises(ValidationError):
-        Leitura(seq=1, ts=datetime.now(timezone.utc), ph=15)
+        modelo.de_json(payload)
 
 
 def test_estado_e_setpoint():

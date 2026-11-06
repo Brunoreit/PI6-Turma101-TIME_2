@@ -6,6 +6,7 @@ mudança no modelo de dados se resolve num lugar só.
 
 import json
 from datetime import datetime
+from typing import Literal
 
 import psycopg
 
@@ -15,22 +16,24 @@ from app.calibracao.conversao import Curva
 
 
 def registrar_celula(conn: psycopg.Connection, id_celula: str, estado: str,
-                     sensores: list[str] | None = None) -> bool:
-    """Cria a célula se ainda não existe e atualiza o estado.
-    Na criação, já cadastra a calibração padrão. Devolve True se a célula é nova."""
+                     sensores: list[str] | None = None, firmware: str | None = None) -> bool:
+    """Cria a célula se ainda não existe e atualiza o estado e, quando
+    informado, o firmware. Na criação, já cadastra a calibração padrão.
+    Devolve True se a célula é nova."""
     with conn.transaction():
         nova = conn.execute(
             """
-            INSERT INTO celula (id_celula, estado, sensores, ultimo_contato)
-            VALUES (%s, %s, %s, now())
+            INSERT INTO celula (id_celula, estado, sensores, firmware, ultimo_contato)
+            VALUES (%s, %s, %s, %s, now())
             ON CONFLICT (id_celula) DO UPDATE
                SET estado = EXCLUDED.estado,
                    sensores = CASE WHEN %s THEN EXCLUDED.sensores ELSE celula.sensores END,
+                   firmware = coalesce(EXCLUDED.firmware, celula.firmware),
                    ultimo_contato = CASE WHEN EXCLUDED.estado = 'online'
                                          THEN now() ELSE celula.ultimo_contato END
             RETURNING (xmax = 0) AS nova
             """,
-            (id_celula, estado, json.dumps(sensores or []), sensores is not None),
+            (id_celula, estado, json.dumps(sensores or []), firmware, sensores is not None),
         ).fetchone()["nova"]
         if nova:
             conn.execute(
@@ -70,23 +73,45 @@ def celula_existe(conn: psycopg.Connection, id_celula: str) -> bool:
 
 
 def gravar_leitura(conn: psycopg.Connection, id_celula: str, seq: int, ts: datetime,
-                   temperatura_c, od_bruto, od, ph, curva: Curva | None) -> bool:
-    """Grava a leitura. Devolve False se ela já existia (duplicata descartada)."""
+                   temperatura_c, od_bruto, od, ph, curva: Curva | None,
+                   extras: dict | None = None) -> Literal["gravada", "duplicada", "colisao"]:
+    """Grava a leitura e devolve o que aconteceu:
+
+    gravada    leitura nova.
+    duplicada  o seq já estava gravado com o mesmo ts: é um reenvio, descartado.
+    colisao    o seq já estava gravado com outro ts: são medições diferentes
+               com o mesmo número. A original fica e o alerta colisao_seq é aberto.
+
+    Em todos os casos a célula conta como tendo dado sinal de vida."""
     with conn.transaction():
         gravou = conn.execute(
             """
             INSERT INTO leitura (id_celula, seq, ts_origem, temperatura_c,
-                                 od_bruto, od, ph, id_calibracao)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                 od_bruto, od, ph, id_calibracao, extras)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id_celula, seq) DO NOTHING
             """,
             (id_celula, seq, ts, temperatura_c, od_bruto, od, ph,
-             curva.id_calibracao if curva else None),
+             curva.id_calibracao if curva else None, json.dumps(extras) if extras else None),
         ).rowcount == 1
         conn.execute(
             "UPDATE celula SET ultimo_contato = now() WHERE id_celula = %s", (id_celula,)
         )
-    return gravou
+        if gravou:
+            return "gravada"
+        original = conn.execute(
+            "SELECT ts_origem, ts_origem = %s AS mesmo_ts FROM leitura WHERE id_celula = %s AND seq = %s",
+            (ts, id_celula, seq),
+        ).fetchone()
+        if original["mesmo_ts"]:
+            return "duplicada"
+        abrir_alerta(
+            conn, id_celula, "colisao_seq",
+            f"A leitura seq {seq} chegou de novo com outro horário "
+            f"({ts.isoformat()}, a gravada é de {original['ts_origem'].isoformat()}). "
+            "A original foi mantida.",
+        )
+        return "colisao"
 
 
 def listar_leituras(conn: psycopg.Connection, id_celula: str,
