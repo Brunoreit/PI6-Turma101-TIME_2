@@ -1020,6 +1020,19 @@ Registro das decisões tomadas durante a implementação. Onde contradizem o tex
 
 Comportamento atual da rota `POST /celulas/{id}/setpoint`, que a D6 segue: se o broker cai depois da checagem `is_connected()`, o pedido já está gravado como `solicitado`, o paho guarda a mensagem e a envia sozinho ao reconectar, a rota registra um aviso no log e responde 202 com o pedido. O mesmo vale quando o broker não confirma em 5 s. Se a mensagem nunca chegar, as regras abrem `setpoint_sem_confirmacao`.
 
+### Decisões da etapa 2 (repositórios, 06/11/2026)
+
+| Ponto | Decisão |
+|---|---|
+| Recusa por status | `repositorios.OperacaoRecusada` é levantada quando a operação não vale para o status atual (por exemplo, iniciar cultivo num experimento encerrado ou cancelado). Nada é gravado. A API traduz para 409 (etapa 7a) |
+| `cancelar_experimento` | Só para experimento `cadastrado` ou `em_andamento`; motivo vazio é recusado. O motivo vai para os cultivos cancelados e também para `experimento.metadados`, na chave `motivo_cancelamento`, na mesma transação. Sem coluna nova |
+| `continua_de` | Só a FK. Pode apontar para cultivo de outro experimento ou ainda aberto; nenhuma restrição extra no MVP |
+| `atualizar_experimento` | Genérica: altera só os campos da ficha recebidos, sem as regras de P-3, que ficam na API |
+| `senha_hash` | Só `buscar_pessoa_por_email` o devolve, para conferir o login. As demais funções de pessoa e a lista de acessos nunca o devolvem |
+| E-mail | Normalizado só na API. Os repositórios não normalizam; o CHECK do banco recusa o que escapar |
+| `listar_leituras_do_cultivo` | Mesmas colunas de `listar_leituras`, sem `extras` |
+| `atualizar_celula` | Fica para a etapa 7a, junto com o `PATCH /celulas/{id}` |
+
 ### Correções do texto
 
 | Onde | Texto atual | Correção |
