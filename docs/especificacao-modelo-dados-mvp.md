@@ -999,3 +999,42 @@ Este é o fluxo que os testes da etapa 7 devem cobrir de ponta a ponta. Ele cont
 10. Ana: `POST /experimentos/1/duplicar` → EXP-02 `cadastrado`, `id_origem = 1`, sem cultivos.
 
 > No Compose de teste, a c03 está em modo `ignorar_setpoint`. Se o passo 8 depender do setpoint da c03 chegar a `aplicado`, usar outra célula livre ou verificar só a criação do pedido.
+
+---
+
+## Decisões da implementação
+
+Registro das decisões tomadas durante a implementação. Onde contradizem o texto acima, valem estas. O texto acima será corrigido na etapa 8.
+
+### Decisões sobre as divergências da etapa 0 (06/11/2026)
+
+| # | Ponto | Decisão | Etapa |
+|---|---|---|---|
+| D1 | E.5 dizia que `gravar_leitura` atualiza `ultimo_contato` só quando insere ("como hoje"), mas hoje atualiza sempre | Manter o comportamento atual: `ultimo_contato` é atualizado também em duplicatas e colisões. A E.5 estava errada | 3 |
+| D2 | `SEGREDO_SESSAO` obrigatório, mas o modo local do teste (`ambiente.py`) não define a variável, e `config.py` é lido pelos três processos | `ambiente.py` ganha `SEGREDO_SESSAO` com valor de teste. A obrigatoriedade é checada só no `ciclo_de_vida` da API. No Compose, a variável vai só no serviço `api`, não na âncora `x-backend` | 6 |
+| D3 | `AmbienteCompose` não isolava a porta da interface: o teste falhava com um `docker compose up` de desenvolvimento no ar (porta 8080) | `PORTA_INTERFACE: 58080` em `AmbienteCompose.PORTAS`. Mudança mínima, só na infraestrutura de teste | 1 (feito) |
+| D4 | No Apêndice A, o `CREATE EXTENSION` vinha antes da guarda da tabela antiga: com dados nela, o script parava, mas a extensão já tinha sido instalada | O bloco `DO` vem antes do `CREATE EXTENSION`. Com dados na tabela antiga, o script para sem mudar nada | 1 (feito) |
+| D5 | `PATCH /celulas/{id}` aceita `descricao`, mas `GET /celulas` não a devolve | `GET /celulas` passa a devolver também `descricao` | 5 |
+| D6 | RN-02/RN-03 não diziam o que fazer se o broker cair depois do commit do cultivo | O cultivo fica criado. A resposta é 201 com o cultivo, o pedido de setpoint e o campo `setpoint_confirmado` (`true`/`false`), ligado ao mesmo `is_published()` da rota de setpoint. Sem 503 depois do commit. A rota `POST /celulas/{id}/setpoint` não muda. O `solicitado_por` do pedido é o nome da pessoa logada | 7b |
+| D7 | RN-18/E.6: um cultivo aberto sem leitura de pH no período deixava aberto o alerta herdado de um cultivo anterior; "última leitura" não estava definida | Se o cultivo aberto não tiver nenhuma leitura com pH no seu período, o alerta `ph_fora_da_faixa` da célula é fechado. "Última leitura" é a de maior `ts_origem` dentro do período do cultivo | 4 |
+
+Comportamento atual da rota `POST /celulas/{id}/setpoint`, que a D6 segue: se o broker cai depois da checagem `is_connected()`, o pedido já está gravado como `solicitado`, o paho guarda a mensagem e a envia sozinho ao reconectar, a rota registra um aviso no log e responde 202 com o pedido. O mesmo vale quando o broker não confirma em 5 s. Se a mensagem nunca chegar, as regras abrem `setpoint_sem_confirmacao`.
+
+### Correções do texto
+
+| Onde | Texto atual | Correção |
+|---|---|---|
+| D.1 (Schema) | `01_tabelas.sql` "cria as 7 tabelas" | O 01 criava 6 tabelas (a `calibracao_padrao` vem do 02). Sem a `experimento` antiga, passa a criar 5 |
+| D.2 e E.8 | A API é montada sob `/api` | O FastAPI não tem prefixo. Quem retira o `/api` é o proxy do Vite (`interface/vite.config.ts`) e o `interface/nginx.conf`. As rotas novas ficam na raiz (por exemplo, `/auth/entrar`) |
+| E.5 | Atualizar `ultimo_contato` só se inseriu | Ver D1 |
+| RN-02, RN-03, E.8 | Sem resposta para broker caindo depois do commit | Ver D6 |
+| RN-18, E.6 | Passo 3: sem leitura com pH no período, não faz nada | Ver D7 |
+| Apêndice A | `CREATE EXTENSION` antes do bloco `DO` | Ver D4 |
+
+### Plano aprovado
+
+- Ordem das etapas mantida (1 a 8).
+- **Etapa 4:** ganha uma etapa no ponta a ponta sem mudar o simulador: um cultivo na c01 com faixa que exclui o pH simulado (entre 6,7 e 7,0) abre o alerta; trocar a faixa para uma que o inclui fecha.
+- **Etapa 7** dividida em **7a** (rotas de experimentos, acessos e cultivos, sem setpoint) e **7b** (setpoint ao iniciar cultivo, D6, G.8 e a etapa no ponta a ponta).
+- `APIRouter` em módulos novos só depois de perguntar.
+- P-2, P-3, P-9 e P-13 continuam abertas. Nada que dependa delas é implementado antes da resposta.
