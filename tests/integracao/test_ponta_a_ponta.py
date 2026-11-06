@@ -5,7 +5,8 @@ a conexão de uma célula, o consumidor e o broker, e confere que o histórico
 no banco ficou completo e sem repetições. Depois envia setpoints e confere
 os estados solicitado, recebido, aplicado e atingido, e o alerta quando a
 célula não responde. Por fim, confere a colisão de seq, o firmware
-anunciado pelas células e o reenvio idêntico de uma leitura.
+anunciado pelas células, o reenvio idêntico de uma leitura e o alerta de pH
+fora da faixa do cultivo.
 
 As etapas rodam em ordem e dependem umas das outras, como um roteiro.
 
@@ -257,7 +258,31 @@ def test_12_reenvio_identico_nao_abre_alerta(ambiente, banco):
     assert historico_completo(banco)
 
 
-def test_13_integridade_final(ambiente, banco):
+def test_13_ph_fora_da_faixa_do_cultivo_abre_alerta(banco):
+    """Põe a c01 num cultivo com faixa de pH que exclui o pH simulado (entre
+    6,7 e 7,0) e espera o processo de regras abrir o alerta. Depois só muda
+    a faixa, e o alerta fecha; volta a faixa, e o alerta reabre; encerrar o
+    cultivo fecha. O simulador não muda. A API de experimentos ainda não
+    existe, então o cultivo é criado pelos repositórios."""
+    from app.banco import repositorios as repo
+
+    pessoa = repo.criar_pessoa(banco, "Teste", "teste-ph@cnpem.br", "x")["id_pessoa"]
+    experimento = repo.criar_experimento(banco, pessoa, nome="pH", modo="curva_crescimento",
+                                         ph_ref_min=7.5, ph_ref_max=8.0)
+    cultivo = repo.iniciar_cultivo(banco, experimento["id_experimento"], "c01", pessoa)["id_cultivo"]
+    esperar(lambda: alerta_aberto(banco, "c01", "ph_fora_da_faixa"), 15, "alerta de pH fora da faixa na c01")
+
+    repo.atualizar_cultivo(banco, cultivo, ph_ref_min=6.0, ph_ref_max=7.5)
+    esperar(lambda: not alerta_aberto(banco, "c01", "ph_fora_da_faixa"), 15, "alerta de pH fechar com a faixa nova")
+
+    repo.atualizar_cultivo(banco, cultivo, ph_ref_min=7.5, ph_ref_max=8.0)
+    esperar(lambda: alerta_aberto(banco, "c01", "ph_fora_da_faixa"), 15, "alerta de pH reabrir")
+    repo.encerrar_cultivo(banco, cultivo, pessoa)
+    esperar(lambda: not alerta_aberto(banco, "c01", "ph_fora_da_faixa"), 15, "alerta de pH fechar ao encerrar o cultivo")
+    assert not any(alerta_aberto(banco, c, "ph_fora_da_faixa") for c in CELULAS)
+
+
+def test_14_integridade_final(ambiente, banco):
     integridade = requests.get(f"{ambiente.url_api}/integridade", timeout=5).json()
     assert len(integridade) == len(CELULAS)
     assert all(linha["completo"] for linha in integridade), integridade

@@ -719,3 +719,114 @@ def test_consumidor_grava_o_firmware_e_offline_nao_o_apaga(tratador, banco, celu
     assert firmware() == "fw-1.0"
     tratador.tratar(topicos.estado(celula), b'{"estado": "online", "versao": "fw-1.1"}')
     assert firmware() == "fw-1.1"
+
+
+# ------------------------------------------------------------------ regra ph_fora_da_faixa
+#
+# Chama a regra direto. O processo de regras do ambiente roda a mesma
+# função a cada segundo, então os dois chegam sempre ao mesmo resultado.
+
+
+def _alertas_ph(conn, id_celula: str) -> list[dict]:
+    return conn.execute(
+        "SELECT mensagem, fechado_em FROM alerta WHERE id_celula = %s AND tipo = 'ph_fora_da_faixa' ORDER BY id_alerta",
+        (id_celula,),
+    ).fetchall()
+
+
+def _ph_aberto(conn, id_celula: str) -> bool:
+    return any(a["fechado_em"] is None for a in _alertas_ph(conn, id_celula))
+
+
+@pytest.fixture
+def regra_ph(banco):
+    from app.config import config
+    from app.regras.verificacoes import ph_fora_da_faixa
+
+    return lambda: ph_fora_da_faixa(banco, config)
+
+
+def _medir(conn, id_celula: str, seq: int, ph: float | None, ts: datetime | None = None) -> None:
+    repo.gravar_leitura(conn, id_celula, seq, ts or datetime.now(timezone.utc), 30.0, 1000.0, 0.45, ph, None)
+
+
+def test_ph_fora_da_faixa_abre_uma_vez_e_fecha_quando_volta(cenario, regra_ph):
+    conn, celula = cenario.conn, cenario.celulas[0]
+    e = cenario.novo_experimento(cenario.ana, ph_ref_min=6.5, ph_ref_max=7.5)
+    cultivo = cenario.iniciar(0, e)
+    _medir(conn, celula, 0, 8.0, cultivo["iniciado_em"] + timedelta(seconds=1))
+    regra_ph()
+    regra_ph()
+    alertas = _alertas_ph(conn, celula)
+    assert len(alertas) == 1 and alertas[0]["fechado_em"] is None
+    assert alertas[0]["mensagem"] == "pH em 8.00, fora da faixa de referência (de 6.50 a 7.50)."
+
+    _medir(conn, celula, 1, 7.0, cultivo["iniciado_em"] + timedelta(seconds=2))
+    regra_ph()
+    assert not _ph_aberto(conn, celula)
+
+
+def test_ph_a_ultima_leitura_e_a_de_maior_ts_origem(cenario, regra_ph):
+    conn, celula = cenario.conn, cenario.celulas[0]
+    cultivo = cenario.iniciar(0)
+    repo.atualizar_cultivo(conn, cultivo["id_cultivo"], ph_ref_max=7.5)
+    inicio = cultivo["iniciado_em"]
+    # A de seq maior chegou atrasada: foi medida antes.
+    _medir(conn, celula, 0, 8.0, inicio + timedelta(seconds=2))
+    _medir(conn, celula, 1, 7.0, inicio + timedelta(seconds=1))
+    # Leitura sem pH não conta, e leitura de antes do cultivo também não.
+    _medir(conn, celula, 2, None, inicio + timedelta(seconds=3))
+    _medir(conn, celula, 3, 7.0, inicio - timedelta(seconds=1))
+    regra_ph()
+    assert _ph_aberto(conn, celula)
+    assert "máximo de 7.50" in _alertas_ph(conn, celula)[0]["mensagem"]
+
+
+def test_ph_so_com_minimo(cenario, regra_ph):
+    conn, celula = cenario.conn, cenario.celulas[0]
+    cultivo = cenario.iniciar(0)
+    repo.atualizar_cultivo(conn, cultivo["id_cultivo"], ph_ref_min=6.5)
+    _medir(conn, celula, 0, 9.0, cultivo["iniciado_em"] + timedelta(seconds=1))
+    regra_ph()
+    assert not _ph_aberto(conn, celula)
+    _medir(conn, celula, 1, 6.0, cultivo["iniciado_em"] + timedelta(seconds=2))
+    regra_ph()
+    assert _ph_aberto(conn, celula)
+
+
+def test_ph_encerrar_o_cultivo_fecha_o_alerta(cenario, regra_ph):
+    conn, celula = cenario.conn, cenario.celulas[0]
+    cultivo = cenario.iniciar(0, cenario.novo_experimento(cenario.ana, ph_ref_min=6.5, ph_ref_max=7.5))
+    _medir(conn, celula, 0, 8.0, cultivo["iniciado_em"] + timedelta(seconds=1))
+    regra_ph()
+    assert _ph_aberto(conn, celula)
+    repo.encerrar_cultivo(conn, cultivo["id_cultivo"], cenario.ana)
+    regra_ph()
+    assert not _ph_aberto(conn, celula)
+
+
+def test_ph_cultivo_novo_sem_leitura_de_ph_fecha_o_alerta_herdado(cenario, regra_ph):
+    """D7: o alerta do cultivo anterior não fica aberto no seguinte."""
+    conn, celula = cenario.conn, cenario.celulas[0]
+    faixa = cenario.novo_experimento(cenario.ana, ph_ref_min=6.5, ph_ref_max=7.5)
+    anterior = cenario.iniciar(0, faixa)
+    _medir(conn, celula, 0, 8.0, anterior["iniciado_em"] + timedelta(microseconds=1))
+    regra_ph()
+    assert _ph_aberto(conn, celula)
+    repo.encerrar_cultivo(conn, anterior["id_cultivo"], cenario.ana)
+    seguinte = cenario.iniciar(0, faixa, continua_de=anterior["id_cultivo"])
+    regra_ph()
+    assert not _ph_aberto(conn, celula)
+    # Quando o cultivo novo medir pH fora da faixa, o alerta volta a abrir.
+    _medir(conn, celula, 1, 8.0, seguinte["iniciado_em"] + timedelta(seconds=1))
+    regra_ph()
+    assert _ph_aberto(conn, celula)
+
+
+def test_ph_cultivo_sem_faixa_nunca_abre(cenario, regra_ph):
+    conn, celula = cenario.conn, cenario.celulas[0]
+    cultivo = cenario.iniciar(0)
+    for seq, ph in enumerate((1.0, 14.5, -2.0)):
+        _medir(conn, celula, seq, ph, cultivo["iniciado_em"] + timedelta(seconds=seq + 1))
+        regra_ph()
+    assert _alertas_ph(conn, celula) == []
