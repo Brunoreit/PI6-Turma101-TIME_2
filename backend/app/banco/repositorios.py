@@ -46,21 +46,33 @@ def registrar_celula(conn: psycopg.Connection, id_celula: str, estado: str,
     return nova
 
 
+_CULTIVO_ATUAL = ("id_cultivo", "id_experimento", "condicao", "iniciado_em")
+
+
 def listar_celulas(conn: psycopg.Connection) -> list[dict]:
-    return conn.execute(
+    """Cada célula com a última leitura, os alertas abertos e o cultivo
+    em andamento (cultivo_atual), ou None se ela está livre."""
+    celulas = conn.execute(
         """
         SELECT c.id_celula, c.estado, c.sensores, c.primeiro_anuncio, c.ultimo_contato,
                u.seq AS ultima_seq, u.ts_origem AS ultima_leitura_em,
                u.temperatura_c, u.od, u.ph,
                (SELECT count(*) FROM alerta a
-                 WHERE a.id_celula = c.id_celula AND a.fechado_em IS NULL) AS alertas_abertos
+                 WHERE a.id_celula = c.id_celula AND a.fechado_em IS NULL) AS alertas_abertos,
+               c.descricao, c.apelido, c.modelo, c.firmware,
+               k.id_cultivo, k.id_experimento, k.condicao, k.iniciado_em
           FROM celula c
           LEFT JOIN LATERAL (
                 SELECT * FROM leitura l WHERE l.id_celula = c.id_celula
                  ORDER BY seq DESC LIMIT 1) u ON true
+          LEFT JOIN cultivo k ON k.id_celula = c.id_celula AND k.status = 'em_andamento'
          ORDER BY c.id_celula
         """
     ).fetchall()
+    for celula in celulas:
+        cultivo = {campo: celula.pop(campo) for campo in _CULTIVO_ATUAL}
+        celula["cultivo_atual"] = cultivo if cultivo["id_cultivo"] is not None else None
+    return celulas
 
 
 def celula_existe(conn: psycopg.Connection, id_celula: str) -> bool:
@@ -169,19 +181,24 @@ def curva_ativa(conn: psycopg.Connection, id_celula: str) -> Curva | None:
 def nova_calibracao(
     conn: psycopg.Connection, id_celula: str, a: float, b: float,
     recalcular: bool = True, desde: datetime | None = None,
+    pontos: list[dict] | None = None, r2: float | None = None,
+    organismo: str | None = None, id_pessoa: int | None = None,
 ) -> dict:
     """Cadastra uma nova versão da curva. Com `recalcular`, refaz a OD das
     leituras já gravadas a partir do valor bruto, que nunca é alterado: todas,
-    ou só as de `desde` em diante. Sem, só as próximas leituras usam a versão."""
+    ou só as de `desde` em diante. Sem, só as próximas leituras usam a versão.
+    `pontos`, `r2`, `organismo` e `id_pessoa` só são guardados, não mudam a conta."""
     with conn.transaction():
         conn.execute("UPDATE calibracao SET ativa = false WHERE id_celula = %s AND ativa", (id_celula,))
         nova = conn.execute(
             """
-            INSERT INTO calibracao (id_celula, versao, a, b)
-            VALUES (%s, (SELECT coalesce(max(versao), 0) + 1 FROM calibracao WHERE id_celula = %s), %s, %s)
-            RETURNING id_calibracao, versao, a, b, criada_em
+            INSERT INTO calibracao (id_celula, versao, a, b, pontos, r2, organismo, id_pessoa)
+            VALUES (%s, (SELECT coalesce(max(versao), 0) + 1 FROM calibracao WHERE id_celula = %s),
+                    %s, %s, %s, %s, %s, %s)
+            RETURNING id_calibracao, versao, a, b, criada_em, sensor, pontos, r2, organismo, id_pessoa
             """,
-            (id_celula, id_celula, a, b),
+            (id_celula, id_celula, a, b, json.dumps(pontos) if pontos is not None else None,
+             r2, organismo, id_pessoa),
         ).fetchone()
         reprocessadas = 0
         if recalcular:

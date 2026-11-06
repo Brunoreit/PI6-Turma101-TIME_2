@@ -2,7 +2,8 @@
 
 Conferem direto por SQL, sem API, as restrições que o próprio banco garante,
 a visão leitura_cultivo e a aplicação do 03 num banco que já existe. No fim,
-as operações de pessoas, experimentos, acessos e cultivos de repositorios.py.
+as operações de pessoas, experimentos, acessos e cultivos de repositorios.py,
+o consumidor, a regra de pH e as rotas de células e calibração da API.
 
 Os testes de restrição rodam numa transação desfeita no final. Os cenários
 de banco antigo usam um banco separado no mesmo servidor. Os de repositório
@@ -18,6 +19,7 @@ from pathlib import Path
 
 import psycopg
 import pytest
+import requests
 from psycopg import errors
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
@@ -830,3 +832,75 @@ def test_ph_cultivo_sem_faixa_nunca_abre(cenario, regra_ph):
         _medir(conn, celula, seq, ph, cultivo["iniciado_em"] + timedelta(seconds=seq + 1))
         regra_ph()
     assert _alertas_ph(conn, celula) == []
+
+
+# ------------------------------------------------------------------ API: células e calibração
+
+
+# Campos de GET /celulas antes do modelo de dados do MVP (interface/src/api/tipos.ts).
+CAMPOS_CELULA_ANTES = {"id_celula", "estado", "sensores", "primeiro_anuncio", "ultimo_contato", "ultima_seq",
+                       "ultima_leitura_em", "temperatura_c", "od", "ph", "alertas_abertos"}
+CAMPOS_CELULA_NOVOS = {"descricao", "apelido", "modelo", "firmware", "cultivo_atual"}
+
+
+def _celulas_da_api(ambiente) -> dict[str, dict]:
+    resposta = requests.get(f"{ambiente.url_api}/celulas", timeout=10)
+    assert resposta.status_code == 200, resposta.text
+    return {c["id_celula"]: c for c in resposta.json()}
+
+
+def test_get_celulas_mantem_os_campos_e_acrescenta_os_novos(ambiente, cenario):
+    conn = cenario.conn
+    livre, ocupada = cenario.celulas[0], cenario.celulas[1]
+    conn.execute("UPDATE celula SET descricao = 'bancada 2', apelido = %s, modelo = 'ESP32' WHERE id_celula = %s",
+                 (f"apelido-{livre}", livre))
+    repo.registrar_celula(conn, livre, "online", firmware="fw-2.0")
+    _medir(conn, livre, 0, 7.0)
+    cultivo = cenario.iniciar(1, condicao="30 °C")
+
+    celulas = _celulas_da_api(ambiente)
+    assert all(set(c) == CAMPOS_CELULA_ANTES | CAMPOS_CELULA_NOVOS for c in celulas.values())
+    assert {k: celulas[livre][k] for k in ("descricao", "apelido", "modelo", "firmware", "cultivo_atual", "ultima_seq", "ph")} == {
+        "descricao": "bancada 2", "apelido": f"apelido-{livre}", "modelo": "ESP32", "firmware": "fw-2.0",
+        "cultivo_atual": None, "ultima_seq": 0, "ph": 7.0}
+    atual = celulas[ocupada]["cultivo_atual"]
+    assert set(atual) == {"id_cultivo", "id_experimento", "condicao", "iniciado_em"}
+    assert (atual["id_cultivo"], atual["id_experimento"], atual["condicao"]) == (
+        cultivo["id_cultivo"], cenario.experimento["id_experimento"], "30 °C")
+    assert datetime.fromisoformat(atual["iniciado_em"]) == cultivo["iniciado_em"]
+
+    repo.encerrar_cultivo(conn, cultivo["id_cultivo"], cenario.ana)
+    assert _celulas_da_api(ambiente)[ocupada]["cultivo_atual"] is None
+
+
+def test_calibracao_sem_os_campos_novos_funciona_como_antes(ambiente, cenario):
+    conn, celula = cenario.conn, cenario.celulas[0]
+    for seq in range(3):
+        repo.gravar_leitura(conn, celula, seq, T0 + seq * DIA, 30.0, 1000.0 + seq, 0.45, 7.0, None)
+    resposta = requests.post(f"{ambiente.url_api}/celulas/{celula}/calibracoes",
+                             json={"a": 0.001, "b": 0.0, "recalcular_desde": (T0 + DIA).isoformat()}, timeout=10)
+    assert resposta.status_code == 201, resposta.text
+    corpo = resposta.json()
+    assert (corpo["versao"], corpo["a"], corpo["b"], corpo["leituras_reprocessadas"]) == (2, 0.001, 0.0, 2)
+    assert {"id_calibracao", "criada_em"} <= set(corpo)
+    assert {k: corpo[k] for k in ("sensor", "pontos", "r2", "organismo", "id_pessoa")} == {
+        "sensor": "od", "pontos": None, "r2": None, "organismo": None, "id_pessoa": None}
+    od = [l["od"] for l in repo.listar_leituras(conn, celula)]
+    assert od == [0.45, 1.001, 1.002]
+
+
+def test_calibracao_guarda_pontos_r2_e_organismo(ambiente, cenario):
+    celula = cenario.celulas[0]
+    pontos = [{"od_referencia": 0.0, "bruto": 100.0}, {"od_referencia": 1.0, "bruto": 2100.0}]
+    resposta = requests.post(f"{ambiente.url_api}/celulas/{celula}/calibracoes", timeout=10, json={
+        "a": 0.0005, "b": -0.05, "recalcular": False, "pontos": pontos, "r2": 0.998, "organismo": "E. coli K-12"})
+    assert resposta.status_code == 201, resposta.text
+    gravada = cenario.conn.execute(
+        "SELECT pontos, r2, organismo, ativa FROM calibracao WHERE id_calibracao = %s",
+        (resposta.json()["id_calibracao"],)).fetchone()
+    assert gravada == {"pontos": pontos, "r2": 0.998, "organismo": "E. coli K-12", "ativa": True}
+
+    for invalido in ([{"od_referencia": 0.0}], [{"od_referencia": "x", "bruto": 1}], {"od_referencia": 0, "bruto": 1}):
+        resposta = requests.post(f"{ambiente.url_api}/celulas/{celula}/calibracoes", timeout=10,
+                                 json={"a": 1, "b": 0, "pontos": invalido})
+        assert resposta.status_code == 422, resposta.text

@@ -175,6 +175,8 @@ def cadastrar_calibracao(conn: Conexao, id_celula: str, corpo: NovaCalibracao):
     return repo.nova_calibracao(
         conn, id_celula, corpo.a, corpo.b,
         recalcular=corpo.recalcular, desde=corpo.recalcular_desde,
+        pontos=[p.model_dump() for p in corpo.pontos] if corpo.pontos is not None else None,
+        r2=corpo.r2, organismo=corpo.organismo,
     )
 
 
