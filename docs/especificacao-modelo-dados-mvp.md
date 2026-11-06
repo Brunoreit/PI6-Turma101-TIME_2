@@ -1050,6 +1050,27 @@ Comportamento atual da rota `POST /celulas/{id}/setpoint`, que a D6 segue: se o 
 | Etapa 13 do ponta a ponta | Cria a pessoa, o experimento e o cultivo da c01 pelos repositórios, não pela API, e continua assim depois da etapa 7a. A integridade passou a ser a etapa 14 |
 | Registros deixados no banco do ponta a ponta | A etapa 13 deixa a pessoa `teste-ph@cnpem.br`, um experimento e um cultivo encerrado na c01. Aceito: não interferem nas conferências de integridade, que só olham `leitura` |
 
+### Decisões da etapa 5 (células e calibração na API, 06/11/2026)
+
+Etapa aprovada com estas decisões:
+
+| Ponto | Decisão |
+|---|---|
+| Resposta de `POST /celulas/{id}/calibracoes` | Ganha `sensor`, `pontos`, `r2`, `organismo` e `id_pessoa`. As chaves e os valores de antes não mudam |
+| Validação de `pontos` | Cada ponto exige `od_referencia` e `bruto` numéricos. Chave a mais dentro de um ponto é ignorada, como nos demais esquemas da API |
+| `r2` | Sem validação de faixa |
+| `id_pessoa` da calibração | Preenchido só a partir da etapa 6, com `pessoa_opcional` |
+| `interface/src/api/tipos.ts` | Sem mudança. Os campos novos de `GET /celulas` e da calibração são só acréscimos |
+
+### Respostas às pendências (06/11/2026)
+
+| # | Resposta | Efeito |
+|---|---|---|
+| **P-2** | Desenho de E.7 aprovado como está: resumo de senha com scrypt, token HMAC sem tabela de sessão, `SEGREDO_SESSAO` obrigatório (checado só no `ciclo_de_vida` da API, só no serviço `api` do Compose e com valor de teste no `ambiente.py`, conforme D2), `SESSAO_HORAS` com padrão 12, rotas existentes abertas, gravando `id_pessoa` só quando vier token | Libera as etapas 6 e 7 |
+| **P-3** | Em `cadastrado`, o responsável edita todos os campos da ficha. Em `em_andamento`, só `descricao` e `metadados`; os outros campos são recusados com 422 e uma mensagem que diz quais campos estão travados. Em `encerrado` ou `cancelado`, nada é editável | Libera `PATCH /experimentos/{id}` (etapa 7a). A regra fica na API; `atualizar_experimento` continua genérica |
+| **P-9** | Encerrar o experimento encerra, na mesma transação, os cultivos abertos (`status = encerrado`, `encerrado_em = now()`, `id_encerrado_por` = quem encerrou). Só vale para experimento `em_andamento`. Um `cadastrado` não pode ser encerrado (o CHECK exige `iniciado_em`) e deve ser cancelado | Libera `encerrar_experimento` e `POST /experimentos/{id}/encerrar` (etapa 7a). Substitui a frase "ver P-9" de RN-07 e de E.4 |
+| **P-13** | Por enquanto a equipe usa só o Compose. O modo local (`AMBIENTE=local`) não foi conferido com `btree_gist` | **Continua aberta.** Quem usar o modo local precisa conferir se o PostgreSQL de lá tem o `btree_gist` |
+
 ### Correções do texto
 
 | Onde | Texto atual | Correção |
