@@ -332,6 +332,11 @@ def _cultivo_fechado(conn: psycopg.Connection, id_cultivo: int) -> HTTPException
                               "Para continuar a cultura, inicie um cultivo novo com continua_de.")
 
 
+def _com_codigo(experimento: dict) -> dict:
+    """Código de exibição (P-8): EXP- e o id com no mínimo 2 dígitos. Não fica no banco."""
+    return {"codigo": f"EXP-{experimento['id_experimento']:02d}", **experimento}
+
+
 def _experimento_fechado(id_experimento: int, status: str) -> HTTPException:
     return HTTPException(409, f"O experimento {id_experimento} já está {status}. Nada foi alterado.")
 
@@ -354,20 +359,20 @@ def criar_experimento(conn: Conexao, pessoa: PessoaLogada, corpo: NovoExperiment
     if corpo.temperatura_alvo_c is not None:
         _conferir_temperatura(corpo.temperatura_alvo_c)
     with _faixa_de_ph():
-        return repo.criar_experimento(conn, pessoa["id_pessoa"], **corpo.model_dump())
+        return _com_codigo(repo.criar_experimento(conn, pessoa["id_pessoa"], **corpo.model_dump()))
 
 
 @app.get("/experimentos")
 def listar_experimentos(conn: Conexao, pessoa: PessoaLogada,
                         filtro: Literal["todos", "meus", "compartilhados"] = "todos"):
     """Os experimentos de que a pessoa é responsável e os compartilhados com ela."""
-    return repo.listar_experimentos_visiveis(conn, pessoa["id_pessoa"], filtro)
+    return [_com_codigo(e) for e in repo.listar_experimentos_visiveis(conn, pessoa["id_pessoa"], filtro)]
 
 
 @app.get("/experimentos/{id_experimento}")
 def buscar_experimento(conn: Conexao, pessoa: PessoaLogada, id_experimento: int):
     _exigir_acesso(conn, id_experimento, pessoa)
-    return repo.buscar_experimento(conn, id_experimento)
+    return _com_codigo(repo.buscar_experimento(conn, id_experimento))
 
 
 @app.patch("/experimentos/{id_experimento}")
@@ -376,18 +381,21 @@ def alterar_experimento(conn: Conexao, pessoa: PessoaLogada, id_experimento: int
     Encerrado ou cancelado: nenhum."""
     _exigir_acesso(conn, id_experimento, pessoa, "responsavel")
     campos = corpo.model_dump(exclude_unset=True)
-    status = repo.buscar_experimento(conn, id_experimento)["status"]
-    if status in ("encerrado", "cancelado"):
-        raise HTTPException(409, f"O experimento {id_experimento} está {status} e não pode mais ser alterado. "
-                                 "Para repetir o estudo, duplique o experimento.")
-    travados = [campo for campo in campos if campo not in _EDITAVEIS_EM_ANDAMENTO]
-    if status == "em_andamento" and travados:
-        raise HTTPException(422, f"O experimento já começou e estes campos não podem mais ser alterados: "
-                                 f"{', '.join(travados)}. Depois do início, só descricao e metadados mudam.")
-    if campos.get("temperatura_alvo_c") is not None:
-        _conferir_temperatura(campos["temperatura_alvo_c"])
-    with _faixa_de_ph():
-        return repo.atualizar_experimento(conn, id_experimento, **campos)
+    # Trava o experimento para o status não mudar entre a decisão e a gravação
+    # (por exemplo, o primeiro cultivo começar no meio).
+    with _faixa_de_ph(), conn.transaction():
+        status = repo.travar_experimento(conn, id_experimento)["status"]
+        if status in ("encerrado", "cancelado"):
+            raise HTTPException(409, f"O experimento {id_experimento} está {status} e não pode mais ser alterado. "
+                                     "Para repetir o estudo, duplique o experimento.")
+        travados = [campo for campo in campos if campo not in _EDITAVEIS_EM_ANDAMENTO]
+        if status == "em_andamento" and travados:
+            raise HTTPException(422, f"O experimento já começou e estes campos não podem mais ser alterados: "
+                                     f"{', '.join(travados)}. Depois do início, só descricao e metadados mudam.")
+        if campos.get("temperatura_alvo_c") is not None:
+            _conferir_temperatura(campos["temperatura_alvo_c"])
+        experimento =repo.atualizar_experimento(conn, id_experimento, **campos)
+    return _com_codigo(experimento)
 
 
 @app.post("/experimentos/{id_experimento}/encerrar")
@@ -395,7 +403,7 @@ def encerrar_experimento(conn: Conexao, pessoa: PessoaLogada, id_experimento: in
     """Encerra o experimento e, junto, os cultivos abertos (P-9)."""
     _exigir_acesso(conn, id_experimento, pessoa, "responsavel")
     try:
-        return repo.encerrar_experimento(conn, id_experimento, pessoa["id_pessoa"])
+        return _com_codigo(repo.encerrar_experimento(conn, id_experimento, pessoa["id_pessoa"]))
     except repo.OperacaoRecusada as recusa:
         if recusa.status == "cadastrado":
             raise HTTPException(409, f"O experimento {id_experimento} ainda não começou e não pode ser encerrado. "
@@ -408,7 +416,7 @@ def cancelar_experimento(conn: Conexao, pessoa: PessoaLogada, id_experimento: in
     """Cancela o experimento e, junto, os cultivos abertos, com o mesmo motivo."""
     _exigir_acesso(conn, id_experimento, pessoa, "responsavel")
     try:
-        return repo.cancelar_experimento(conn, id_experimento, pessoa["id_pessoa"], corpo.motivo)
+        return _com_codigo(repo.cancelar_experimento(conn, id_experimento, pessoa["id_pessoa"], corpo.motivo))
     except repo.OperacaoRecusada as recusa:
         raise _experimento_fechado(id_experimento, recusa.status) from None
 
@@ -417,7 +425,7 @@ def cancelar_experimento(conn: Conexao, pessoa: PessoaLogada, id_experimento: in
 def duplicar_experimento(conn: Conexao, pessoa: PessoaLogada, id_experimento: int):
     """Cópia cadastrada da ficha, com quem duplicou como responsável."""
     _exigir_acesso(conn, id_experimento, pessoa)
-    return repo.duplicar_experimento(conn, id_experimento, pessoa["id_pessoa"])
+    return _com_codigo(repo.duplicar_experimento(conn, id_experimento, pessoa["id_pessoa"]))
 
 
 @app.post("/experimentos/{id_experimento}/acessos")

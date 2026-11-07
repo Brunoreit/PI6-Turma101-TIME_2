@@ -406,6 +406,15 @@ def buscar_experimento(conn: psycopg.Connection, id_experimento: int) -> dict | 
     return experimento
 
 
+def travar_experimento(conn: psycopg.Connection, id_experimento: int) -> dict | None:
+    """A linha do experimento, travada até o fim da transação de quem
+    chama (sem transação, a trava se solta na hora). Serve para decidir
+    pelo status e gravar sem que ele mude no meio."""
+    return conn.execute(
+        "SELECT * FROM experimento WHERE id_experimento = %s FOR UPDATE", (id_experimento,)
+    ).fetchone()
+
+
 def listar_experimentos_visiveis(conn: psycopg.Connection, id_pessoa: int,
                                  filtro: str = "todos") -> list[dict]:
     """Os experimentos de que a pessoa é responsável (`meus`), os

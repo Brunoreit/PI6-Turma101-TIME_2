@@ -14,7 +14,9 @@ Rodar:
   pytest tests/integracao/test_modelo_dados.py -v
 """
 
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -26,6 +28,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from app.api.autenticacao import emitir_token
+from app.api.main import _com_codigo
 from app.banco import repositorios as repo
 from tests.integracao.ambiente import RAIZ, SEGREDO_SESSAO, criar_ambiente
 
@@ -1130,6 +1133,7 @@ def test_fluxo_de_referencia_pela_api(ambiente, cenario, contas):
     e = experimento["id_experimento"]
     assert (experimento["status"], experimento["id_responsavel"], experimento["metadados"]) == (
         "cadastrado", ana.id, {"organismo": "E. coli K-12"})
+    assert experimento["codigo"] == f"EXP-{e:02d}"
 
     acesso = ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": henry.email.upper(), "permissao": "edicao"})
     assert acesso.status_code == 200, acesso.text
@@ -1137,7 +1141,7 @@ def test_fluxo_de_referencia_pela_api(ambiente, cenario, contas):
         "id_pessoa": henry.id, "nome": "Henry", "email": henry.email, "permissao": "edicao"}
 
     compartilhados = henry.chamar("GET", "/experimentos", params={"filtro": "compartilhados"}).json()
-    assert [(x["id_experimento"], x["acesso"]) for x in compartilhados] == [(e, "edicao")]
+    assert [(x["id_experimento"], x["acesso"], x["codigo"]) for x in compartilhados] == [(e, "edicao", f"EXP-{e:02d}")]
     assert ana.chamar("GET", "/experimentos", params={"filtro": "compartilhados"}).json() == []
 
     primeiro = _iniciar(ana, e, c01, condicao="30 °C", replica=1)
@@ -1174,6 +1178,7 @@ def test_fluxo_de_referencia_pela_api(ambiente, cenario, contas):
     assert [l["seq"] for l in leituras.json()] == [1, 2]
 
     detalhe = henry.chamar("GET", f"/experimentos/{e}").json()
+    assert detalhe["codigo"] == f"EXP-{e:02d}"
     assert [(c["id_celula"], c["status"]) for c in detalhe["cultivos"]] == [
         (c01, "em_andamento"), (c02, "encerrado"), (c03, "em_andamento")]
     assert [(a["id_pessoa"], a["permissao"]) for a in detalhe["acessos"]] == [(henry.id, "edicao")]
@@ -1181,6 +1186,7 @@ def test_fluxo_de_referencia_pela_api(ambiente, cenario, contas):
     copia = ana.chamar("POST", f"/experimentos/{e}/duplicar")
     assert copia.status_code == 201, copia.text
     assert (copia.json()["status"], copia.json()["id_origem"], copia.json()["id_responsavel"]) == ("cadastrado", e, ana.id)
+    assert copia.json()["codigo"] == f"EXP-{copia.json()['id_experimento']:02d}"
     assert ana.chamar("GET", f"/experimentos/{copia.json()['id_experimento']}").json()["cultivos"] == []
 
 
@@ -1321,6 +1327,41 @@ def test_alterar_experimento_segue_o_status(cenario, contas):
     fechado = ana.chamar("PATCH", url, {"descricao": "z"})
     assert fechado.status_code == 409 and _detalhe(fechado).startswith(f"O experimento {e} está encerrado")
     assert repo.buscar_experimento(cenario.conn, e)["descricao"] == "y"
+
+
+def test_codigo_do_experimento_tem_no_minimo_dois_digitos():
+    assert [_com_codigo({"id_experimento": n})["codigo"] for n in (1, 12, 123)] == ["EXP-01", "EXP-12", "EXP-123"]
+
+
+def test_codigo_vem_em_todas_as_respostas_de_experimento(contas):
+    ana = contas[0]
+    e = _criar(ana, temperatura_alvo_c=None)["id_experimento"]
+    codigo = f"EXP-{e:02d}"
+    assert ana.chamar("PATCH", f"/experimentos/{e}", {"descricao": "x"}).json()["codigo"] == codigo
+    assert all(x["codigo"] == f"EXP-{x['id_experimento']:02d}" for x in ana.chamar("GET", "/experimentos").json())
+    assert ana.chamar("POST", f"/experimentos/{e}/cancelar", {"motivo": "x"}).json()["codigo"] == codigo
+
+
+def test_alterar_experimento_espera_o_primeiro_cultivo_que_esta_comecando(ambiente, cenario, contas):
+    """O PATCH decide pelo status com a linha travada. Se o primeiro cultivo
+    está começando ao mesmo tempo, o PATCH espera e vê o experimento já em
+    andamento, em vez de alterar um campo que acabou de ficar travado."""
+    ana = contas[0]
+    e = _criar(ana, temperatura_alvo_c=None)["id_experimento"]
+    with psycopg.connect(ambiente.url_banco, autocommit=True, row_factory=dict_row) as outra, \
+            ThreadPoolExecutor(1) as executor:
+        with outra.transaction():
+            repo.iniciar_cultivo(outra, e, cenario.celulas[0], ana.id)
+            futuro = executor.submit(ana.chamar, "PATCH", f"/experimentos/{e}", {"nome": "Outro nome"})
+            fim = time.time() + 10
+            while not cenario.conn.execute(
+                    "SELECT count(*) AS n FROM pg_stat_activity WHERE %s = ANY(pg_blocking_pids(pid))",
+                    (outra.info.backend_pid,)).fetchone()["n"]:
+                assert time.time() < fim and not futuro.done(), "o PATCH não esperou o início do cultivo"
+                time.sleep(0.05)
+        resposta = futuro.result()
+    assert resposta.status_code == 422, resposta.text
+    assert repo.buscar_experimento(cenario.conn, e)["nome"] == FICHA["nome"]
 
 
 def test_encerrar_experimento_pela_api_encerra_os_cultivos(cenario, contas):
