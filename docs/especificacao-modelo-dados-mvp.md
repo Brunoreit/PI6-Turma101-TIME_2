@@ -1078,6 +1078,27 @@ Etapa aprovada com estas decisões:
 | Erro 422 de validação | O FastAPI devolve no campo `input` o valor enviado, inclusive a senha, só a quem a enviou. Aceito; nada disso vai para o log |
 | Senha e token no log | Conferido nos logs da `api` do ambiente de teste, sem teste automático |
 
+### Decisões da etapa 7a (experimentos, acessos e cultivos na API, 06/11/2026)
+
+Etapa aprovada com estas decisões:
+
+| Ponto | Decisão |
+|---|---|
+| Login e alcance | Todas as rotas novas exigem login. Sem acesso ao experimento (ou ao experimento do cultivo), 404; com acesso insuficiente, 403 |
+| `PATCH /experimentos/{id}` em experimento `encerrado` ou `cancelado` | 409. O 422 da P-3 vale só para os campos travados de um experimento `em_andamento` |
+| `PATCH /experimentos/{id}` e status | Lê o status e grava na mesma transação, com a linha travada (`repositorios.travar_experimento`, `SELECT ... FOR UPDATE`). Se o primeiro cultivo começa ao mesmo tempo, o PATCH espera e vê o experimento já em andamento. Ajuste pedido na aprovação |
+| Encerrar experimento | `cadastrado` dá 409 com a orientação de cancelar. Encerrar ou cancelar um experimento já `encerrado` ou `cancelado` dá 409 |
+| Cultivo fechado | Alterar, encerrar ou cancelar um cultivo que não está `em_andamento` dá 409 |
+| Iniciar cultivo | Célula inexistente dá 404. `continua_de` inexistente dá 422. Experimento `encerrado` ou `cancelado` dá 409 |
+| `OperacaoRecusada` | Passa a guardar o `status` do experimento, para a API montar a mensagem |
+| Resposta de `POST /experimentos/{id}/acessos` | `{id_pessoa, nome, email, permissao, concedido_em}`, igual aos itens de `acessos` de `GET /experimentos/{id}` |
+| Resposta de `PATCH`, `encerrar` e `cancelar` do experimento | Só a linha do experimento, sem cultivos nem acessos |
+| Nulos e brancos | No `PATCH /experimentos`, `nome`, `modo` e `metadados` não aceitam `null` (422). No `PATCH /celulas`, `apelido` em branco dá 422 e `null` tira o apelido |
+| Limites | `duracao_prevista_dias` até 100.000 e `replica` até 32.767 (limite do SMALLINT), para um número grande demais dar 422 e não 500 |
+| Código "EXP-01" (P-8) | Toda resposta de experimento (criar, listar, buscar, alterar, encerrar, cancelar, duplicar) traz `codigo`: `EXP-` e o id com no mínimo 2 dígitos (`EXP-01`, `EXP-12`, `EXP-123`). Calculado na API, não gravado. Ajuste pedido na aprovação |
+| `APIRouter` | Não usado. As rotas ficam em `main.py` |
+| Setpoint ao iniciar cultivo | Fica para a 7b. Na 7a, iniciar cultivo não publica a temperatura alvo |
+
 ### Respostas às pendências (06/11/2026)
 
 | # | Resposta | Efeito |
@@ -1085,6 +1106,7 @@ Etapa aprovada com estas decisões:
 | **P-2** | Desenho de E.7 aprovado como está: resumo de senha com scrypt, token HMAC sem tabela de sessão, `SEGREDO_SESSAO` obrigatório (checado só no `ciclo_de_vida` da API, só no serviço `api` do Compose e com valor de teste no `ambiente.py`, conforme D2), `SESSAO_HORAS` com padrão 12, rotas existentes abertas, gravando `id_pessoa` só quando vier token | Libera as etapas 6 e 7 |
 | **P-3** | Em `cadastrado`, o responsável edita todos os campos da ficha. Em `em_andamento`, só `descricao` e `metadados`; os outros campos são recusados com 422 e uma mensagem que diz quais campos estão travados. Em `encerrado` ou `cancelado`, nada é editável | Libera `PATCH /experimentos/{id}` (etapa 7a). A regra fica na API; `atualizar_experimento` continua genérica |
 | **P-9** | Encerrar o experimento encerra, na mesma transação, os cultivos abertos (`status = encerrado`, `encerrado_em = now()`, `id_encerrado_por` = quem encerrou). Só vale para experimento `em_andamento`. Um `cadastrado` não pode ser encerrado (o CHECK exige `iniciado_em`) e deve ser cancelado | Libera `encerrar_experimento` e `POST /experimentos/{id}/encerrar` (etapa 7a). Substitui a frase "ver P-9" de RN-07 e de E.4 |
+| **P-8** | Código `EXP-` e o id com no mínimo 2 dígitos, calculado na API e devolvido no campo `codigo`. Não é gravado | Feito no ajuste da etapa 7a |
 | **P-13** | Por enquanto a equipe usa só o Compose. O modo local (`AMBIENTE=local`) não foi conferido com `btree_gist` | **Continua aberta.** Quem usar o modo local precisa conferir se o PostgreSQL de lá tem o `btree_gist` |
 
 ### Correções do texto
@@ -1105,3 +1127,4 @@ Etapa aprovada com estas decisões:
 - **Etapa 7** dividida em **7a** (rotas de experimentos, acessos e cultivos, sem setpoint) e **7b** (setpoint ao iniciar cultivo, D6, G.8 e a etapa no ponta a ponta).
 - `APIRouter` em módulos novos só depois de perguntar.
 - P-2, P-3, P-9 e P-13 continuam abertas. Nada que dependa delas é implementado antes da resposta.
+- **Etapa 7a** aprovada em 06/11/2026 com as decisões acima, mais dois ajustes antes da 7b: travar o experimento no `PATCH` e o campo `codigo` (P-8). `APIRouter` continua de fora.
