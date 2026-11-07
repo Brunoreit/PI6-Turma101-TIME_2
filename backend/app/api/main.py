@@ -227,29 +227,37 @@ def exportar_leituras(conn: Conexao, id_celula: str):
 def pedir_setpoint(conn: Conexao, pessoa: PessoaOpcional, id_celula: str, corpo: NovoSetpoint):
     _exigir_celula(conn, id_celula)
     _conferir_temperatura(corpo.temperatura_c)
-    cliente = estado["mqtt"]
-    if not cliente.is_connected():
+    if not estado["mqtt"].is_connected():
         # Não publica: o paho guardaria a mensagem e a enviaria depois,
         # e um pedido recusado aqui seria aplicado lá na célula.
         raise HTTPException(503, "Broker indisponível. Tente de novo em alguns segundos.")
-
-    id_pedido = f"sp-{secrets.token_hex(4)}"
     # Com login, quem pediu é a pessoa do token, não o que veio no corpo.
     solicitado_por = pessoa["nome"] if pessoa else corpo.solicitado_por
-    pedido = repo.criar_pedido(conn, id_pedido, id_celula, corpo.temperatura_c, solicitado_por,
-                               id_pessoa=pessoa["id_pessoa"] if pessoa else None)
+    pedido, _ = _enviar_setpoint(conn, id_celula, corpo.temperatura_c, solicitado_por,
+                                 pessoa["id_pessoa"] if pessoa else None)
+    return pedido
+
+
+def _enviar_setpoint(conn: psycopg.Connection, id_celula: str, temperatura_c: float,
+                     solicitado_por: str, id_pessoa: int | None) -> tuple[dict, bool]:
+    """Grava o pedido e o publica, esperando até 5 s a confirmação do
+    broker. Devolve o pedido e se o broker confirmou. Quem chama já
+    conferiu a temperatura e a conexão com o broker."""
+    id_pedido = f"sp-{secrets.token_hex(4)}"
+    pedido = repo.criar_pedido(conn, id_pedido, id_celula, temperatura_c, solicitado_por, id_pessoa=id_pessoa)
 
     # Retida: se a célula estiver offline, recebe o pedido assim que voltar.
-    mensagem = PedidoSetpoint(id=id_pedido, temperatura_c=corpo.temperatura_c)
-    info = cliente.publish(topicos.setpoint(id_celula), mensagem.para_json(),
-                           qos=topicos.QOS, retain=True)
+    mensagem = PedidoSetpoint(id=id_pedido, temperatura_c=temperatura_c)
+    info = estado["mqtt"].publish(topicos.setpoint(id_celula), mensagem.para_json(),
+                                  qos=topicos.QOS, retain=True)
     try:
         info.wait_for_publish(timeout=5)
     except RuntimeError:
         pass
-    if not info.is_published():
+    confirmado = info.is_published()
+    if not confirmado:
         log.warning("pedido %s sem confirmação do broker em 5 s, segue como solicitado", id_pedido)
-    return pedido
+    return pedido, confirmado
 
 
 @app.get("/celulas/{id_celula}/setpoints")
@@ -455,13 +463,28 @@ def revogar_acesso(conn: Conexao, pessoa: PessoaLogada, id_experimento: int, id_
 
 @app.post("/experimentos/{id_experimento}/cultivos", status_code=201)
 def iniciar_cultivo(conn: Conexao, pessoa: PessoaLogada, id_experimento: int, corpo: NovoCultivo):
-    """Põe a célula no experimento a partir de agora."""
+    """Põe a célula no experimento a partir de agora e, se o experimento tem
+    temperatura alvo, envia a temperatura à célula. A resposta é o cultivo
+    com o pedido de setpoint e se o broker confirmou a publicação (os dois
+    nulos sem temperatura alvo)."""
     _exigir_acesso(conn, id_experimento, pessoa, *_EDITA_CULTIVOS)
     _exigir_celula(conn, corpo.id_celula)
     try:
-        return repo.iniciar_cultivo(conn, id_experimento, corpo.id_celula, pessoa["id_pessoa"],
-                                    condicao=corpo.condicao, replica=corpo.replica,
-                                    continua_de=corpo.continua_de)
+        # A temperatura lida é a que vale para o cultivo: a trava impede que
+        # ela mude até o cultivo ser gravado.
+        with conn.transaction():
+            experimento = repo.travar_experimento(conn, id_experimento)
+            temperatura = experimento["temperatura_alvo_c"]
+            if temperatura is not None and experimento["status"] in ("cadastrado", "em_andamento"):
+                _conferir_temperatura(temperatura)
+                if not estado["mqtt"].is_connected():
+                    # Antes de gravar: um cultivo sem a temperatura na célula
+                    # começaria com o setpoint errado.
+                    raise HTTPException(503, "Broker indisponível: o cultivo não foi iniciado, porque a "
+                                             "temperatura alvo não chegaria à célula. Tente de novo em alguns segundos.")
+            cultivo = repo.iniciar_cultivo(conn, id_experimento, corpo.id_celula, pessoa["id_pessoa"],
+                                           condicao=corpo.condicao, replica=corpo.replica,
+                                           continua_de=corpo.continua_de)
     except psycopg.errors.ExclusionViolation:
         raise HTTPException(409, f"A célula {corpo.id_celula} já está em outro cultivo. "
                                  "Encerre o cultivo atual antes de iniciar outro.") from None
@@ -471,6 +494,12 @@ def iniciar_cultivo(conn: Conexao, pessoa: PessoaLogada, id_experimento: int, co
     except repo.OperacaoRecusada as recusa:
         raise HTTPException(409, f"O experimento {id_experimento} está {recusa.status} e não recebe cultivos novos. "
                                  "Para repetir o estudo, duplique o experimento.") from None
+    if temperatura is None:
+        return {**cultivo, "pedido_setpoint": None, "setpoint_confirmado": None}
+    # O cultivo já está gravado. Se o broker caiu desde a checagem, o pedido
+    # fica solicitado e o paho o envia ao reconectar (D6).
+    pedido, confirmado = _enviar_setpoint(conn, corpo.id_celula, temperatura, pessoa["nome"], pessoa["id_pessoa"])
+    return {**cultivo, "pedido_setpoint": pedido, "setpoint_confirmado": confirmado}
 
 
 @app.patch("/cultivos/{id_cultivo}")

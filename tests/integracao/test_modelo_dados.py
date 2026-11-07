@@ -1125,7 +1125,8 @@ def _detalhe(resposta: requests.Response) -> str:
 
 
 def test_fluxo_de_referencia_pela_api(ambiente, cenario, contas):
-    """Apêndice B da especificação, sem o setpoint ao iniciar o cultivo."""
+    """Apêndice B da especificação. As células do cenário não existem de
+    verdade: o pedido de setpoint é publicado, mas fica solicitado."""
     ana, henry, _ = contas
     c01, c02, c03 = cenario.celulas
 
@@ -1148,16 +1149,27 @@ def test_fluxo_de_referencia_pela_api(ambiente, cenario, contas):
     assert primeiro.status_code == 201, primeiro.text
     assert (primeiro.json()["ph_ref_min"], primeiro.json()["ph_ref_max"], primeiro.json()["id_iniciado_por"]) == (
         6.5, 7.5, ana.id)
+    pedido = primeiro.json()["pedido_setpoint"]
+    assert primeiro.json()["setpoint_confirmado"] is True
+    assert {k: pedido[k] for k in ("id_celula", "temperatura_c", "solicitado_por", "id_pessoa", "estado")} == {
+        "id_celula": c01, "temperatura_c": 30.0, "solicitado_por": "Ana", "id_pessoa": ana.id, "estado": "solicitado"}
+    assert [p["id_pedido"] for p in repo.listar_pedidos(cenario.conn, c01)] == [pedido["id_pedido"]]
     detalhe = ana.chamar("GET", f"/experimentos/{e}").json()
     assert detalhe["status"] == "em_andamento"
     assert datetime.fromisoformat(detalhe["iniciado_em"]) == datetime.fromisoformat(primeiro.json()["iniciado_em"])
 
     segundo = _iniciar(henry, e, c02, condicao="34 °C", replica=1)
     assert segundo.status_code == 201, segundo.text
+    assert (segundo.json()["pedido_setpoint"]["solicitado_por"], segundo.json()["pedido_setpoint"]["id_pessoa"]) == (
+        "Henry", henry.id)
+    # A temperatura por condição é um setpoint comum (RN-17).
+    assert henry.chamar("POST", f"/celulas/{c02}/setpoint", {"temperatura_c": 34}).status_code == 202
+    assert [p["temperatura_c"] for p in repo.listar_pedidos(cenario.conn, c02)] == [34.0, 30.0]
     ocupada = _iniciar(ana, e, c01)
     assert ocupada.status_code == 409
     assert _detalhe(ocupada) == (f"A célula {c01} já está em outro cultivo. "
                                  "Encerre o cultivo atual antes de iniciar outro.")
+    assert len(repo.listar_pedidos(cenario.conn, c01)) == 1
 
     c2 = segundo.json()["id_cultivo"]
     encerrado = henry.chamar("POST", f"/cultivos/{c2}/encerrar", {"motivo": "placa queimou"})
@@ -1400,6 +1412,26 @@ def test_cancelar_experimento_pela_api_cancela_os_cultivos(cenario, contas):
     assert cancelado.json()["status"] == "cancelado"
     assert [(c["status"], c["motivo_encerramento"]) for c in cenario.cultivos(e)] == [("cancelado", "contaminação")]
     assert ana.chamar("POST", url, {"motivo": "de novo"}).status_code == 409
+
+
+def test_cultivo_sem_temperatura_alvo_nao_envia_setpoint(cenario, contas):
+    ana = contas[0]
+    e = _criar(ana, temperatura_alvo_c=None)["id_experimento"]
+    cultivo = _iniciar(ana, e, cenario.celulas[0])
+    assert cultivo.status_code == 201, cultivo.text
+    assert (cultivo.json()["pedido_setpoint"], cultivo.json()["setpoint_confirmado"]) == (None, None)
+    assert repo.listar_pedidos(cenario.conn, cenario.celulas[0]) == []
+
+
+def test_temperatura_alvo_fora_da_faixa_nao_inicia_cultivo(cenario, contas):
+    """A faixa pode mudar depois de o experimento ser criado: a temperatura é
+    conferida de novo ao iniciar, antes de gravar."""
+    ana = contas[0]
+    e = _criar(ana)["id_experimento"]
+    cenario.conn.execute("UPDATE experimento SET temperatura_alvo_c = 99 WHERE id_experimento = %s", (e,))
+    resposta = _iniciar(ana, e, cenario.celulas[0])
+    assert resposta.status_code == 422 and _detalhe(resposta).startswith("A temperatura deve ficar entre")
+    assert (cenario.cultivos(e), repo.listar_pedidos(cenario.conn, cenario.celulas[0])) == ([], [])
 
 
 def test_cultivos_pela_api(cenario, contas):
