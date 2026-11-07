@@ -1062,6 +1062,22 @@ Etapa aprovada com estas decisões:
 | `id_pessoa` da calibração | Preenchido só a partir da etapa 6, com `pessoa_opcional` |
 | `interface/src/api/tipos.ts` | Sem mudança. Os campos novos de `GET /celulas` e da calibração são só acréscimos |
 
+### Decisões da etapa 6 (autenticação, 06/11/2026)
+
+Etapa aprovada com estas decisões:
+
+| Ponto | Decisão |
+|---|---|
+| Onde ficam as dependências | `autenticacao.py` só tem funções puras (resumo de senha e token). As dependências `_pessoa_logada` e `_pessoa_opcional` ficam em `main.py`, junto da `Conexao`, para evitar importação circular |
+| Rotas | `POST /auth/cadastro` (201) e `POST /auth/entrar` (200) devolvem `{token, pessoa}`, sem `expira_em`. `GET /auth/eu` devolve a pessoa. A pessoa nunca traz `senha_hash` |
+| Assinatura do token | Comparada como texto, não como bytes: em base64 sem preenchimento, trocar o último caractere pode dar os mesmos bytes |
+| E-mail | O cadastro confere um formato simples (`algo@algo`, sem espaços) e responde 422. A entrada só normaliza: e-mail malformado dá o 401 de credenciais erradas |
+| Senha | De 8 a 128 caracteres, com pelo menos uma letra e um número. Acima de 128, 422 |
+| Cabeçalho `Authorization` | Esquema diferente de `Bearer` é tratado como token inválido (401). Token de pessoa que não existe mais também dá 401. Toda resposta 401 das dependências traz `WWW-Authenticate: Bearer` |
+| `solicitado_por` do setpoint | Com token válido, é o nome da pessoa logada e o valor do corpo é ignorado. Sem token, continua vindo do corpo (padrão `anonimo`), como antes |
+| Erro 422 de validação | O FastAPI devolve no campo `input` o valor enviado, inclusive a senha, só a quem a enviou. Aceito; nada disso vai para o log |
+| Senha e token no log | Conferido nos logs da `api` do ambiente de teste, sem teste automático |
+
 ### Respostas às pendências (06/11/2026)
 
 | # | Resposta | Efeito |
