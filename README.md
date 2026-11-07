@@ -24,11 +24,11 @@ PI6-Turma101-TIME_2/
 │   └── mensagens.py
 ├── infra/
 │   ├── mosquitto/          broker: persistência e fila para clientes desconectados
-│   └── postgres/init/      tabelas, criadas na primeira subida do PostgreSQL
+│   └── postgres/init/      tabelas, criadas na primeira subida do PostgreSQL (01, 02 e 03_modelo_mvp.sql)
 ├── backend/app/
 │   ├── consumidor/         processo 1: assina o MQTT, valida e grava sem duplicar
 │   ├── regras/             processo 2: alertas e estado "atingido" do setpoint
-│   ├── api/                processo 3: FastAPI usada pela interface
+│   ├── api/                processo 3: FastAPI usada pela interface, com login
 │   ├── calibracao/         OD bruta → OD, guardando o valor original
 │   └── banco/              conexão e todas as consultas
 ├── simulador/              célula simulada: curva, buffer local, falhas, setpoint
@@ -37,7 +37,10 @@ PI6-Turma101-TIME_2/
 ├── tests/
 │   ├── unidade/            rápidos, sem broker nem banco
 │   └── integracao/         test_ponta_a_ponta.py: o sistema inteiro, etapa por etapa
-└── docs/contrato-mqtt.md   documento para combinar com o grupo do hardware
+│                           test_modelo_dados.py: esquema, repositórios, regras e API
+└── docs/
+    ├── contrato-mqtt.md    documento para combinar com o grupo do hardware
+    └── especificacao-modelo-dados-mvp.md   modelo de dados (pessoas, experimentos, cultivos)
 ```
 
 ## Como rodar
@@ -67,6 +70,36 @@ curl -X POST localhost:8000/celulas/c01/setpoint \
      -H "Content-Type: application/json" -d '{"temperatura_c": 37}'
 ```
 
+### Experimentos pela API
+
+Pessoas, experimentos, acessos e cultivos exigem login. O token vem do cadastro ou da entrada e vai no cabeçalho `Authorization`:
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8000/auth/cadastro -H "Content-Type: application/json" \
+        -d '{"nome": "Ana", "email": "ana@cnpem.br", "senha": "cultura123"}' | jq -r .token)
+
+curl -X POST localhost:8000/experimentos -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"nome": "Curva de E. coli", "modo": "curva_crescimento", "temperatura_alvo_c": 30}'
+
+# Põe a c01 no experimento e envia os 30 °C para a célula
+curl -X POST localhost:8000/experimentos/1/cultivos -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" -d '{"id_celula": "c01", "condicao": "30 °C"}'
+```
+
+A lista completa de rotas está em http://localhost:8000/docs. As rotas que já existiam (células, leituras, setpoint, calibração, alertas, integridade) continuam sem login; com token, registram quem fez o pedido.
+
+A API precisa de `SEGREDO_SESSAO`, que assina os tokens (no Compose já vem um valor de desenvolvimento; troque fora dele). `SESSAO_HORAS` define a validade do token (padrão 12). As duas estão no `.env.example`.
+
+### Banco que já tem dados
+
+O `docker compose down -v` apaga o banco. Para aplicar o modelo de dados num banco que não pode ser perdido, faça um `pg_dump` antes e rode o script à mão; ele pode ser aplicado mais de uma vez sem mudar nada:
+
+```bash
+psql "postgresql://evolver:evolver@localhost:5432/evolver" -v ON_ERROR_STOP=1 -f infra/postgres/init/03_modelo_mvp.sql
+```
+
+### Falhas simuladas
+
 Para simular uma queda de rede na célula c02 e depois restaurar:
 
 ```bash
@@ -80,15 +113,15 @@ docker compose kill -s SIGUSR2 celula-c02   # restaura
 pip install -r requirements.txt            # uma vez: dependências e pacotes do projeto
 
 pytest tests/unidade                       # segundos, sem Docker
-pytest tests/integracao -v                 # teste ponta a ponta, sobe tudo pelo Docker Compose
-AMBIENTE=local pytest tests/integracao -v  # mesmo teste sem Docker (precisa de PostgreSQL 16 e Mosquitto)
+pytest tests/integracao -v                 # ponta a ponta e modelo de dados, sobe tudo pelo Docker Compose (~2 min)
+AMBIENTE=local pytest tests/integracao -v  # mesmo teste sem Docker (precisa de PostgreSQL 16 com btree_gist e Mosquitto)
 ```
 
 Use `MANTER_AMBIENTE=1` para não apagar o ambiente e os logs ao final.
 
 ## O teste ponta a ponta
 
-`tests/integracao/test_ponta_a_ponta.py` sobe três células simuladas e passa por estas etapas, em ordem. Leva pouco mais de um minuto porque usa tempos curtos (leitura a cada 1 s).
+`tests/integracao/test_ponta_a_ponta.py` sobe três células simuladas e passa por estas etapas, em ordem. Leva cerca de um minuto e meio porque usa tempos curtos (leitura a cada 1 s). A conferência de integridade é sempre a última.
 
 | Etapa | O que acontece | Passa se |
 |---|---|---|
@@ -100,9 +133,14 @@ Use `MANTER_AMBIENTE=1` para não apagar o ambiente e os logs ao final.
 | 6 | Setpoint de 37 °C na c01 | Passa por solicitado, recebido, aplicado e atingido, nessa ordem |
 | 7 | Setpoint de 80 °C | A API recusa por estar fora da faixa |
 | 8 | Setpoint na c03, que ignora pedidos | O pedido fica em solicitado e abre alerta |
-| 9 | Leitura repetida publicada três vezes | O banco mantém a original |
+| 9 | O seq 0 da c01 publicado de novo, com outro horário e outros valores | O banco mantém a original e abre o alerta de colisão de seq |
 | 10 | Duas calibrações novas na c02: sem recalcular e a partir de um instante | Só as leituras pedidas mudam de OD, e o valor bruto nunca muda |
-| 11 | Conferência final | Para cada célula, total = seq distintos = esperado |
+| 11 | Células anunciam a versão do firmware | A versão fica gravada em cada célula |
+| 12 | Uma leitura da c02 reenviada idêntica | É só descartada, sem alerta |
+| 13 | A c01 num cultivo com faixa de pH que exclui o pH simulado | O alerta de pH abre, fecha quando a faixa muda e fecha ao encerrar o cultivo |
+| 14 | Cultivo na c02 iniciado pela API, em experimento com temperatura alvo de 33 °C | O pedido de setpoint sai com o nome de quem iniciou e chega a aplicado |
+| 15 | O broker para e alguém inicia um cultivo com temperatura alvo | A API recusa (503) sem gravar nada; sem temperatura alvo, o cultivo começa |
+| 16 | Conferência final | Para cada célula, total = seq distintos = esperado |
 
 A conferência de integridade é esta consulta:
 
@@ -118,7 +156,7 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 
 **A primeira leitura podia se perder.** O broker só guarda mensagens para o consumidor depois que ele se inscreve pela primeira vez. Se uma célula subisse antes, a leitura `seq 0` era descartada, e o teste falhava de vez em quando, conforme a ordem em que os contêineres subiam. Agora o consumidor avisa quando está inscrito (healthcheck) e o Docker Compose só sobe as células depois disso.
 
-**Duplicatas só aparecem quando forçadas.** Nas falhas simuladas, o reenvio não gerou nenhuma leitura repetida, e por isso existe a etapa 9, que publica uma de propósito. Com a placa real e rede instável, elas vão acontecer, e o banco já está preparado.
+**Duplicatas só aparecem quando forçadas.** Nas falhas simuladas, o reenvio não gerou nenhuma leitura repetida, e por isso as etapas 9 e 12 publicam uma de propósito. Com a placa real e rede instável, elas vão acontecer, e o banco já está preparado.
 
 ## Decisões de projeto
 
@@ -130,6 +168,8 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 - **Consumidor, regras e API em processos separados.** A queda de um não para os outros.
 - **Células sobem depois do consumidor.** O healthcheck do consumidor só fica saudável quando o broker confirma a inscrição, e as células dependem dele no `docker-compose.yml`.
 - **Interface só fala com a API.** Validação e registro de quem mudou a temperatura ficam num lugar só.
+- **Cultivo liga célula e experimento por período.** As leituras não apontam para o experimento: a visão `leitura_cultivo` liga cada leitura ao cultivo pelo horário da medição. Uma célula tem um cultivo por vez, e perder a conexão nunca encerra cultivo nem experimento.
+- **Colisão de seq não apaga nada.** Se o mesmo seq chegar com outro horário, a leitura original fica e abre um alerta.
 
 ## Equipe
 
@@ -145,8 +185,8 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 
 ## Próximos passos
 
+- Ligar a interface ao login e às rotas de experimentos, acessos e cultivos. Hoje o login da interface é só de demonstração, com as contas no navegador
 - Fechar o contrato de mensagens com o grupo do hardware (`docs/contrato-mqtt.md`)
-- Autenticação na API e senha no broker. Hoje o login da interface é só de demonstração, com as contas no navegador
-- Endpoints para as telas que ainda usam dados de exemplo: experimentos, regras de alerta e exportação agrupada
+- Login nas rotas antigas e senha no broker
+- Endpoints para as telas que ainda usam dados de exemplo: regras de alerta e exportação agrupada
 - Sinal de vida do consumidor, para evitar o alerta falso
-- Cadastro e encerramento de experimentos pela API

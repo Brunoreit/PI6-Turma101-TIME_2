@@ -278,8 +278,8 @@ def test_13_ph_fora_da_faixa_do_cultivo_abre_alerta(banco):
     """Põe a c01 num cultivo com faixa de pH que exclui o pH simulado (entre
     6,7 e 7,0) e espera o processo de regras abrir o alerta. Depois só muda
     a faixa, e o alerta fecha; volta a faixa, e o alerta reabre; encerrar o
-    cultivo fecha. O simulador não muda. A API de experimentos ainda não
-    existe, então o cultivo é criado pelos repositórios."""
+    cultivo fecha. O simulador não muda. O cultivo é criado pelos
+    repositórios, não pela API (decisão da etapa 4)."""
     from app.banco import repositorios as repo
 
     pessoa = repo.criar_pessoa(banco, "Teste", "teste-ph@cnpem.br", "x")["id_pessoa"]

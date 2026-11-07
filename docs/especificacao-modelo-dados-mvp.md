@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Sistema | T.U.P.A, monitoramento das células do eVOLVER (PI6, PUC-Campinas + CNPEM) |
-| Status | **Proposta para aprovação.** Nada aqui está implementado ainda |
+| Status | **Implementado na branch `feat/modelo-dados-mvp`** (etapas 0 a 8, 06/11/2026). O texto das seções A a I e dos apêndices é a proposta original e não foi reescrito: onde ele diverge do código, valem a seção [Decisões da implementação](#decisões-da-implementação), no fim do documento, e as respostas às pendências registradas nela |
 | Base de código analisada | branch `develop`, commit `fdaf1b3` (06/11/2026) |
 | Origem das decisões | Documento "T.U.P.A — Modelo de dados do MVP", reuniões com o orientador (inclusive a de 22/10), v2 do modelo proposto pelo Rogério, telas do Figma (arquivo Telas) |
 | Entrega do projeto | 25/11/2026 |
@@ -1099,6 +1099,28 @@ Etapa aprovada com estas decisões:
 | `APIRouter` | Não usado. As rotas ficam em `main.py` |
 | Setpoint ao iniciar cultivo | Fica para a 7b. Na 7a, iniciar cultivo não publica a temperatura alvo |
 
+### Decisões da etapa 7b (setpoint ao iniciar cultivo, 06/11/2026)
+
+Etapa aprovada com estas decisões:
+
+| Ponto | Decisão |
+|---|---|
+| Envio da temperatura (RN-02) | Iniciar cultivo de experimento com `temperatura_alvo_c` cria e publica o pedido de setpoint por `_enviar_setpoint`, a mesma função usada por `POST /celulas/{id}/setpoint`. `solicitado_por` é o nome da pessoa logada e o pedido grava `id_pessoa` |
+| Leitura da temperatura | A temperatura é lida com o experimento travado (`travar_experimento`), na mesma transação que grava o cultivo, e é conferida de novo contra `TEMPERATURA_MIN_C`/`TEMPERATURA_MAX_C` (422), porque a faixa pode ter mudado desde a criação do experimento |
+| Formato da resposta (D6) | 201 com os campos do cultivo no nível de cima, como na 7a, mais `pedido_setpoint` e `setpoint_confirmado`. Sem temperatura alvo, os dois vêm `null`. Um objeto `{cultivo, pedido}` quebraria a resposta da 7a |
+| Ordem dos erros (RN-03) | O 503 só vale para experimento `cadastrado` ou `em_andamento`. Experimento encerrado ou cancelado com o broker parado continua dando o 409, que é a causa real |
+| Mensagem do 503 no cultivo | "Broker indisponível: o cultivo não foi iniciado, porque a temperatura alvo não chegaria à célula. Tente de novo em alguns segundos." A rota de setpoint mantém a mensagem dela |
+| Rota `POST /celulas/{id}/setpoint` | Só teve a gravação e a publicação extraídas para `_enviar_setpoint`. A ordem das checagens e as respostas não mudaram; a etapa 6 do ponta a ponta passa sem alteração |
+| Ponta a ponta | Etapa 14 (G.8): cultivo na c02 com 33 °C, pedido com a pessoa logada chega a `aplicado`. Etapa 15 (RN-03): com o broker parado, 503 sem gravar pedido nem cultivo; sem temperatura alvo, o cultivo começa. A integridade passou a ser a etapa 16 |
+| **Limitação conhecida** | O caso da D6 em que o broker cai depois de gravar o cultivo e antes de publicar (`setpoint_confirmado: false`) não tem teste automático: não há como derrubar o broker de forma previsível nesse intervalo. O código segue o mesmo caminho da rota de setpoint (grava o pedido, publica e devolve `is_published()`) |
+
+### Decisões da etapa 8 (documentação, 06/11/2026)
+
+| Ponto | Decisão |
+|---|---|
+| `interface/` | Não foi alterada, nem o comentário de `interface/src/api/tipos.ts` (divergência 9). As mudanças que a frente da interface precisa acompanhar foram entregues a ela numa lista, no relatório final |
+| Este documento | Só o status no topo e esta seção mudaram. O texto das seções A a I continua sendo a proposta original |
+
 ### Respostas às pendências (06/11/2026)
 
 | # | Resposta | Efeito |
@@ -1128,3 +1150,4 @@ Etapa aprovada com estas decisões:
 - `APIRouter` em módulos novos só depois de perguntar.
 - P-2, P-3, P-9 e P-13 continuam abertas. Nada que dependa delas é implementado antes da resposta.
 - **Etapa 7a** aprovada em 06/11/2026 com as decisões acima, mais dois ajustes antes da 7b: travar o experimento no `PATCH` e o campo `codigo` (P-8). `APIRouter` continua de fora.
+- **Etapa 7b** aprovada em 06/11/2026 com as decisões acima.
