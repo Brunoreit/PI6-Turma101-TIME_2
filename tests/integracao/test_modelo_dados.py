@@ -3,8 +3,8 @@
 Conferem direto por SQL, sem API, as restrições que o próprio banco garante,
 a visão leitura_cultivo e a aplicação do 03 num banco que já existe. No fim,
 as operações de pessoas, experimentos, acessos e cultivos de repositorios.py,
-o consumidor, a regra de pH, as rotas de células e calibração da API e o
-login.
+o consumidor, a regra de pH, as rotas de células e calibração da API, o
+login e as rotas de experimentos, acessos e cultivos.
 
 Os testes de restrição rodam numa transação desfeita no final. Os cenários
 de banco antigo usam um banco separado no mesmo servidor. Os de repositório
@@ -612,6 +612,43 @@ def test_atualizar_cultivo_so_em_andamento(cenario):
     assert repo.buscar_cultivo(conn, cultivo)["condicao"] == "30 °C"
 
 
+def test_encerrar_experimento_encerra_os_cultivos_abertos(cenario):
+    conn, e = cenario.conn, cenario.experimento["id_experimento"]
+    with pytest.raises(repo.OperacaoRecusada) as recusa:
+        repo.encerrar_experimento(conn, e, cenario.ana)
+    assert recusa.value.status == "cadastrado"
+
+    cancelado = repo.cancelar_cultivo(conn, cenario.iniciar(0)["id_cultivo"], cenario.henry, "contaminou")
+    cenario.iniciar(1)
+    cenario.iniciar(2)
+    encerrado = repo.encerrar_experimento(conn, e, cenario.ana)
+    assert encerrado["status"] == "encerrado" and encerrado["encerrado_em"] >= encerrado["iniciado_em"]
+    cultivos = {c["id_cultivo"]: c for c in cenario.cultivos(e)}
+    assert cultivos.pop(cancelado["id_cultivo"]) == cancelado
+    assert [(c["status"], c["encerrado_em"], c["id_encerrado_por"], c["motivo_encerramento"])
+            for c in cultivos.values()] == [("encerrado", encerrado["encerrado_em"], cenario.ana, None)] * 2
+
+    with pytest.raises(repo.OperacaoRecusada) as recusa:
+        repo.encerrar_experimento(conn, e, cenario.ana)
+    assert recusa.value.status == "encerrado"
+    assert repo.encerrar_experimento(conn, -1, cenario.ana) is None
+
+
+def test_atualizar_celula_muda_so_os_campos_recebidos(cenario):
+    conn, celula, outra = cenario.conn, cenario.celulas[0], cenario.celulas[1]
+    depois = repo.atualizar_celula(conn, celula, apelido=f"ap-{celula}", modelo="ESP32")
+    assert (depois["apelido"], depois["modelo"], depois["descricao"], depois["estado"]) == (
+        f"ap-{celula}", "ESP32", None, "online")
+    assert repo.atualizar_celula(conn, celula, descricao="bancada 2")["apelido"] == f"ap-{celula}"
+    assert repo.atualizar_celula(conn, celula) == {**depois, "descricao": "bancada 2"}
+    with pytest.raises(errors.UniqueViolation):
+        repo.atualizar_celula(conn, outra, apelido=f"ap-{celula}")
+    with pytest.raises(ValueError):
+        repo.atualizar_celula(conn, celula, firmware="x")
+    assert repo.atualizar_celula(conn, "nao-existe", apelido="x") is None
+    assert repo.atualizar_celula(conn, celula, apelido=None)["apelido"] is None
+
+
 def test_leituras_do_cultivo_sao_as_do_periodo_e_nada_apaga_leituras(cenario):
     conn, celula = cenario.conn, cenario.celulas[0]
     cultivo = cenario.iniciar(0)
@@ -1043,3 +1080,332 @@ def test_rotas_existentes_continuam_sem_token_e_gravam_quem_pediu_com_token(ambi
     assert sorted(p["temperatura_c"] for p in repo.listar_pedidos(cenario.conn, celula)) == [30, 30, 31]
     assert cenario.conn.execute("SELECT max(versao) AS v FROM calibracao WHERE id_celula = %s",
                                 (celula,)).fetchone()["v"] == 2
+
+
+# ------------------------------------------------------------------ API: experimentos, acessos e cultivos
+
+
+class Conta:
+    """Pessoa cadastrada pela API, com o token dela."""
+
+    def __init__(self, ambiente, nome: str):
+        corpo = _cadastrar(ambiente, _email(), nome=nome).json()
+        self.url, self.id, self.email = ambiente.url_api, corpo["pessoa"]["id_pessoa"], corpo["pessoa"]["email"]
+        self.cabecalhos = _bearer(corpo["token"])
+
+    def chamar(self, metodo: str, caminho: str, json: dict | None = None, **kwargs) -> requests.Response:
+        return requests.request(metodo, f"{self.url}{caminho}", json=json, headers=self.cabecalhos,
+                                timeout=10, **kwargs)
+
+
+@pytest.fixture
+def contas(ambiente):
+    return tuple(Conta(ambiente, nome) for nome in ("Ana", "Henry", "Bia"))
+
+
+FICHA = {"nome": "Crescimento de E. coli em 30 e 34 °C", "modo": "curva_crescimento", "duracao_prevista_dias": 30,
+         "temperatura_alvo_c": 30, "ph_ref_min": 6.5, "ph_ref_max": 7.5, "metadados": {"organismo": "E. coli K-12"}}
+
+
+def _criar(conta: Conta, **campos) -> dict:
+    resposta = conta.chamar("POST", "/experimentos", {**FICHA, **campos})
+    assert resposta.status_code == 201, resposta.text
+    return resposta.json()
+
+
+def _iniciar(conta: Conta, id_experimento: int, id_celula: str, **campos) -> requests.Response:
+    return conta.chamar("POST", f"/experimentos/{id_experimento}/cultivos", {"id_celula": id_celula, **campos})
+
+
+def _detalhe(resposta: requests.Response) -> str:
+    return resposta.json()["detail"]
+
+
+def test_fluxo_de_referencia_pela_api(ambiente, cenario, contas):
+    """Apêndice B da especificação, sem o setpoint ao iniciar o cultivo."""
+    ana, henry, _ = contas
+    c01, c02, c03 = cenario.celulas
+
+    experimento = _criar(ana)
+    e = experimento["id_experimento"]
+    assert (experimento["status"], experimento["id_responsavel"], experimento["metadados"]) == (
+        "cadastrado", ana.id, {"organismo": "E. coli K-12"})
+
+    acesso = ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": henry.email.upper(), "permissao": "edicao"})
+    assert acesso.status_code == 200, acesso.text
+    assert {k: v for k, v in acesso.json().items() if k != "concedido_em"} == {
+        "id_pessoa": henry.id, "nome": "Henry", "email": henry.email, "permissao": "edicao"}
+
+    compartilhados = henry.chamar("GET", "/experimentos", params={"filtro": "compartilhados"}).json()
+    assert [(x["id_experimento"], x["acesso"]) for x in compartilhados] == [(e, "edicao")]
+    assert ana.chamar("GET", "/experimentos", params={"filtro": "compartilhados"}).json() == []
+
+    primeiro = _iniciar(ana, e, c01, condicao="30 °C", replica=1)
+    assert primeiro.status_code == 201, primeiro.text
+    assert (primeiro.json()["ph_ref_min"], primeiro.json()["ph_ref_max"], primeiro.json()["id_iniciado_por"]) == (
+        6.5, 7.5, ana.id)
+    detalhe = ana.chamar("GET", f"/experimentos/{e}").json()
+    assert detalhe["status"] == "em_andamento"
+    assert datetime.fromisoformat(detalhe["iniciado_em"]) == datetime.fromisoformat(primeiro.json()["iniciado_em"])
+
+    segundo = _iniciar(henry, e, c02, condicao="34 °C", replica=1)
+    assert segundo.status_code == 201, segundo.text
+    ocupada = _iniciar(ana, e, c01)
+    assert ocupada.status_code == 409
+    assert _detalhe(ocupada) == (f"A célula {c01} já está em outro cultivo. "
+                                 "Encerre o cultivo atual antes de iniciar outro.")
+
+    c2 = segundo.json()["id_cultivo"]
+    encerrado = henry.chamar("POST", f"/cultivos/{c2}/encerrar", {"motivo": "placa queimou"})
+    assert encerrado.status_code == 200, encerrado.text
+    assert (encerrado.json()["status"], encerrado.json()["motivo_encerramento"], encerrado.json()["id_encerrado_por"]) == (
+        "encerrado", "placa queimou", henry.id)
+    terceiro = _iniciar(henry, e, c03, condicao="34 °C", replica=1, continua_de=c2)
+    assert terceiro.status_code == 201 and terceiro.json()["continua_de"] == c2
+
+    # Leituras da c02 antes, durante e depois do cultivo 2, e uma da c03.
+    inicio = datetime.fromisoformat(segundo.json()["iniciado_em"])
+    fim = datetime.fromisoformat(encerrado.json()["encerrado_em"])
+    for seq, ts in enumerate((inicio - timedelta(seconds=1), inicio, fim - timedelta(microseconds=1), fim)):
+        repo.gravar_leitura(cenario.conn, c02, seq, ts, 30.0, 1000.0, 0.45, 7.0, None)
+    repo.gravar_leitura(cenario.conn, c03, 0, fim, 30.0, 1000.0, 0.45, 7.0, None)
+    leituras = ana.chamar("GET", f"/cultivos/{c2}/leituras")
+    assert leituras.status_code == 200, leituras.text
+    assert [l["seq"] for l in leituras.json()] == [1, 2]
+
+    detalhe = henry.chamar("GET", f"/experimentos/{e}").json()
+    assert [(c["id_celula"], c["status"]) for c in detalhe["cultivos"]] == [
+        (c01, "em_andamento"), (c02, "encerrado"), (c03, "em_andamento")]
+    assert [(a["id_pessoa"], a["permissao"]) for a in detalhe["acessos"]] == [(henry.id, "edicao")]
+
+    copia = ana.chamar("POST", f"/experimentos/{e}/duplicar")
+    assert copia.status_code == 201, copia.text
+    assert (copia.json()["status"], copia.json()["id_origem"], copia.json()["id_responsavel"]) == ("cadastrado", e, ana.id)
+    assert ana.chamar("GET", f"/experimentos/{copia.json()['id_experimento']}").json()["cultivos"] == []
+
+
+def test_rotas_novas_exigem_login(ambiente, cenario, contas):
+    e = _criar(contas[0])["id_experimento"]
+    for metodo, caminho in [("POST", "/experimentos"), ("GET", "/experimentos"), ("GET", f"/experimentos/{e}"),
+                            ("PATCH", f"/experimentos/{e}"), ("POST", f"/experimentos/{e}/encerrar"),
+                            ("POST", f"/experimentos/{e}/cancelar"), ("POST", f"/experimentos/{e}/duplicar"),
+                            ("POST", f"/experimentos/{e}/acessos"), ("DELETE", f"/experimentos/{e}/acessos/1"),
+                            ("POST", f"/experimentos/{e}/cultivos"), ("PATCH", "/cultivos/1"),
+                            ("POST", "/cultivos/1/encerrar"), ("POST", "/cultivos/1/cancelar"),
+                            ("GET", "/cultivos/1/leituras"), ("PATCH", f"/celulas/{cenario.celulas[0]}")]:
+        resposta = requests.request(metodo, f"{ambiente.url_api}{caminho}", json={}, timeout=10)
+        assert resposta.status_code == 401, (metodo, caminho)
+    assert repo.buscar_experimento(cenario.conn, e)["status"] == "cadastrado"
+
+
+def test_experimento_de_outra_pessoa_responde_404(cenario, contas):
+    ana, _, bia = contas
+    e = _criar(ana)["id_experimento"]
+    cultivo = _iniciar(ana, e, cenario.celulas[0]).json()["id_cultivo"]
+    for metodo, caminho, corpo in [
+        ("GET", f"/experimentos/{e}", None), ("PATCH", f"/experimentos/{e}", {"descricao": "x"}),
+        ("POST", f"/experimentos/{e}/encerrar", None), ("POST", f"/experimentos/{e}/cancelar", {"motivo": "x"}),
+        ("POST", f"/experimentos/{e}/duplicar", None),
+        ("POST", f"/experimentos/{e}/acessos", {"email": bia.email, "permissao": "edicao"}),
+        ("POST", f"/experimentos/{e}/cultivos", {"id_celula": cenario.celulas[1]}),
+        ("PATCH", f"/cultivos/{cultivo}", {"condicao": "x"}), ("POST", f"/cultivos/{cultivo}/encerrar", None),
+        ("POST", f"/cultivos/{cultivo}/cancelar", {"motivo": "x"}), ("GET", f"/cultivos/{cultivo}/leituras", None),
+    ]:
+        resposta = bia.chamar(metodo, caminho, corpo)
+        assert resposta.status_code == 404, (metodo, caminho, resposta.text)
+    assert _detalhe(bia.chamar("GET", f"/experimentos/{e}")) == f"Experimento {e} não encontrado."
+    assert _detalhe(bia.chamar("GET", f"/cultivos/{cultivo}/leituras")) == f"Cultivo {cultivo} não encontrado."
+    assert ana.chamar("GET", "/experimentos/999999").status_code == 404
+    assert ana.chamar("GET", "/cultivos/999999/leituras").status_code == 404
+    assert bia.chamar("GET", "/experimentos").json() == []
+    assert repo.buscar_cultivo(cenario.conn, cultivo)["status"] == "em_andamento"
+
+
+def test_permissoes_de_leitura_edicao_e_responsavel(cenario, contas):
+    ana, henry, bia = contas
+    e = _criar(ana)["id_experimento"]
+    ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": henry.email, "permissao": "edicao"})
+    ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": bia.email, "permissao": "leitura"})
+    cultivo = _iniciar(henry, e, cenario.celulas[0]).json()["id_cultivo"]
+
+    # Leitura: vê e duplica, mas não mexe em cultivos.
+    assert bia.chamar("GET", f"/experimentos/{e}").status_code == 200
+    assert bia.chamar("GET", f"/cultivos/{cultivo}/leituras").status_code == 200
+    for metodo, caminho, corpo in [("POST", f"/experimentos/{e}/cultivos", {"id_celula": cenario.celulas[1]}),
+                                   ("PATCH", f"/cultivos/{cultivo}", {"condicao": "x"}),
+                                   ("POST", f"/cultivos/{cultivo}/encerrar", None),
+                                   ("POST", f"/cultivos/{cultivo}/cancelar", {"motivo": "x"})]:
+        resposta = bia.chamar(metodo, caminho, corpo)
+        assert resposta.status_code == 403, (metodo, caminho, resposta.text)
+        assert _detalhe(resposta) == ("Seu acesso a este experimento é só de leitura. "
+                                      "Peça ao responsável a permissão Pode modificar.")
+    copia = bia.chamar("POST", f"/experimentos/{e}/duplicar")
+    assert copia.status_code == 201 and copia.json()["id_responsavel"] == bia.id
+
+    # Edição: mexe em cultivos, mas não na ficha, no status nem nos acessos.
+    assert henry.chamar("PATCH", f"/cultivos/{cultivo}", {"ph_ref_min": 6.0}).json()["ph_ref_min"] == 6.0
+    for metodo, caminho, corpo in [("PATCH", f"/experimentos/{e}", {"descricao": "x"}),
+                                   ("POST", f"/experimentos/{e}/encerrar", None),
+                                   ("POST", f"/experimentos/{e}/cancelar", {"motivo": "x"}),
+                                   ("POST", f"/experimentos/{e}/acessos", {"email": bia.email, "permissao": "edicao"}),
+                                   ("DELETE", f"/experimentos/{e}/acessos/{bia.id}", None)]:
+        for conta in (henry, bia):
+            resposta = conta.chamar(metodo, caminho, corpo)
+            assert resposta.status_code == 403, (conta.email, metodo, caminho, resposta.text)
+            assert _detalhe(resposta).startswith("Só o responsável pelo experimento pode fazer isto.")
+    assert repo.acesso_de(cenario.conn, e, bia.id) == "leitura"
+    assert repo.buscar_experimento(cenario.conn, e)["status"] == "em_andamento"
+
+
+def test_acessos_pela_api(contas):
+    ana, henry, _ = contas
+    e = _criar(ana)["id_experimento"]
+    url = f"/experimentos/{e}/acessos"
+
+    sem_conta = ana.chamar("POST", url, {"email": "ninguem@cnpem.br", "permissao": "leitura"})
+    assert sem_conta.status_code == 404 and "precisa se cadastrar" in _detalhe(sem_conta)
+    proprio = ana.chamar("POST", url, {"email": ana.email, "permissao": "edicao"})
+    assert proprio.status_code == 422 and "já tem acesso total" in _detalhe(proprio)
+    assert ana.chamar("POST", url, {"email": henry.email, "permissao": "dono"}).status_code == 422
+
+    assert ana.chamar("POST", url, {"email": henry.email, "permissao": "leitura"}).json()["permissao"] == "leitura"
+    assert ana.chamar("POST", url, {"email": henry.email, "permissao": "edicao"}).json()["permissao"] == "edicao"
+    assert [a["permissao"] for a in ana.chamar("GET", f"/experimentos/{e}").json()["acessos"]] == ["edicao"]
+
+    revogado = ana.chamar("DELETE", f"{url}/{henry.id}")
+    assert revogado.status_code == 204 and revogado.content == b""
+    assert ana.chamar("DELETE", f"{url}/{henry.id}").status_code == 404
+    assert henry.chamar("GET", f"/experimentos/{e}").status_code == 404
+
+
+def test_criar_experimento_valida_a_ficha(contas):
+    ana = contas[0]
+    invertida = ana.chamar("POST", "/experimentos", {**FICHA, "ph_ref_min": 7.5, "ph_ref_max": 6.5})
+    assert invertida.status_code == 422
+    assert _detalhe(invertida) == "A faixa de pH precisa ter o mínimo menor que o máximo. Confira ph_ref_min e ph_ref_max."
+    quente = ana.chamar("POST", "/experimentos", {**FICHA, "temperatura_alvo_c": 99})
+    assert quente.status_code == 422 and _detalhe(quente).startswith("A temperatura deve ficar entre")
+    for campos in ({"nome": " "}, {"modo": "batelada"}, {"duracao_prevista_dias": 0}, {"metadados": [1]}):
+        assert ana.chamar("POST", "/experimentos", {**FICHA, **campos}).status_code == 422, campos
+    minimo = ana.chamar("POST", "/experimentos", {"nome": "Só o nome", "modo": "turbidostato"})
+    assert minimo.status_code == 201 and minimo.json()["metadados"] == {}
+    assert ana.chamar("GET", "/experimentos", params={"filtro": "outros"}).status_code == 422
+
+
+def test_alterar_experimento_segue_o_status(cenario, contas):
+    """P-3: cadastrado edita tudo; em andamento só descricao e metadados;
+    encerrado ou cancelado, nada."""
+    ana = contas[0]
+    e = _criar(ana)["id_experimento"]
+    url = f"/experimentos/{e}"
+
+    antes = ana.chamar("PATCH", url, {"nome": "Outro nome", "temperatura_alvo_c": 34, "ph_ref_max": None})
+    assert antes.status_code == 200, antes.text
+    assert (antes.json()["nome"], antes.json()["temperatura_alvo_c"], antes.json()["ph_ref_max"], antes.json()["modo"]) == (
+        "Outro nome", 34, None, "curva_crescimento")
+    assert ana.chamar("PATCH", url, {"ph_ref_max": 6.0}).status_code == 422
+    assert ana.chamar("PATCH", url, {"temperatura_alvo_c": 99}).status_code == 422
+    assert ana.chamar("PATCH", url, {"nome": None}).status_code == 422
+
+    _iniciar(ana, e, cenario.celulas[0])
+    travado = ana.chamar("PATCH", url, {"nome": "x", "descricao": "y", "ph_ref_min": 6.0})
+    assert travado.status_code == 422
+    assert _detalhe(travado) == ("O experimento já começou e estes campos não podem mais ser alterados: "
+                                 "nome, ph_ref_min. Depois do início, só descricao e metadados mudam.")
+    depois = ana.chamar("PATCH", url, {"descricao": "y", "metadados": {"meio": "LB"}})
+    assert depois.status_code == 200, depois.text
+    assert (depois.json()["descricao"], depois.json()["metadados"], depois.json()["nome"]) == (
+        "y", {"meio": "LB"}, "Outro nome")
+
+    ana.chamar("POST", f"{url}/encerrar")
+    fechado = ana.chamar("PATCH", url, {"descricao": "z"})
+    assert fechado.status_code == 409 and _detalhe(fechado).startswith(f"O experimento {e} está encerrado")
+    assert repo.buscar_experimento(cenario.conn, e)["descricao"] == "y"
+
+
+def test_encerrar_experimento_pela_api_encerra_os_cultivos(cenario, contas):
+    """P-9: só em andamento, e os cultivos abertos encerram junto."""
+    ana = contas[0]
+    e = _criar(ana)["id_experimento"]
+    url = f"/experimentos/{e}/encerrar"
+
+    cadastrado = ana.chamar("POST", url)
+    assert cadastrado.status_code == 409 and "cancele-o" in _detalhe(cadastrado)
+
+    for celula in cenario.celulas[:2]:
+        _iniciar(ana, e, celula)
+    encerrado = ana.chamar("POST", url)
+    assert encerrado.status_code == 200, encerrado.text
+    assert encerrado.json()["status"] == "encerrado"
+    assert [(c["status"], c["id_encerrado_por"]) for c in cenario.cultivos(e)] == [("encerrado", ana.id)] * 2
+
+    de_novo = ana.chamar("POST", url)
+    assert de_novo.status_code == 409 and _detalhe(de_novo) == f"O experimento {e} já está encerrado. Nada foi alterado."
+    novo_cultivo = _iniciar(ana, e, cenario.celulas[0])
+    assert novo_cultivo.status_code == 409 and "duplique o experimento" in _detalhe(novo_cultivo)
+    assert ana.chamar("POST", f"/experimentos/{e}/cancelar", {"motivo": "x"}).status_code == 409
+
+
+def test_cancelar_experimento_pela_api_cancela_os_cultivos(cenario, contas):
+    ana = contas[0]
+    e = _criar(ana)["id_experimento"]
+    url = f"/experimentos/{e}/cancelar"
+    _iniciar(ana, e, cenario.celulas[0])
+
+    for corpo in ({"motivo": "  "}, {}, None):
+        assert ana.chamar("POST", url, corpo).status_code == 422, corpo
+    cancelado = ana.chamar("POST", url, {"motivo": "contaminação"})
+    assert cancelado.status_code == 200, cancelado.text
+    assert cancelado.json()["status"] == "cancelado"
+    assert [(c["status"], c["motivo_encerramento"]) for c in cenario.cultivos(e)] == [("cancelado", "contaminação")]
+    assert ana.chamar("POST", url, {"motivo": "de novo"}).status_code == 409
+
+
+def test_cultivos_pela_api(cenario, contas):
+    ana = contas[0]
+    e = _criar(ana)["id_experimento"]
+
+    assert _iniciar(ana, e, "nao-existe").status_code == 404
+    assert _iniciar(ana, e, cenario.celulas[0], replica=0).status_code == 422
+    sem_origem = _iniciar(ana, e, cenario.celulas[0], continua_de=999999)
+    assert sem_origem.status_code == 422 and _detalhe(sem_origem) == "Cultivo 999999 não encontrado. Confira continua_de."
+    assert repo.buscar_experimento(cenario.conn, e)["status"] == "cadastrado"
+
+    cultivo = _iniciar(ana, e, cenario.celulas[0], condicao="30 °C").json()["id_cultivo"]
+    url = f"/cultivos/{cultivo}"
+    alterado = ana.chamar("PATCH", url, {"replica": 2, "ph_ref_min": 6.0})
+    assert alterado.status_code == 200, alterado.text
+    assert (alterado.json()["condicao"], alterado.json()["replica"], alterado.json()["ph_ref_min"]) == ("30 °C", 2, 6.0)
+    invertida = ana.chamar("PATCH", url, {"ph_ref_min": 8.0})
+    assert invertida.status_code == 422 and "mínimo menor que o máximo" in _detalhe(invertida)
+
+    for corpo in ({"motivo": " "}, {}):
+        assert ana.chamar("POST", f"{url}/cancelar", corpo).status_code == 422, corpo
+    encerrado = ana.chamar("POST", f"{url}/encerrar")
+    assert encerrado.status_code == 200 and encerrado.json()["motivo_encerramento"] is None
+    for metodo, caminho, corpo in [("PATCH", url, {"condicao": "x"}), ("POST", f"{url}/encerrar", None),
+                                   ("POST", f"{url}/cancelar", {"motivo": "x"})]:
+        resposta = ana.chamar(metodo, caminho, corpo)
+        assert resposta.status_code == 409, (metodo, caminho, resposta.text)
+        assert _detalhe(resposta).startswith(f"O cultivo {cultivo} já está encerrado")
+    assert repo.buscar_cultivo(cenario.conn, cultivo)["condicao"] == "30 °C"
+
+
+def test_alterar_celula_pela_api(ambiente, cenario, contas):
+    ana = contas[0]
+    celula, outra = cenario.celulas[0], cenario.celulas[1]
+    apelido = f"ap-{celula}"
+
+    alterada = ana.chamar("PATCH", f"/celulas/{celula}", {"apelido": f" {apelido} ", "modelo": "ESP32"})
+    assert alterada.status_code == 200, alterada.text
+    assert (alterada.json()["apelido"], alterada.json()["modelo"], alterada.json()["descricao"]) == (apelido, "ESP32", None)
+    assert ana.chamar("PATCH", f"/celulas/{celula}", {"descricao": "bancada 2"}).json()["apelido"] == apelido
+    assert {k: _celulas_da_api(ambiente)[celula][k] for k in ("apelido", "modelo", "descricao")} == {
+        "apelido": apelido, "modelo": "ESP32", "descricao": "bancada 2"}
+
+    repetido = ana.chamar("PATCH", f"/celulas/{outra}", {"apelido": apelido})
+    assert repetido.status_code == 409
+    assert _detalhe(repetido) == f"Já existe uma célula com o apelido {apelido}. Escolha outro apelido."
+    assert ana.chamar("PATCH", f"/celulas/{outra}", {"apelido": "  "}).status_code == 422
+    assert ana.chamar("PATCH", "/celulas/nao-existe", {"apelido": "x"}).status_code == 404
+    assert ana.chamar("PATCH", f"/celulas/{celula}", {"apelido": None}).json()["apelido"] is None

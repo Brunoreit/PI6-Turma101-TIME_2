@@ -4,7 +4,8 @@ A interface nunca acessa o banco nem o broker direto: tudo passa por aqui,
 para que validação do setpoint e registro de quem pediu fiquem num lugar só.
 
 Login por e-mail e senha (rotas /auth). As rotas que já existiam continuam
-abertas: com token, só passam a gravar quem fez o pedido.
+abertas: com token, só passam a gravar quem fez o pedido. As de experimentos,
+acessos e cultivos, e a alteração de célula, exigem login.
 
 Executar: uvicorn app.api.main:app --host 0.0.0.0 --port 8000
 Documentação interativa em http://localhost:8000/docs
@@ -14,9 +15,9 @@ import csv
 import io
 import logging
 import secrets
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 import paho.mqtt.client as mqtt
 import psycopg
@@ -25,7 +26,9 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.api import autenticacao
-from app.api.esquemas import Cadastro, Entrada, NovaCalibracao, NovoSetpoint
+from app.api.esquemas import (AlteracaoCelula, AlteracaoCultivo, AlteracaoExperimento, Cadastro, Entrada,
+                              Motivo, MotivoOpcional, NovaCalibracao, NovoAcesso, NovoCultivo,
+                              NovoExperimento, NovoSetpoint)
 from app.banco import repositorios as repo
 from app.banco.conexao import criar_pool
 from app.config import config
@@ -106,6 +109,14 @@ def _exigir_celula(conn: psycopg.Connection, id_celula: str) -> None:
         raise HTTPException(404, f"Célula {id_celula} não encontrada.")
 
 
+def _conferir_temperatura(temperatura_c: float) -> None:
+    if not config.temperatura_min_c <= temperatura_c <= config.temperatura_max_c:
+        raise HTTPException(
+            422, f"A temperatura deve ficar entre {config.temperatura_min_c:.0f} "
+                 f"e {config.temperatura_max_c:.0f} °C.",
+        )
+
+
 @app.get("/saude")
 def saude():
     try:
@@ -151,6 +162,17 @@ def eu(pessoa: PessoaLogada):
 @app.get("/celulas")
 def listar_celulas(conn: Conexao):
     return repo.listar_celulas(conn)
+
+
+@app.patch("/celulas/{id_celula}")
+def alterar_celula(conn: Conexao, _pessoa: PessoaLogada, id_celula: str, corpo: AlteracaoCelula):
+    try:
+        celula = repo.atualizar_celula(conn, id_celula, **corpo.model_dump(exclude_unset=True))
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(409, f"Já existe uma célula com o apelido {corpo.apelido}. Escolha outro apelido.") from None
+    if celula is None:
+        raise HTTPException(404, f"Célula {id_celula} não encontrada.")
+    return celula
 
 
 @app.get("/celulas/{id_celula}/leituras")
@@ -204,11 +226,7 @@ def exportar_leituras(conn: Conexao, id_celula: str):
 @app.post("/celulas/{id_celula}/setpoint", status_code=202)
 def pedir_setpoint(conn: Conexao, pessoa: PessoaOpcional, id_celula: str, corpo: NovoSetpoint):
     _exigir_celula(conn, id_celula)
-    if not config.temperatura_min_c <= corpo.temperatura_c <= config.temperatura_max_c:
-        raise HTTPException(
-            422, f"A temperatura deve ficar entre {config.temperatura_min_c:.0f} "
-                 f"e {config.temperatura_max_c:.0f} °C.",
-        )
+    _conferir_temperatura(corpo.temperatura_c)
     cliente = estado["mqtt"]
     if not cliente.is_connected():
         # Não publica: o paho guardaria a mensagem e a enviaria depois,
@@ -271,3 +289,215 @@ def integridade(conn: Conexao):
         {**linha, "completo": linha["leituras"] == linha["seq_unicos"] == linha["esperado"]}
         for linha in repo.resumo_integridade(conn)
     ]
+
+
+# ---------------------------------------------------------------- experimentos
+#
+# Quem não tem acesso ao experimento recebe 404, para não revelar que ele
+# existe. Quem tem acesso, mas não o suficiente, recebe 403.
+
+_EDITA_CULTIVOS = ("responsavel", "edicao")
+
+# Depois do início, só estes campos da ficha mudam (P-3).
+_EDITAVEIS_EM_ANDAMENTO = ("descricao", "metadados")
+
+
+def _conferir_permissao(acesso: str, permitidos: tuple[str, ...]) -> None:
+    if not permitidos or acesso in permitidos:
+        return
+    if permitidos == ("responsavel",):
+        raise HTTPException(403, "Só o responsável pelo experimento pode fazer isto. Peça ao responsável, se precisar.")
+    raise HTTPException(403, "Seu acesso a este experimento é só de leitura. "
+                             "Peça ao responsável a permissão Pode modificar.")
+
+
+def _exigir_acesso(conn: psycopg.Connection, id_experimento: int, pessoa: dict, *permitidos: str) -> None:
+    acesso = repo.acesso_de(conn, id_experimento, pessoa["id_pessoa"])
+    if acesso is None:
+        raise HTTPException(404, f"Experimento {id_experimento} não encontrado.")
+    _conferir_permissao(acesso, permitidos)
+
+
+def _exigir_cultivo(conn: psycopg.Connection, id_cultivo: int, pessoa: dict, *permitidos: str) -> None:
+    cultivo = repo.buscar_cultivo(conn, id_cultivo)
+    acesso = repo.acesso_de(conn, cultivo["id_experimento"], pessoa["id_pessoa"]) if cultivo else None
+    if acesso is None:
+        raise HTTPException(404, f"Cultivo {id_cultivo} não encontrado.")
+    _conferir_permissao(acesso, permitidos)
+
+
+def _cultivo_fechado(conn: psycopg.Connection, id_cultivo: int) -> HTTPException:
+    status = repo.buscar_cultivo(conn, id_cultivo)["status"]
+    return HTTPException(409, f"O cultivo {id_cultivo} já está {status} e não pode mais ser alterado. "
+                              "Para continuar a cultura, inicie um cultivo novo com continua_de.")
+
+
+def _experimento_fechado(id_experimento: int, status: str) -> HTTPException:
+    return HTTPException(409, f"O experimento {id_experimento} já está {status}. Nada foi alterado.")
+
+
+@contextmanager
+def _faixa_de_ph():
+    """Traduz a faixa de pH invertida. Quem confere é o banco, porque numa
+    alteração o outro limite pode ser o que já estava gravado."""
+    try:
+        yield
+    except psycopg.errors.CheckViolation as erro:
+        if erro.diag.constraint_name not in ("experimento_faixa_ph", "cultivo_faixa_ph"):
+            raise
+        raise HTTPException(422, "A faixa de pH precisa ter o mínimo menor que o máximo. "
+                                 "Confira ph_ref_min e ph_ref_max.") from None
+
+
+@app.post("/experimentos", status_code=201)
+def criar_experimento(conn: Conexao, pessoa: PessoaLogada, corpo: NovoExperimento):
+    if corpo.temperatura_alvo_c is not None:
+        _conferir_temperatura(corpo.temperatura_alvo_c)
+    with _faixa_de_ph():
+        return repo.criar_experimento(conn, pessoa["id_pessoa"], **corpo.model_dump())
+
+
+@app.get("/experimentos")
+def listar_experimentos(conn: Conexao, pessoa: PessoaLogada,
+                        filtro: Literal["todos", "meus", "compartilhados"] = "todos"):
+    """Os experimentos de que a pessoa é responsável e os compartilhados com ela."""
+    return repo.listar_experimentos_visiveis(conn, pessoa["id_pessoa"], filtro)
+
+
+@app.get("/experimentos/{id_experimento}")
+def buscar_experimento(conn: Conexao, pessoa: PessoaLogada, id_experimento: int):
+    _exigir_acesso(conn, id_experimento, pessoa)
+    return repo.buscar_experimento(conn, id_experimento)
+
+
+@app.patch("/experimentos/{id_experimento}")
+def alterar_experimento(conn: Conexao, pessoa: PessoaLogada, id_experimento: int, corpo: AlteracaoExperimento):
+    """Cadastrado: todos os campos. Em andamento: só descricao e metadados.
+    Encerrado ou cancelado: nenhum."""
+    _exigir_acesso(conn, id_experimento, pessoa, "responsavel")
+    campos = corpo.model_dump(exclude_unset=True)
+    status = repo.buscar_experimento(conn, id_experimento)["status"]
+    if status in ("encerrado", "cancelado"):
+        raise HTTPException(409, f"O experimento {id_experimento} está {status} e não pode mais ser alterado. "
+                                 "Para repetir o estudo, duplique o experimento.")
+    travados = [campo for campo in campos if campo not in _EDITAVEIS_EM_ANDAMENTO]
+    if status == "em_andamento" and travados:
+        raise HTTPException(422, f"O experimento já começou e estes campos não podem mais ser alterados: "
+                                 f"{', '.join(travados)}. Depois do início, só descricao e metadados mudam.")
+    if campos.get("temperatura_alvo_c") is not None:
+        _conferir_temperatura(campos["temperatura_alvo_c"])
+    with _faixa_de_ph():
+        return repo.atualizar_experimento(conn, id_experimento, **campos)
+
+
+@app.post("/experimentos/{id_experimento}/encerrar")
+def encerrar_experimento(conn: Conexao, pessoa: PessoaLogada, id_experimento: int):
+    """Encerra o experimento e, junto, os cultivos abertos (P-9)."""
+    _exigir_acesso(conn, id_experimento, pessoa, "responsavel")
+    try:
+        return repo.encerrar_experimento(conn, id_experimento, pessoa["id_pessoa"])
+    except repo.OperacaoRecusada as recusa:
+        if recusa.status == "cadastrado":
+            raise HTTPException(409, f"O experimento {id_experimento} ainda não começou e não pode ser encerrado. "
+                                     "Para desistir dele, cancele-o.") from None
+        raise _experimento_fechado(id_experimento, recusa.status) from None
+
+
+@app.post("/experimentos/{id_experimento}/cancelar")
+def cancelar_experimento(conn: Conexao, pessoa: PessoaLogada, id_experimento: int, corpo: Motivo):
+    """Cancela o experimento e, junto, os cultivos abertos, com o mesmo motivo."""
+    _exigir_acesso(conn, id_experimento, pessoa, "responsavel")
+    try:
+        return repo.cancelar_experimento(conn, id_experimento, pessoa["id_pessoa"], corpo.motivo)
+    except repo.OperacaoRecusada as recusa:
+        raise _experimento_fechado(id_experimento, recusa.status) from None
+
+
+@app.post("/experimentos/{id_experimento}/duplicar", status_code=201)
+def duplicar_experimento(conn: Conexao, pessoa: PessoaLogada, id_experimento: int):
+    """Cópia cadastrada da ficha, com quem duplicou como responsável."""
+    _exigir_acesso(conn, id_experimento, pessoa)
+    return repo.duplicar_experimento(conn, id_experimento, pessoa["id_pessoa"])
+
+
+@app.post("/experimentos/{id_experimento}/acessos")
+def conceder_acesso(conn: Conexao, pessoa: PessoaLogada, id_experimento: int, corpo: NovoAcesso):
+    """Compartilha com quem já tem conta. Repetir troca a permissão."""
+    _exigir_acesso(conn, id_experimento, pessoa, "responsavel")
+    convidada = repo.buscar_pessoa_por_email(conn, corpo.email)
+    if convidada is None:
+        raise HTTPException(404, f"Nenhuma conta com o e-mail {corpo.email}. "
+                                 "A pessoa precisa se cadastrar antes de receber acesso.")
+    if convidada["id_pessoa"] == pessoa["id_pessoa"]:
+        raise HTTPException(422, "Você é o responsável por este experimento e já tem acesso total.")
+    acesso = repo.conceder_acesso(conn, id_experimento, convidada["id_pessoa"], corpo.permissao)
+    return {"id_pessoa": convidada["id_pessoa"], "nome": convidada["nome"], "email": convidada["email"],
+            "permissao": acesso["permissao"], "concedido_em": acesso["concedido_em"]}
+
+
+@app.delete("/experimentos/{id_experimento}/acessos/{id_pessoa}", status_code=204)
+def revogar_acesso(conn: Conexao, pessoa: PessoaLogada, id_experimento: int, id_pessoa: int):
+    _exigir_acesso(conn, id_experimento, pessoa, "responsavel")
+    if not repo.revogar_acesso(conn, id_experimento, id_pessoa):
+        raise HTTPException(404, f"A pessoa {id_pessoa} não tem acesso ao experimento {id_experimento}.")
+
+
+# ---------------------------------------------------------------- cultivos
+
+
+@app.post("/experimentos/{id_experimento}/cultivos", status_code=201)
+def iniciar_cultivo(conn: Conexao, pessoa: PessoaLogada, id_experimento: int, corpo: NovoCultivo):
+    """Põe a célula no experimento a partir de agora."""
+    _exigir_acesso(conn, id_experimento, pessoa, *_EDITA_CULTIVOS)
+    _exigir_celula(conn, corpo.id_celula)
+    try:
+        return repo.iniciar_cultivo(conn, id_experimento, corpo.id_celula, pessoa["id_pessoa"],
+                                    condicao=corpo.condicao, replica=corpo.replica,
+                                    continua_de=corpo.continua_de)
+    except psycopg.errors.ExclusionViolation:
+        raise HTTPException(409, f"A célula {corpo.id_celula} já está em outro cultivo. "
+                                 "Encerre o cultivo atual antes de iniciar outro.") from None
+    except psycopg.errors.ForeignKeyViolation:
+        # A célula já foi conferida: só sobra o cultivo de continua_de.
+        raise HTTPException(422, f"Cultivo {corpo.continua_de} não encontrado. Confira continua_de.") from None
+    except repo.OperacaoRecusada as recusa:
+        raise HTTPException(409, f"O experimento {id_experimento} está {recusa.status} e não recebe cultivos novos. "
+                                 "Para repetir o estudo, duplique o experimento.") from None
+
+
+@app.patch("/cultivos/{id_cultivo}")
+def alterar_cultivo(conn: Conexao, pessoa: PessoaLogada, id_cultivo: int, corpo: AlteracaoCultivo):
+    _exigir_cultivo(conn, id_cultivo, pessoa, *_EDITA_CULTIVOS)
+    with _faixa_de_ph():
+        cultivo = repo.atualizar_cultivo(conn, id_cultivo, **corpo.model_dump(exclude_unset=True))
+    if cultivo is None:
+        raise _cultivo_fechado(conn, id_cultivo)
+    return cultivo
+
+
+@app.post("/cultivos/{id_cultivo}/encerrar")
+def encerrar_cultivo(conn: Conexao, pessoa: PessoaLogada, id_cultivo: int, corpo: MotivoOpcional | None = None):
+    """Tira a célula do experimento a partir de agora."""
+    _exigir_cultivo(conn, id_cultivo, pessoa, *_EDITA_CULTIVOS)
+    cultivo = repo.encerrar_cultivo(conn, id_cultivo, pessoa["id_pessoa"], corpo.motivo if corpo else None)
+    if cultivo is None:
+        raise _cultivo_fechado(conn, id_cultivo)
+    return cultivo
+
+
+@app.post("/cultivos/{id_cultivo}/cancelar")
+def cancelar_cultivo(conn: Conexao, pessoa: PessoaLogada, id_cultivo: int, corpo: Motivo):
+    """Como encerrar, marcando que o cultivo não valeu. Nada é apagado."""
+    _exigir_cultivo(conn, id_cultivo, pessoa, *_EDITA_CULTIVOS)
+    cultivo = repo.cancelar_cultivo(conn, id_cultivo, pessoa["id_pessoa"], corpo.motivo)
+    if cultivo is None:
+        raise _cultivo_fechado(conn, id_cultivo)
+    return cultivo
+
+
+@app.get("/cultivos/{id_cultivo}/leituras")
+def listar_leituras_do_cultivo(conn: Conexao, pessoa: PessoaLogada, id_cultivo: int,
+                               desde: datetime | None = None, limite: int = Query(1000, ge=1, le=10000)):
+    """Leituras medidas no período do cultivo."""
+    _exigir_cultivo(conn, id_cultivo, pessoa)
+    return repo.listar_leituras_do_cultivo(conn, id_cultivo, desde, limite)

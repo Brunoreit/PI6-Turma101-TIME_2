@@ -2,8 +2,9 @@
 
 import re
 from datetime import datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class NovoSetpoint(BaseModel):
@@ -77,3 +78,94 @@ class Entrada(BaseModel):
     @classmethod
     def _email(cls, email: str) -> str:
         return _normalizar_email(email)
+
+
+def _texto_obrigatorio(texto: str | None, mensagem: str) -> str | None:
+    if texto is not None and not texto.strip():
+        raise ValueError(mensagem)
+    return texto.strip() if texto is not None else None
+
+
+class NovoExperimento(BaseModel):
+    nome: str
+    descricao: str | None = None
+    modo: Literal["curva_crescimento", "turbidostato", "quimiostato"]
+    duracao_prevista_dias: int | None = Field(default=None, gt=0, le=100_000,
+                                              description="Só previsão: o sistema nunca encerra sozinho")
+    temperatura_alvo_c: float | None = Field(default=None, description="Enviada a cada célula quando o cultivo começa")
+    ph_ref_min: float | None = None
+    ph_ref_max: float | None = None
+    metadados: dict[str, Any] = Field(default_factory=dict, description="Organismo, cepa, meio, volume, lote, inóculo")
+
+    @field_validator("nome")
+    @classmethod
+    def _nome(cls, nome: str) -> str:
+        return _texto_obrigatorio(nome, "Informe o nome do experimento.")
+
+
+class AlteracaoExperimento(NovoExperimento):
+    """Só os campos enviados mudam. Depois do início, só descricao e metadados."""
+
+    nome: str | None = None
+    modo: Literal["curva_crescimento", "turbidostato", "quimiostato"] | None = None
+    metadados: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _sem_nulo_no_obrigatorio(self):
+        nulos = [campo for campo in ("nome", "modo", "metadados")
+                 if campo in self.model_fields_set and getattr(self, campo) is None]
+        if nulos:
+            raise ValueError(f"{', '.join(nulos)} não pode ficar vazio. Envie um valor ou deixe o campo de fora.")
+        return self
+
+
+class Motivo(BaseModel):
+    motivo: str
+
+    @field_validator("motivo")
+    @classmethod
+    def _motivo(cls, motivo: str) -> str:
+        return _texto_obrigatorio(motivo, "Informe o motivo.")
+
+
+class MotivoOpcional(BaseModel):
+    motivo: str | None = None
+
+
+class NovoAcesso(BaseModel):
+    email: str
+    permissao: Literal["leitura", "edicao"] = Field(description="leitura (Só leitura) ou edicao (Pode modificar)")
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, email: str) -> str:
+        return _normalizar_email(email)
+
+
+class AlteracaoCultivo(BaseModel):
+    """Só os campos enviados mudam."""
+
+    condicao: str | None = Field(default=None, description='Rótulo do grupo, ex.: "30 °C"')
+    replica: int | None = Field(default=None, gt=0, le=32767)
+    ph_ref_min: float | None = None
+    ph_ref_max: float | None = None
+
+
+class NovoCultivo(BaseModel):
+    id_celula: str
+    condicao: str | None = Field(default=None, description='Rótulo do grupo, ex.: "30 °C"')
+    replica: int | None = Field(default=None, gt=0, le=32767)
+    continua_de: int | None = Field(default=None, description="Cultivo de onde a cultura veio (troca de placa ou de célula)")
+
+
+class AlteracaoCelula(BaseModel):
+    """Só os campos enviados mudam. null tira o valor."""
+
+    apelido: str | None = Field(default=None, description='Nome de exibição, ex.: "c08". Único')
+    descricao: str | None = None
+    modelo: str | None = Field(default=None, description='Modelo da placa, ex.: "ESP32"')
+
+    @field_validator("apelido")
+    @classmethod
+    def _apelido(cls, apelido: str | None) -> str | None:
+        return _texto_obrigatorio(apelido, "O apelido não pode ficar em branco. Para tirar o apelido, envie null.")

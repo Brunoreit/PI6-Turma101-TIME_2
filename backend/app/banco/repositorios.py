@@ -75,6 +75,26 @@ def listar_celulas(conn: psycopg.Connection) -> list[dict]:
     return celulas
 
 
+_CAMPOS_CELULA = ("apelido", "descricao", "modelo")
+
+
+def atualizar_celula(conn: psycopg.Connection, id_celula: str, **campos) -> dict | None:
+    """Altera só os campos recebidos. Apelido repetido levanta
+    UniqueViolation. None se a célula não existe."""
+    desconhecidos = set(campos) - set(_CAMPOS_CELULA)
+    if desconhecidos:
+        raise ValueError(f"campos que não podem ser alterados na célula: {sorted(desconhecidos)}")
+    if not campos:
+        return conn.execute("SELECT * FROM celula WHERE id_celula = %s", (id_celula,)).fetchone()
+    return conn.execute(
+        f"""
+        UPDATE celula SET {", ".join(f"{coluna} = %s" for coluna in campos)}
+         WHERE id_celula = %s RETURNING *
+        """,
+        (*campos.values(), id_celula),
+    ).fetchone()
+
+
 def celula_existe(conn: psycopg.Connection, id_celula: str) -> bool:
     return conn.execute(
         "SELECT 1 FROM celula WHERE id_celula = %s", (id_celula,)
@@ -331,8 +351,12 @@ def buscar_pessoa(conn: psycopg.Connection, id_pessoa: int) -> dict | None:
 
 
 class OperacaoRecusada(Exception):
-    """A operação não vale para o estado atual do registro, por exemplo
+    """A operação não vale para o status atual do experimento, por exemplo
     iniciar um cultivo num experimento encerrado. Nada foi gravado."""
+
+    def __init__(self, status: str):
+        super().__init__(f"o experimento está {status}")
+        self.status = status
 
 
 # Campos da ficha que quem cria ou edita o experimento informa.
@@ -437,6 +461,35 @@ def atualizar_experimento(conn: psycopg.Connection, id_experimento: int, **campo
     ).fetchone()
 
 
+def encerrar_experimento(conn: psycopg.Connection, id_experimento: int,
+                         id_pessoa: int) -> dict | None:
+    """Encerra o experimento e, junto, os cultivos abertos. Só vale para
+    experimento em andamento: um cadastrado nunca começou e deve ser
+    cancelado. None se o experimento não existe."""
+    with conn.transaction():
+        experimento = conn.execute(
+            "SELECT status FROM experimento WHERE id_experimento = %s FOR UPDATE", (id_experimento,)
+        ).fetchone()
+        if experimento is None:
+            return None
+        if experimento["status"] != "em_andamento":
+            raise OperacaoRecusada(experimento["status"])
+        conn.execute(
+            """
+            UPDATE cultivo SET status = 'encerrado', encerrado_em = now(), id_encerrado_por = %s
+             WHERE id_experimento = %s AND status = 'em_andamento'
+            """,
+            (id_pessoa, id_experimento),
+        )
+        return conn.execute(
+            """
+            UPDATE experimento SET status = 'encerrado', encerrado_em = now()
+             WHERE id_experimento = %s RETURNING *
+            """,
+            (id_experimento,),
+        ).fetchone()
+
+
 def cancelar_experimento(conn: psycopg.Connection, id_experimento: int, id_pessoa: int,
                          motivo: str) -> dict | None:
     """Cancela o experimento e, junto, os cultivos abertos, com o mesmo
@@ -452,7 +505,7 @@ def cancelar_experimento(conn: psycopg.Connection, id_experimento: int, id_pesso
         if experimento is None:
             return None
         if experimento["status"] not in ("cadastrado", "em_andamento"):
-            raise OperacaoRecusada(f"o experimento já está {experimento['status']}")
+            raise OperacaoRecusada(experimento["status"])
         conn.execute(
             """
             UPDATE cultivo
@@ -531,7 +584,7 @@ def iniciar_cultivo(conn: psycopg.Connection, id_experimento: int, id_celula: st
         if experimento is None:
             return None
         if experimento["status"] not in ("cadastrado", "em_andamento"):
-            raise OperacaoRecusada(f"o experimento está {experimento['status']}")
+            raise OperacaoRecusada(experimento["status"])
         cultivo = conn.execute(
             """
             INSERT INTO cultivo (id_experimento, id_celula, condicao, replica,
