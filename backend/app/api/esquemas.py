@@ -1,8 +1,9 @@
 """Formatos de entrada da API (os de saída seguem as linhas do banco)."""
 
+import re
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class NovoSetpoint(BaseModel):
@@ -31,3 +32,46 @@ class NovaCalibracao(BaseModel):
     )
     r2: float | None = Field(default=None, description="Qualidade do ajuste, calculada por quem cadastra")
     organismo: str | None = Field(default=None, description="Cultura usada para fazer a curva")
+
+
+def _normalizar_email(email: str) -> str:
+    return email.strip().lower()
+
+
+class Cadastro(BaseModel):
+    nome: str
+    email: str
+    senha: str = Field(description="8 caracteres ou mais, com pelo menos uma letra e um número")
+
+    @field_validator("nome")
+    @classmethod
+    def _nome(cls, nome: str) -> str:
+        nome = nome.strip()
+        if not nome:
+            raise ValueError("Informe o nome.")
+        return nome
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, email: str) -> str:
+        email = _normalizar_email(email)
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+", email):
+            raise ValueError("Informe um e-mail no formato nome@instituicao.br.")
+        return email
+
+    @field_validator("senha")
+    @classmethod
+    def _senha(cls, senha: str) -> str:
+        if len(senha) < 8 or not re.search(r"[^\W\d_]", senha) or not re.search(r"\d", senha):
+            raise ValueError("A senha precisa ter 8 caracteres ou mais, com pelo menos uma letra e um número.")
+        return senha
+
+
+class Entrada(BaseModel):
+    email: str
+    senha: str
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, email: str) -> str:
+        return _normalizar_email(email)

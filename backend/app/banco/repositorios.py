@@ -217,13 +217,14 @@ def nova_calibracao(
 
 
 def criar_pedido(conn: psycopg.Connection, id_pedido: str, id_celula: str,
-                 temperatura_c: float, solicitado_por: str) -> dict:
+                 temperatura_c: float, solicitado_por: str, id_pessoa: int | None = None) -> dict:
+    """`id_pessoa` só vem quando o pedido é de alguém logado."""
     return conn.execute(
         """
-        INSERT INTO pedido_setpoint (id_pedido, id_celula, temperatura_c, solicitado_por)
-        VALUES (%s, %s, %s, %s) RETURNING *
+        INSERT INTO pedido_setpoint (id_pedido, id_celula, temperatura_c, solicitado_por, id_pessoa)
+        VALUES (%s, %s, %s, %s, %s) RETURNING *
         """,
-        (id_pedido, id_celula, temperatura_c, solicitado_por),
+        (id_pedido, id_celula, temperatura_c, solicitado_por, id_pessoa),
     ).fetchone()
 
 

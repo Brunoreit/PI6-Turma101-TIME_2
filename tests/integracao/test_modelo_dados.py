@@ -3,7 +3,8 @@
 Conferem direto por SQL, sem API, as restrições que o próprio banco garante,
 a visão leitura_cultivo e a aplicação do 03 num banco que já existe. No fim,
 as operações de pessoas, experimentos, acessos e cultivos de repositorios.py,
-o consumidor, a regra de pH e as rotas de células e calibração da API.
+o consumidor, a regra de pH, as rotas de células e calibração da API e o
+login.
 
 Os testes de restrição rodam numa transação desfeita no final. Os cenários
 de banco antigo usam um banco separado no mesmo servidor. Os de repositório
@@ -24,8 +25,9 @@ from psycopg import errors
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from app.api.autenticacao import emitir_token
 from app.banco import repositorios as repo
-from tests.integracao.ambiente import RAIZ, criar_ambiente
+from tests.integracao.ambiente import RAIZ, SEGREDO_SESSAO, criar_ambiente
 
 pytestmark = pytest.mark.integracao
 
@@ -904,3 +906,129 @@ def test_calibracao_guarda_pontos_r2_e_organismo(ambiente, cenario):
         resposta = requests.post(f"{ambiente.url_api}/celulas/{celula}/calibracoes", timeout=10,
                                  json={"a": 1, "b": 0, "pontos": invalido})
         assert resposta.status_code == 422, resposta.text
+
+
+# ------------------------------------------------------------------ API: autenticação
+
+SENHA = "cultura123"
+
+
+def _email() -> str:
+    return f"ana-{uuid.uuid4().hex[:6]}@cnpem.br"
+
+
+def _cadastrar(ambiente, email: str, senha: str = SENHA, nome: str = "Ana") -> requests.Response:
+    return requests.post(f"{ambiente.url_api}/auth/cadastro", timeout=10,
+                         json={"nome": nome, "email": email, "senha": senha})
+
+
+def _entrar(ambiente, email: str, senha: str = SENHA) -> requests.Response:
+    return requests.post(f"{ambiente.url_api}/auth/entrar", json={"email": email, "senha": senha}, timeout=10)
+
+
+def _bearer(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _eu(ambiente, cabecalhos: dict) -> requests.Response:
+    return requests.get(f"{ambiente.url_api}/auth/eu", headers=cabecalhos, timeout=10)
+
+
+def test_cadastro_entrada_e_eu(ambiente, banco):
+    email = _email()
+    cadastro = _cadastrar(ambiente, f"  {email.upper()} ")
+    assert cadastro.status_code == 201, cadastro.text
+    pessoa = cadastro.json()["pessoa"]
+    assert set(cadastro.json()) == {"token", "pessoa"}
+    assert set(pessoa) == {"id_pessoa", "nome", "email", "criado_em"}
+    assert (pessoa["nome"], pessoa["email"]) == ("Ana", email)
+
+    eu = _eu(ambiente, _bearer(cadastro.json()["token"]))
+    assert eu.status_code == 200 and eu.json() == pessoa
+
+    entrada = _entrar(ambiente, email.upper())
+    assert entrada.status_code == 200, entrada.text
+    assert entrada.json()["pessoa"] == pessoa
+    assert _eu(ambiente, _bearer(entrada.json()["token"])).json() == pessoa
+
+    resumo = banco.execute("SELECT senha_hash FROM pessoa WHERE email = %s", (email,)).fetchone()["senha_hash"]
+    assert resumo.startswith("scrypt$") and SENHA not in resumo
+    for resposta in (cadastro, eu, entrada):
+        assert "senha_hash" not in resposta.text and resumo not in resposta.text
+
+
+@pytest.mark.parametrize("senha", ["abc1234", "abcdefgh", "12345678", ""])
+def test_cadastro_com_senha_fraca_e_recusado(ambiente, senha):
+    resposta = _cadastrar(ambiente, _email(), senha=senha)
+    assert resposta.status_code == 422, resposta.text
+    assert "8 caracteres ou mais, com pelo menos uma letra e um número" in resposta.text
+
+
+@pytest.mark.parametrize("campos", [{"email": "ana"}, {"email": "ana@"}, {"email": "@cnpem.br"},
+                                    {"email": "ana silva@cnpem.br"}, {"nome": "  "}])
+def test_cadastro_com_nome_ou_email_invalido_e_recusado(ambiente, campos):
+    resposta = _cadastrar(ambiente, **{"email": _email(), **campos})
+    assert resposta.status_code == 422, resposta.text
+
+
+def test_cadastro_com_email_repetido_e_recusado(ambiente):
+    email = _email()
+    assert _cadastrar(ambiente, email).status_code == 201
+    resposta = _cadastrar(ambiente, email.upper(), nome="Outra Ana")
+    assert resposta.status_code == 409
+    assert resposta.json() == {"detail": "Já existe uma conta com este e-mail. Entre com ela ou use outro e-mail."}
+
+
+def test_entrada_com_senha_errada_ou_email_inexistente_da_a_mesma_resposta(ambiente):
+    email = _email()
+    assert _cadastrar(ambiente, email).status_code == 201
+    errada, inexistente = _entrar(ambiente, email, "cultura124"), _entrar(ambiente, _email())
+    assert errada.status_code == inexistente.status_code == 401
+    assert errada.json() == inexistente.json() == {"detail": "E-mail ou senha incorretos."}
+
+
+def test_token_expirado_adulterado_ou_de_outro_segredo_da_401(ambiente):
+    id_pessoa = _cadastrar(ambiente, _email()).json()["pessoa"]["id_pessoa"]
+    valido = emitir_token(id_pessoa, SEGREDO_SESSAO, horas=1)
+    assert _eu(ambiente, _bearer(valido)).status_code == 200
+
+    parte, assinatura = valido.split(".")
+    trocado = "B" if parte[5] == "A" else "A"
+    invalidos = {
+        "expirado": _bearer(emitir_token(id_pessoa, SEGREDO_SESSAO, horas=-1)),
+        "adulterado": _bearer(parte[:5] + trocado + parte[6:] + "." + assinatura),
+        "outro segredo": _bearer(emitir_token(id_pessoa, "outro-segredo", horas=1)),
+        "pessoa inexistente": _bearer(emitir_token(10**9, SEGREDO_SESSAO, horas=1)),
+        "sem token": {},
+        "outro esquema": {"Authorization": f"Basic {valido}"},
+    }
+    for caso, cabecalhos in invalidos.items():
+        resposta = _eu(ambiente, cabecalhos)
+        assert resposta.status_code == 401, caso
+        assert resposta.headers["WWW-Authenticate"] == "Bearer", caso
+
+
+def test_rotas_existentes_continuam_sem_token_e_gravam_quem_pediu_com_token(ambiente, cenario):
+    celula = cenario.celulas[0]
+    pessoa = _cadastrar(ambiente, _email()).json()
+    com_token = _bearer(pessoa["token"])
+    url = f"{ambiente.url_api}/celulas/{celula}"
+
+    sem = requests.post(f"{url}/setpoint", json={"temperatura_c": 30}, timeout=10)
+    com = requests.post(f"{url}/setpoint", json={"temperatura_c": 31}, headers=com_token, timeout=10)
+    assert (sem.status_code, com.status_code) == (202, 202), (sem.text, com.text)
+    assert (sem.json()["id_pessoa"], com.json()["id_pessoa"]) == (None, pessoa["pessoa"]["id_pessoa"])
+    assert sem.json()["solicitado_por"] == com.json()["solicitado_por"] == "anonimo"
+
+    calibracao = requests.post(f"{url}/calibracoes", json={"a": 1, "b": 0, "recalcular": False},
+                               headers=com_token, timeout=10)
+    assert calibracao.status_code == 201, calibracao.text
+    assert calibracao.json()["id_pessoa"] == pessoa["pessoa"]["id_pessoa"]
+
+    # Token presente e inválido é recusado, mesmo onde o login não é exigido, e nada é gravado.
+    invalido = _bearer(pessoa["token"] + "x")
+    assert requests.post(f"{url}/setpoint", json={"temperatura_c": 32}, headers=invalido, timeout=10).status_code == 401
+    assert requests.post(f"{url}/calibracoes", json={"a": 2, "b": 0}, headers=invalido, timeout=10).status_code == 401
+    assert sorted(p["temperatura_c"] for p in repo.listar_pedidos(cenario.conn, celula)) == [30, 31]
+    assert cenario.conn.execute("SELECT max(versao) AS v FROM calibracao WHERE id_celula = %s",
+                                (celula,)).fetchone()["v"] == 2

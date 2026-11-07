@@ -3,6 +3,9 @@
 A interface nunca acessa o banco nem o broker direto: tudo passa por aqui,
 para que validação do setpoint e registro de quem pediu fiquem num lugar só.
 
+Login por e-mail e senha (rotas /auth). As rotas que já existiam continuam
+abertas: com token, só passam a gravar quem fez o pedido.
+
 Executar: uvicorn app.api.main:app --host 0.0.0.0 --port 8000
 Documentação interativa em http://localhost:8000/docs
 """
@@ -17,10 +20,12 @@ from typing import Annotated
 
 import paho.mqtt.client as mqtt
 import psycopg
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.api.esquemas import NovaCalibracao, NovoSetpoint
+from app.api import autenticacao
+from app.api.esquemas import Cadastro, Entrada, NovaCalibracao, NovoSetpoint
 from app.banco import repositorios as repo
 from app.banco.conexao import criar_pool
 from app.config import config
@@ -32,6 +37,12 @@ estado: dict = {}
 
 @asynccontextmanager
 async def ciclo_de_vida(_app: FastAPI):
+    if not config.segredo_sessao:
+        raise RuntimeError(
+            "SEGREDO_SESSAO não definido: a API precisa dele para assinar os tokens de sessão. "
+            "Defina a variável com um valor aleatório, por exemplo a saída de "
+            "python -c \"import secrets; print(secrets.token_urlsafe(32))\"."
+        )
     estado["pool"] = criar_pool()
     cliente = mqtt.Client(
         mqtt.CallbackAPIVersion.VERSION2, client_id=f"evolver-api-{secrets.token_hex(3)}"
@@ -55,6 +66,40 @@ def _conexao():
 
 Conexao = Annotated[psycopg.Connection, Depends(_conexao)]
 
+_bearer = HTTPBearer(auto_error=False, description="Token devolvido por /auth/cadastro ou /auth/entrar")
+
+
+def _nao_autenticado(detalhe: str) -> HTTPException:
+    return HTTPException(401, detalhe, headers={"WWW-Authenticate": "Bearer"})
+
+
+def _pessoa_opcional(
+    conn: Conexao, request: Request,
+    credenciais: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+) -> dict | None:
+    """A pessoa do token, ou None sem token. Token presente e inválido dá 401."""
+    if credenciais is None:
+        if "authorization" in request.headers:
+            raise _nao_autenticado("Cabeçalho Authorization em formato inválido. Envie Authorization: Bearer <token>.")
+        return None
+    id_pessoa = autenticacao.ler_token(credenciais.credentials, config.segredo_sessao)
+    pessoa = repo.buscar_pessoa(conn, id_pessoa) if id_pessoa is not None else None
+    if pessoa is None:
+        raise _nao_autenticado("Sessão inválida ou expirada. Entre de novo com e-mail e senha para receber outro token.")
+    return pessoa
+
+
+PessoaOpcional = Annotated[dict | None, Depends(_pessoa_opcional)]
+
+
+def _pessoa_logada(pessoa: PessoaOpcional) -> dict:
+    if pessoa is None:
+        raise _nao_autenticado("Esta rota exige login. Entre com e-mail e senha e envie o token em Authorization: Bearer <token>.")
+    return pessoa
+
+
+PessoaLogada = Annotated[dict, Depends(_pessoa_logada)]
+
 
 def _exigir_celula(conn: psycopg.Connection, id_celula: str) -> None:
     if not repo.celula_existe(conn, id_celula):
@@ -70,6 +115,37 @@ def saude():
     except Exception:
         banco = False
     return {"banco": banco, "broker": estado["mqtt"].is_connected()}
+
+
+def _sessao(pessoa: dict) -> dict:
+    token = autenticacao.emitir_token(pessoa["id_pessoa"], config.segredo_sessao, config.sessao_horas)
+    return {"token": token, "pessoa": pessoa}
+
+
+@app.post("/auth/cadastro", status_code=201)
+def cadastrar(conn: Conexao, corpo: Cadastro):
+    try:
+        pessoa = repo.criar_pessoa(conn, corpo.nome, corpo.email, autenticacao.resumir_senha(corpo.senha))
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(409, "Já existe uma conta com este e-mail. Entre com ela ou use outro e-mail.") from None
+    except psycopg.errors.CheckViolation:
+        raise HTTPException(422, "Informe um e-mail no formato nome@instituicao.br.") from None
+    return _sessao(pessoa)
+
+
+@app.post("/auth/entrar")
+def entrar(conn: Conexao, corpo: Entrada):
+    pessoa = repo.buscar_pessoa_por_email(conn, corpo.email)
+    resumo = pessoa.pop("senha_hash") if pessoa is not None else None
+    # Mesma resposta para e-mail inexistente e senha errada.
+    if resumo is None or not autenticacao.conferir_senha(corpo.senha, resumo):
+        raise HTTPException(401, "E-mail ou senha incorretos.")
+    return _sessao(pessoa)
+
+
+@app.get("/auth/eu")
+def eu(pessoa: PessoaLogada):
+    return pessoa
 
 
 @app.get("/celulas")
@@ -126,7 +202,7 @@ def exportar_leituras(conn: Conexao, id_celula: str):
 
 
 @app.post("/celulas/{id_celula}/setpoint", status_code=202)
-def pedir_setpoint(conn: Conexao, id_celula: str, corpo: NovoSetpoint):
+def pedir_setpoint(conn: Conexao, pessoa: PessoaOpcional, id_celula: str, corpo: NovoSetpoint):
     _exigir_celula(conn, id_celula)
     if not config.temperatura_min_c <= corpo.temperatura_c <= config.temperatura_max_c:
         raise HTTPException(
@@ -140,7 +216,8 @@ def pedir_setpoint(conn: Conexao, id_celula: str, corpo: NovoSetpoint):
         raise HTTPException(503, "Broker indisponível. Tente de novo em alguns segundos.")
 
     id_pedido = f"sp-{secrets.token_hex(4)}"
-    pedido = repo.criar_pedido(conn, id_pedido, id_celula, corpo.temperatura_c, corpo.solicitado_por)
+    pedido = repo.criar_pedido(conn, id_pedido, id_celula, corpo.temperatura_c, corpo.solicitado_por,
+                               id_pessoa=pessoa["id_pessoa"] if pessoa else None)
 
     # Retida: se a célula estiver offline, recebe o pedido assim que voltar.
     mensagem = PedidoSetpoint(id=id_pedido, temperatura_c=corpo.temperatura_c)
@@ -170,13 +247,13 @@ def buscar_setpoint(conn: Conexao, id_pedido: str):
 
 
 @app.post("/celulas/{id_celula}/calibracoes", status_code=201)
-def cadastrar_calibracao(conn: Conexao, id_celula: str, corpo: NovaCalibracao):
+def cadastrar_calibracao(conn: Conexao, pessoa: PessoaOpcional, id_celula: str, corpo: NovaCalibracao):
     _exigir_celula(conn, id_celula)
     return repo.nova_calibracao(
         conn, id_celula, corpo.a, corpo.b,
         recalcular=corpo.recalcular, desde=corpo.recalcular_desde,
         pontos=[p.model_dump() for p in corpo.pontos] if corpo.pontos is not None else None,
-        r2=corpo.r2, organismo=corpo.organismo,
+        r2=corpo.r2, organismo=corpo.organismo, id_pessoa=pessoa["id_pessoa"] if pessoa else None,
     )
 
 

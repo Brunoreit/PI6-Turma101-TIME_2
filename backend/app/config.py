@@ -27,5 +27,10 @@ class Config:
     tolerancia_atingido_c: float = _float("TOLERANCIA_ATINGIDO_C", 0.5)
     desvio_max_c: float = _float("DESVIO_MAX_C", 2.0)
 
+    # Sessão da API. Sem SEGREDO_SESSAO a API não sobe; consumidor e regras
+    # não usam e não precisam dele.
+    segredo_sessao: str = os.environ.get("SEGREDO_SESSAO", "")
+    sessao_horas: float = _float("SESSAO_HORAS", 12)
+
 
 config = Config()

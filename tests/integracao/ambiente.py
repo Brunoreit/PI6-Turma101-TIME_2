@@ -33,6 +33,9 @@ AMBIENTE_RAPIDO = {
     "SETPOINT_TIMEOUT_S": "6",
 }
 
+# Os testes de login assinam tokens com ele, para provar expiração e adulteração.
+SEGREDO_SESSAO = "segredo-de-teste"
+
 
 def _porta_livre() -> int:
     with socket.socket() as s:
@@ -64,7 +67,7 @@ class AmbienteCompose:
     def _dc(self, *args: str) -> None:
         # Portas próprias e tempos curtos, para não colidir com um
         # docker compose up que já esteja rodando na máquina.
-        env = {**os.environ, **AMBIENTE_RAPIDO, **self.PORTAS,
+        env = {**os.environ, **AMBIENTE_RAPIDO, **self.PORTAS, "SEGREDO_SESSAO": SEGREDO_SESSAO,
                **{f"CENARIO_{c.upper()}": cenario for c, cenario in CELULAS.items()}}
         subprocess.run(["docker", "compose", "-p", self.PROJETO, *args],
                        cwd=RAIZ, env=env, check=True)
@@ -134,6 +137,7 @@ class AmbienteLocal:
     def _ambiente(self) -> dict:
         return {
             **os.environ, **AMBIENTE_RAPIDO,
+            "SEGREDO_SESSAO": SEGREDO_SESSAO,
             "DATABASE_URL": self.url_banco,
             "MQTT_HOST": "127.0.0.1", "MQTT_PORT": str(self.porta_mqtt),
             "BUFFER_DIR": str(self.dir / "celulas"),
