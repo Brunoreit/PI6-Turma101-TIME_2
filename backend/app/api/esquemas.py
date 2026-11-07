@@ -41,7 +41,7 @@ def _normalizar_email(email: str) -> str:
 class Cadastro(BaseModel):
     nome: str
     email: str
-    senha: str = Field(description="8 caracteres ou mais, com pelo menos uma letra e um número")
+    senha: str = Field(description="De 8 a 128 caracteres, com pelo menos uma letra e um número")
 
     @field_validator("nome")
     @classmethod
@@ -62,6 +62,8 @@ class Cadastro(BaseModel):
     @field_validator("senha")
     @classmethod
     def _senha(cls, senha: str) -> str:
+        if len(senha) > 128:
+            raise ValueError("A senha pode ter no máximo 128 caracteres.")
         if len(senha) < 8 or not re.search(r"[^\W\d_]", senha) or not re.search(r"\d", senha):
             raise ValueError("A senha precisa ter 8 caracteres ou mais, com pelo menos uma letra e um número.")
         return senha

@@ -964,6 +964,13 @@ def test_cadastro_com_senha_fraca_e_recusado(ambiente, senha):
     assert "8 caracteres ou mais, com pelo menos uma letra e um número" in resposta.text
 
 
+def test_cadastro_aceita_senha_de_128_caracteres_e_recusa_maior(ambiente):
+    assert _cadastrar(ambiente, _email(), senha="a1" * 64).status_code == 201
+    resposta = _cadastrar(ambiente, _email(), senha="a1" * 64 + "a")
+    assert resposta.status_code == 422, resposta.text
+    assert "no máximo 128 caracteres" in resposta.text
+
+
 @pytest.mark.parametrize("campos", [{"email": "ana"}, {"email": "ana@"}, {"email": "@cnpem.br"},
                                     {"email": "ana silva@cnpem.br"}, {"nome": "  "}])
 def test_cadastro_com_nome_ou_email_invalido_e_recusado(ambiente, campos):
@@ -1015,10 +1022,14 @@ def test_rotas_existentes_continuam_sem_token_e_gravam_quem_pediu_com_token(ambi
     url = f"{ambiente.url_api}/celulas/{celula}"
 
     sem = requests.post(f"{url}/setpoint", json={"temperatura_c": 30}, timeout=10)
-    com = requests.post(f"{url}/setpoint", json={"temperatura_c": 31}, headers=com_token, timeout=10)
+    com = requests.post(f"{url}/setpoint", json={"temperatura_c": 31, "solicitado_por": "outra pessoa"},
+                        headers=com_token, timeout=10)
     assert (sem.status_code, com.status_code) == (202, 202), (sem.text, com.text)
     assert (sem.json()["id_pessoa"], com.json()["id_pessoa"]) == (None, pessoa["pessoa"]["id_pessoa"])
-    assert sem.json()["solicitado_por"] == com.json()["solicitado_por"] == "anonimo"
+    # Com token vale o nome da pessoa logada, não o do corpo; sem token, o de antes.
+    assert (sem.json()["solicitado_por"], com.json()["solicitado_por"]) == ("anonimo", "Ana")
+    sem_token_com_nome = requests.post(f"{url}/setpoint", json={"temperatura_c": 30, "solicitado_por": "Bia"}, timeout=10)
+    assert sem_token_com_nome.json()["solicitado_por"] == "Bia"
 
     calibracao = requests.post(f"{url}/calibracoes", json={"a": 1, "b": 0, "recalcular": False},
                                headers=com_token, timeout=10)
@@ -1029,6 +1040,6 @@ def test_rotas_existentes_continuam_sem_token_e_gravam_quem_pediu_com_token(ambi
     invalido = _bearer(pessoa["token"] + "x")
     assert requests.post(f"{url}/setpoint", json={"temperatura_c": 32}, headers=invalido, timeout=10).status_code == 401
     assert requests.post(f"{url}/calibracoes", json={"a": 2, "b": 0}, headers=invalido, timeout=10).status_code == 401
-    assert sorted(p["temperatura_c"] for p in repo.listar_pedidos(cenario.conn, celula)) == [30, 31]
+    assert sorted(p["temperatura_c"] for p in repo.listar_pedidos(cenario.conn, celula)) == [30, 30, 31]
     assert cenario.conn.execute("SELECT max(versao) AS v FROM calibracao WHERE id_celula = %s",
                                 (celula,)).fetchone()["v"] == 2

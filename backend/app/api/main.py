@@ -216,7 +216,9 @@ def pedir_setpoint(conn: Conexao, pessoa: PessoaOpcional, id_celula: str, corpo:
         raise HTTPException(503, "Broker indisponível. Tente de novo em alguns segundos.")
 
     id_pedido = f"sp-{secrets.token_hex(4)}"
-    pedido = repo.criar_pedido(conn, id_pedido, id_celula, corpo.temperatura_c, corpo.solicitado_por,
+    # Com login, quem pediu é a pessoa do token, não o que veio no corpo.
+    solicitado_por = pessoa["nome"] if pessoa else corpo.solicitado_por
+    pedido = repo.criar_pedido(conn, id_pedido, id_celula, corpo.temperatura_c, solicitado_por,
                                id_pessoa=pessoa["id_pessoa"] if pessoa else None)
 
     # Retida: se a célula estiver offline, recebe o pedido assim que voltar.
