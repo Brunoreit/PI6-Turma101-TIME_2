@@ -20,7 +20,8 @@
   color: var(--status\/online);
 }
 
-.alerta {
+.alerta,
+.cancelado {
   background: var(--status\/alerta-fundo);
   color: var(--status\/alerta);
 }

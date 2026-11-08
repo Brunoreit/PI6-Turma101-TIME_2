@@ -570,6 +570,10 @@ def test_lista_mostra_so_os_do_responsavel_e_os_compartilhados(cenario):
     assert ver("meus") == {meu: ("responsavel", 1)}
     assert ver("compartilhados") == {do_henry: ("leitura", 0)}
     assert da_bia not in {e["id_experimento"] for e in repo.listar_experimentos_visiveis(conn, cenario.bia, "compartilhados")}
+    nomes = {e["id_experimento"]: e["responsavel_nome"] for e in repo.listar_experimentos_visiveis(conn, cenario.ana)}
+    nome_do_henry = conn.execute("SELECT nome FROM pessoa WHERE id_pessoa = %s", (cenario.henry,)).fetchone()["nome"]
+    assert nomes[do_henry] == nome_do_henry
+    assert repo.buscar_experimento(conn, do_henry)["responsavel_nome"] == nome_do_henry
     with pytest.raises(ValueError):
         repo.listar_experimentos_visiveis(conn, cenario.ana, "outros")
 

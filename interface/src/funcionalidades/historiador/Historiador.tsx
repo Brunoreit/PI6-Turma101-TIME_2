@@ -17,6 +17,7 @@ import { Campo } from "@/compartilhado/componentes/Campo";
 import * as formatar from "@/compartilhado/formatar";
 import { FONTE_DADOS } from "@/dados/fonte";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
+import { fechado } from "@/funcionalidades/experimentos/modelo";
 import { carregarSeries, estatistica, type Serie, type Variavel } from "./dados";
 import { GraficoDeComparacao, type Contexto } from "./GraficoDeComparacao";
 import estilos from "./Historiador.module.css";
@@ -86,7 +87,7 @@ export function Historiador() {
   const chave = celulas.join(",");
 
   const emExperimento = celulas
-    .filter((id) => experimentos.some((e) => e.status !== "encerrado" && e.celulas.some((c) => c.id === id && c.fim === null)))
+    .filter((id) => experimentos.some((e) => !fechado(e) && e.celulas.some((c) => c.id === id && c.fim === null)))
     .join(",");
 
   useEffect(() => {

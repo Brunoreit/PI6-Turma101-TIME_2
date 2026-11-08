@@ -265,6 +265,10 @@
 }
 
 .duplicar {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   color: var(--marca\/texto);
@@ -272,6 +276,15 @@
 
 .duplicar:hover {
   text-decoration: underline;
+}
+
+.erro {
+  padding: 10px 12px;
+  border: 1px solid var(--status\/alerta-borda);
+  border-radius: 6px;
+  background: var(--status\/alerta-fundo);
+  font-size: 13px;
+  color: var(--status\/alerta);
 }
 
 .vazio {

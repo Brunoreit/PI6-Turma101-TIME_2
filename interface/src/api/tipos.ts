@@ -82,3 +82,72 @@ export interface SessaoApi {
   token: string;
   pessoa: PessoaApi;
 }
+
+export type StatusExperimentoApi = "cadastrado" | "em_andamento" | "encerrado" | "cancelado";
+export type ModoApi = "curva_crescimento" | "turbidostato" | "quimiostato";
+export type PermissaoApi = "leitura" | "edicao";
+
+/** Ficha do experimento, como POST e PATCH /experimentos devolvem. */
+export interface ExperimentoApi {
+  codigo: string;
+  id_experimento: number;
+  nome: string;
+  descricao: string | null;
+  modo: ModoApi;
+  status: StatusExperimentoApi;
+  duracao_prevista_dias: number | null;
+  temperatura_alvo_c: number | null;
+  ph_ref_min: number | null;
+  ph_ref_max: number | null;
+  metadados: Record<string, unknown>;
+  id_responsavel: number;
+  id_origem: number | null;
+  criado_em: string;
+  iniciado_em: string | null;
+  encerrado_em: string | null;
+}
+
+/** Item de GET /experimentos. */
+export interface ExperimentoListadoApi extends ExperimentoApi {
+  responsavel_nome: string;
+  acesso: "responsavel" | PermissaoApi;
+  cultivos_abertos: number;
+}
+
+export interface CultivoApi {
+  id_cultivo: number;
+  id_experimento: number;
+  id_celula: string;
+  condicao: string | null;
+  replica: number | null;
+  status: "em_andamento" | "encerrado" | "cancelado";
+  iniciado_em: string;
+  encerrado_em: string | null;
+}
+
+export interface AcessoApi {
+  id_pessoa: number;
+  nome: string;
+  email: string;
+  permissao: PermissaoApi;
+  concedido_em: string;
+}
+
+/** GET /experimentos/{id}. */
+export interface DetalheDoExperimentoApi extends ExperimentoApi {
+  responsavel_nome: string;
+  cultivos: CultivoApi[];
+  acessos: AcessoApi[];
+}
+
+/** Corpo de POST /experimentos e de PATCH /experimentos/{id}. */
+export interface FichaApi {
+  nome: string;
+  descricao: string | null;
+  modo: ModoApi;
+  duracao_prevista_dias: number | null;
+  temperatura_alvo_c: number | null;
+  ph_ref_min: number | null;
+  ph_ref_max: number | null;
+  metadados: Record<string, unknown>;
+}

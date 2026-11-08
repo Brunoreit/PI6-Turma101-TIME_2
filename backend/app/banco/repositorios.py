@@ -385,9 +385,15 @@ def criar_experimento(conn: psycopg.Connection, id_responsavel: int, **campos) -
 
 
 def buscar_experimento(conn: psycopg.Connection, id_experimento: int) -> dict | None:
-    """O experimento com seus cultivos e com quem ele é compartilhado."""
+    """O experimento, com o nome do responsável, seus cultivos e com quem
+    ele é compartilhado."""
     experimento = conn.execute(
-        "SELECT * FROM experimento WHERE id_experimento = %s", (id_experimento,)
+        """
+        SELECT e.*, p.nome AS responsavel_nome
+          FROM experimento e JOIN pessoa p ON p.id_pessoa = e.id_responsavel
+         WHERE e.id_experimento = %s
+        """,
+        (id_experimento,),
     ).fetchone()
     if experimento is None:
         return None
@@ -419,16 +425,18 @@ def listar_experimentos_visiveis(conn: psycopg.Connection, id_pessoa: int,
                                  filtro: str = "todos") -> list[dict]:
     """Os experimentos de que a pessoa é responsável (`meus`), os
     compartilhados com ela (`compartilhados`) ou os dois (`todos`). Cada um
-    diz o acesso da pessoa e quantos cultivos estão abertos."""
+    diz o nome do responsável, o acesso da pessoa e quantos cultivos estão
+    abertos."""
     if filtro not in ("todos", "meus", "compartilhados"):
         raise ValueError(f"filtro desconhecido: {filtro!r}")
     return conn.execute(
         """
-        SELECT e.*,
+        SELECT e.*, r.nome AS responsavel_nome,
                CASE WHEN e.id_responsavel = %(p)s THEN 'responsavel' ELSE a.permissao END AS acesso,
                (SELECT count(*) FROM cultivo c
                  WHERE c.id_experimento = e.id_experimento AND c.status = 'em_andamento') AS cultivos_abertos
           FROM experimento e
+          JOIN pessoa r ON r.id_pessoa = e.id_responsavel
           LEFT JOIN experimento_acesso a ON a.id_experimento = e.id_experimento AND a.id_pessoa = %(p)s
          WHERE (e.id_responsavel = %(p)s AND %(f)s IN ('todos', 'meus'))
             OR (e.id_responsavel <> %(p)s AND a.id_pessoa IS NOT NULL AND %(f)s IN ('todos', 'compartilhados'))
@@ -445,6 +453,7 @@ def acesso_de(conn: psycopg.Connection, id_experimento: int, id_pessoa: int) -> 
         """
         SELECT CASE WHEN e.id_responsavel = %s THEN 'responsavel' ELSE a.permissao END AS acesso
           FROM experimento e
+          JOIN pessoa r ON r.id_pessoa = e.id_responsavel
           LEFT JOIN experimento_acesso a ON a.id_experimento = e.id_experimento AND a.id_pessoa = %s
          WHERE e.id_experimento = %s
         """,

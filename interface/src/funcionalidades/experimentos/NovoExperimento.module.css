@@ -440,3 +440,40 @@
 .etapaAtual {
   font-weight: 600;
 }
+
+/* ---------- editar: campos travados pelo status */
+
+.travado {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.travado img {
+  flex-shrink: 0;
+}
+
+.campoLivre textarea:disabled,
+.seletor:disabled,
+.entradaFase:has(input:disabled) {
+  background-color: var(--fundo\/sutil);
+  color: var(--texto\/secundario);
+  cursor: not-allowed;
+}
+
+.entradaFase input:disabled {
+  background: none;
+  color: var(--texto\/secundario);
+  cursor: not-allowed;
+}
+
+.adicionar:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}

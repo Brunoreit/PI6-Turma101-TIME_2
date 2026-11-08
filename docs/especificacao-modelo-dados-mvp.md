@@ -1093,6 +1093,7 @@ Etapa aprovada com estas decisões:
 | `OperacaoRecusada` | Passa a guardar o `status` do experimento, para a API montar a mensagem |
 | Resposta de `POST /experimentos/{id}/acessos` | `{id_pessoa, nome, email, permissao, concedido_em}`, igual aos itens de `acessos` de `GET /experimentos/{id}` |
 | Resposta de `PATCH`, `encerrar` e `cancelar` do experimento | Só a linha do experimento, sem cultivos nem acessos |
+| Nome do responsável | `GET /experimentos` e `GET /experimentos/{id}` trazem `responsavel_nome`, para a interface mostrar quem é o responsável sem outra consulta. As outras respostas de experimento continuam só com `id_responsavel` |
 | Nulos e brancos | No `PATCH /experimentos`, `nome`, `modo` e `metadados` não aceitam `null` (422). No `PATCH /celulas`, `apelido` em branco dá 422 e `null` tira o apelido |
 | Limites | `duracao_prevista_dias` até 100.000 e `replica` até 32.767 (limite do SMALLINT), para um número grande demais dar 422 e não 500 |
 | Código "EXP-01" (P-8) | Toda resposta de experimento (criar, listar, buscar, alterar, encerrar, cancelar, duplicar) traz `codigo`: `EXP-` e o id com no mínimo 2 dígitos (`EXP-01`, `EXP-12`, `EXP-123`). Calculado na API, não gravado. Ajuste pedido na aprovação |

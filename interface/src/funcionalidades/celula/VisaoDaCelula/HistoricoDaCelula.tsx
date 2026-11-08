@@ -23,7 +23,7 @@ export function HistoricoDaCelula({ dados }: { dados: DetalheDaCelula }) {
         .filter((c) => c.id === dados.id && c.fim)
         .map((c) => ({
           titulo: `${e.codigo} · ${e.nome}`,
-          detalhe: `${formatar.diaMes(c.inicio)} a ${formatar.data(c.fim!)} · ${e.status === "encerrado" ? "encerrado no fim do prazo" : "saiu do experimento"}`,
+          detalhe: `${formatar.diaMes(c.inicio)} a ${formatar.data(c.fim!)} · ${e.status === "encerrado" ? "encerrado no fim do prazo" : e.status === "cancelado" ? "experimento cancelado" : "saiu do experimento"}`,
           em: c.fim!,
         })),
     ),

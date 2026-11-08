@@ -3,7 +3,8 @@
 // desenvolvimento) e pelo nginx (no Docker).
 
 import type {
-  AlertaApi, CelulaApi, IntegridadeApi, LeituraApi, PedidoSetpointApi, PessoaApi, SaudeApi, SessaoApi,
+  AlertaApi, CelulaApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
+  LeituraApi, PedidoSetpointApi, PessoaApi, SaudeApi, SessaoApi,
 } from "./tipos";
 
 const BASE = "/api";
@@ -73,9 +74,9 @@ async function buscar<T>(caminho: string, sinal?: AbortSignal, opcoes: RequestIn
   return resposta.json() as Promise<T>;
 }
 
-function enviar<T>(caminho: string, corpo: unknown): Promise<T> {
+function enviar<T>(caminho: string, corpo: unknown, metodo: "POST" | "PATCH" = "POST"): Promise<T> {
   return buscar(caminho, undefined, {
-    method: "POST",
+    method: metodo,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(corpo),
   });
@@ -145,4 +146,38 @@ export function cadastrarCalibracao(
 
 export function consultarIntegridade(sinal?: AbortSignal): Promise<IntegridadeApi[]> {
   return buscar("/integridade", sinal);
+}
+
+// ---------------------------------------------------------------- experimentos
+// Todas exigem login. Experimento fora do alcance da pessoa dá 404; acesso
+// insuficiente dá 403.
+
+export function listarExperimentos(sinal?: AbortSignal): Promise<ExperimentoListadoApi[]> {
+  return buscar("/experimentos?filtro=todos", sinal);
+}
+
+export function buscarExperimento(id: number, sinal?: AbortSignal): Promise<DetalheDoExperimentoApi> {
+  return buscar(`/experimentos/${id}`, sinal);
+}
+
+export function criarExperimento(ficha: FichaApi): Promise<ExperimentoApi> {
+  return enviar("/experimentos", ficha);
+}
+
+/** Cópia em Stand by, com quem duplicou como responsável. */
+export function duplicarExperimento(id: number): Promise<ExperimentoApi> {
+  return enviar(`/experimentos/${id}/duplicar`, {});
+}
+
+/** Em Stand by, qualquer campo; em andamento, só descricao e metadados. */
+export function alterarExperimento(id: number, campos: Partial<FichaApi>): Promise<ExperimentoApi> {
+  return enviar(`/experimentos/${id}`, campos, "PATCH");
+}
+
+export function encerrarExperimento(id: number): Promise<ExperimentoApi> {
+  return enviar(`/experimentos/${id}/encerrar`, {});
+}
+
+export function cancelarExperimento(id: number, motivo: string): Promise<ExperimentoApi> {
+  return enviar(`/experimentos/${id}/cancelar`, { motivo });
 }

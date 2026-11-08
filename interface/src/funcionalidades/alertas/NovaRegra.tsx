@@ -7,6 +7,7 @@ import { Botao } from "@/compartilhado/componentes/Botao";
 import { CaixaDeSelecao } from "@/compartilhado/componentes/CaixaDeSelecao";
 import { Campo } from "@/compartilhado/componentes/Campo";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
+import { fechado } from "@/funcionalidades/experimentos/modelo";
 import { useSessao } from "@/sessao/SessaoProvider";
 import estilos from "./Alertas.module.css";
 import { COMPARACOES, PARAMETROS, type Comparacao, type Gravidade, type Parametro, type Regra } from "./modelo";
@@ -27,7 +28,7 @@ export function NovaRegra({ onSalvar, onCancelar }: { onSalvar: (regra: Omit<Reg
   const [teste, setTeste] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
-  const ativos = experimentos.filter((e) => e.status !== "encerrado");
+  const ativos = experimentos.filter((e) => !fechado(e));
   const alvo = ondeVale ? `de uma célula do ${ondeVale}` : "de qualquer célula";
   const sentido = comparacao === "Maior que" ? "acima" : "abaixo";
   const previa = `Avisa quando a ${SIGLA[parametro]} ${alvo} ficar ${sentido} de ${limite || "?"} por ${minutos || "?"} minutos seguidos.`;

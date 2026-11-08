@@ -83,6 +83,27 @@
   color: var(--texto\/secundario);
 }
 
+.erroAcao {
+  max-width: 520px;
+  font-size: 12px;
+  text-align: right;
+  color: var(--status\/alerta);
+}
+
+/* ---------- aviso de cancelado (não está no Figma) */
+
+.avisoCancelado {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  border: 1px solid var(--status\/alerta-borda);
+  border-radius: 8px;
+  background: var(--status\/alerta-fundo);
+  color: var(--status\/alerta);
+  font-size: 13px;
+}
+
 /* ---------- aviso de só leitura */
 
 .avisoLeitura {

@@ -85,3 +85,18 @@
 .mostrar:hover {
   color: var(--texto\/principal);
 }
+
+/* Somente leitura: campo travado, como os da ficha de um experimento que já começou. */
+.entrada:has(.valor[readonly]) {
+  background: var(--fundo\/sutil);
+}
+
+.entrada:has(.valor[readonly]):focus-within {
+  border-color: var(--borda\/padrao);
+  outline: 0;
+}
+
+.valor[readonly] {
+  color: var(--texto\/secundario);
+  cursor: not-allowed;
+}

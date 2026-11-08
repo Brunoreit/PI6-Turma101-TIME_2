@@ -8,13 +8,14 @@ import { Botao } from "@/compartilhado/componentes/Botao";
 import * as formatar from "@/compartilhado/formatar";
 import type { DetalheDaCelula } from "@/funcionalidades/celula/modelo";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
+import { fechado } from "@/funcionalidades/experimentos/modelo";
 import comum from "@/funcionalidades/celula/Celula.module.css";
 import estilos from "./VisaoDaCelula.module.css";
 
 export function AtribuirExperimento({ dados }: { dados: DetalheDaCelula }) {
   const { experimentos } = useExperimentos();
   // Só aparecem experimentos em andamento ou em Stand by.
-  const abertos = experimentos.filter((e) => e.status !== "encerrado");
+  const abertos = experimentos.filter((e) => !fechado(e));
   const [codigo, setCodigo] = useState(abertos.find((e) => e.status === "standby")?.codigo ?? abertos[0]?.codigo ?? "");
   const escolhido = abertos.find((e) => e.codigo === codigo);
   const alvoDoCadastro = escolhido?.fases[0]?.temperaturaC ?? 30;

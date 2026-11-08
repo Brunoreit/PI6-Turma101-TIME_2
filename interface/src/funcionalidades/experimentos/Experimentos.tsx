@@ -13,26 +13,34 @@ import * as formatar from "@/compartilhado/formatar";
 import { useSessao } from "@/sessao/SessaoProvider";
 import { useExperimentos } from "./ExperimentosProvider";
 import estilos from "./Experimentos.module.css";
-import { acessoDe, diaAtual, ROTULO_DO_STATUS, type Experimento } from "./modelo";
+import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
+import { acessoNoExperimento, diaAtual, fechado, progresso, ROTULO_DO_STATUS, type Experimento } from "./modelo";
 
 type Filtro = "todos" | "meus" | "compartilhados";
 
 const CHIPS_VISIVEIS = 3;
 
 export function SeloDoExperimento({ experimento }: { experimento: Experimento }) {
-  const variante = { andamento: "online", standby: "espera", encerrado: "offline" } as const;
+  const variante = { andamento: "online", standby: "espera", encerrado: "offline", cancelado: "cancelado" } as const;
   return <SeloDeStatus situacao={variante[experimento.status]} rotulo={ROTULO_DO_STATUS[experimento.status]} />;
 }
 
 function Celulas({ experimento }: { experimento: Experimento }) {
-  const { celulas, status } = experimento;
+  const { celulas, celulasAbertas = 0 } = experimento;
+  const liberadas = fechado(experimento);
+  if (celulas.length === 0 && celulasAbertas > 0) {
+    // Lista da API: só a contagem; os ids aparecem no detalhe.
+    return <span className={estilos.legenda}>{celulasAbertas} {celulasAbertas === 1 ? "célula" : "células"}</span>;
+  }
   if (celulas.length === 0) {
     return (
       <>
         <span className={estilos.nenhuma}>Nenhuma célula</span>
-        <Link to="/" className={estilos.atribuir}>
-          Atribua na tela da célula
-        </Link>
+        {!liberadas && (
+          <Link to="/" className={estilos.atribuir}>
+            Atribua na tela da célula
+          </Link>
+        )}
       </>
     );
   }
@@ -49,7 +57,7 @@ function Celulas({ experimento }: { experimento: Experimento }) {
       </span>
       <span className={estilos.legenda}>
         {celulas.length} {celulas.length === 1 ? "célula" : "células"}
-        {status === "encerrado" && (celulas.length === 1 ? " liberada" : " liberadas")}
+        {liberadas && (celulas.length === 1 ? " liberada" : " liberadas")}
       </span>
     </>
   );
@@ -58,10 +66,13 @@ function Celulas({ experimento }: { experimento: Experimento }) {
 function Duracao({ experimento }: { experimento: Experimento }) {
   const { inicio, fim, duracaoDias, status } = experimento;
   const dia = diaAtual(experimento);
-  const texto = !inicio ? "não iniciado" : status === "encerrado" ? `${dia} de ${duracaoDias} dias` : `dia ${dia} de ${duracaoDias}`;
+  const encerrado = fechado(experimento);
+  const texto = !inicio
+    ? status === "cancelado" ? "cancelado antes de começar" : "não iniciado"
+    : encerrado ? `${dia} de ${duracaoDias} dias` : `dia ${dia} de ${duracaoDias}`;
   const legenda = !inicio
     ? `${duracaoDias} dias previstos`
-    : status === "encerrado" && fim
+    : encerrado && fim
       ? `${formatar.diaMes(inicio)} a ${formatar.data(fim)}`
       : `início ${formatar.data(inicio)}`;
   return (
@@ -70,8 +81,8 @@ function Duracao({ experimento }: { experimento: Experimento }) {
       <span className={estilos.progresso}>
         {inicio && (
           <span
-            className={status === "encerrado" ? estilos.progressoEncerrado : estilos.progressoAndando}
-            style={{ width: `${(dia / duracaoDias) * 100}%` }}
+            className={encerrado ? estilos.progressoEncerrado : estilos.progressoAndando}
+            style={{ width: `${progresso(experimento) * 100}%` }}
           />
         )}
       </span>
@@ -81,7 +92,7 @@ function Duracao({ experimento }: { experimento: Experimento }) {
 }
 
 function Permissao({ experimento, email }: { experimento: Experimento; email?: string }) {
-  const acesso = acessoDe(experimento, email);
+  const acesso = acessoNoExperimento(experimento, email);
   if (acesso === "responsavel") return <span className={estilos.voce}>você</span>;
   return (
     <span className={estilos.permissao}>
@@ -92,12 +103,23 @@ function Permissao({ experimento, email }: { experimento: Experimento; email?: s
 }
 
 export function Experimentos() {
-  const { experimentos } = useExperimentos();
+  const { experimentos, carregando, erro, duplicar } = useExperimentos();
   const { usuario } = useSessao();
   const navegar = useNavigate();
   const [filtro, setFiltro] = useState<Filtro>("todos");
+  const [erroDaAcao, setErroDaAcao] = useState<string | null>(null);
 
-  const meus = experimentos.filter((e) => acessoDe(e, usuario?.email) === "responsavel");
+  async function duplicarE(codigo: string) {
+    setErroDaAcao(null);
+    try {
+      // A cópia fica em Stand by e abre direto para revisar.
+      navegar(`/experimentos/${await duplicar(codigo)}/editar`);
+    } catch (falha) {
+      setErroDaAcao(mensagemDoErro(falha));
+    }
+  }
+
+  const meus = experimentos.filter((e) => acessoNoExperimento(e, usuario?.email) === "responsavel");
   const compartilhados = experimentos.filter((e) => !meus.includes(e));
   const visiveis = filtro === "meus" ? meus : filtro === "compartilhados" ? compartilhados : experimentos;
 
@@ -136,6 +158,12 @@ export function Experimentos() {
           </Link>
         </div>
       </header>
+
+      {(erro || erroDaAcao) && (
+        <p className={estilos.erro} role="alert">
+          {erroDaAcao ?? erro}
+        </p>
+      )}
 
       <div className={estilos.tabela} role="table" aria-label="Experimentos">
         <div className={estilos.cabecalhoTabela} role="row">
@@ -179,17 +207,21 @@ export function Experimentos() {
             </span>
             <span className={`${estilos.coluna} ${estilos.colunaAcao}`} role="cell">
               {/* Duplicar cria uma cópia sua, por isso fica liberado para todos. */}
-              <Link
-                to={`/experimentos/novo?base=${e.codigo}`}
+              <button
+                type="button"
                 className={estilos.duplicar}
-                onClick={(ev) => ev.stopPropagation()}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  duplicarE(e.codigo);
+                }}
               >
                 Duplicar
-              </Link>
+              </button>
             </span>
           </div>
         ))}
-        {visiveis.length === 0 && <p className={estilos.vazio}>Nenhum experimento neste filtro.</p>}
+        {carregando && <p className={estilos.vazio}>Carregando os experimentos...</p>}
+        {!carregando && visiveis.length === 0 && <p className={estilos.vazio}>Nenhum experimento neste filtro.</p>}
       </div>
 
       <div className={estilos.nota}>
