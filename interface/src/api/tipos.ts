@@ -68,3 +68,17 @@ export interface IntegridadeApi {
   ultimo_seq: number;
   completo: boolean;
 }
+
+/** Conta de uma pessoa. A senha nunca vem nas respostas. */
+export interface PessoaApi {
+  id_pessoa: number;
+  nome: string;
+  email: string;
+  criado_em: string;
+}
+
+/** Resposta de POST /auth/cadastro e POST /auth/entrar. */
+export interface SessaoApi {
+  token: string;
+  pessoa: PessoaApi;
+}

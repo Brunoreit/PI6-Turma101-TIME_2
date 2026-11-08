@@ -171,19 +171,19 @@ Experimento ou cultivo fora do alcance da pessoa dá 404 (não revela que existe
 
 Base e modelo de dados do MVP implementados (branch `feat/modelo-dados-mvp`, 06/11/2026). Passam 38 testes de unidade e, no modo Docker Compose, 105 testes de `test_modelo_dados.py` e as 16 etapas do ponta a ponta (a 16 é a integridade final). Em 02/11/2026 o modo Docker Compose passou três vezes seguidas, com o pytest rodando no Windows e os serviços em contêineres Linux. O modo local não foi conferido depois do modelo de dados (falta confirmar o `btree_gist` no PostgreSQL de quem o usa).
 
-Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 · Antiga" e "Login · conta CNPEM (guardado)", que não serão usadas. São Login e as telas de conta, Visão geral, telas da célula (inclusive a célula livre e o modal de confirmar temperatura), Experimentos (lista, novo, detalhe, compartilhar, só leitura), Historiador, Alertas, Exportar dados e a nova calibração de OD (pela aba Ajustes da célula; a Calibração saiu da barra lateral). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`). A API já tem login, experimentos, acessos e cultivos, mas a interface ainda não está ligada a eles: as telas de Login, contas e Experimentos usam dados de exemplo e guardam as mudanças só no navegador. Regras de alerta e exportação agrupada não existem na API (detalhes em `interface/README.md`).
+Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 · Antiga" e "Login · conta CNPEM (guardado)", que não serão usadas. São Login e as telas de conta, Visão geral, telas da célula (inclusive a célula livre e o modal de confirmar temperatura), Experimentos (lista, novo, detalhe, compartilhar, só leitura), Historiador, Alertas, Exportar dados e a nova calibração de OD (pela aba Ajustes da célula; a Calibração saiu da barra lateral). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`). Login e cadastro da interface usam a API (`/auth`), sempre, mesmo no modo exemplo: o token vai em todas as chamadas e um 401 volta para /entrar (branch `feature/ligar-api-login`, 08/11/2026). Recuperar e trocar senha não existem na API. Experimentos, acessos e cultivos ainda não estão ligados: a tela usa dados de exemplo e guarda as mudanças só no navegador. Regras de alerta e exportação agrupada não existem na API (detalhes em `interface/README.md`).
 
 ## Problemas conhecidos
 
 - **Alerta falso com consumidor parado.** Sem o consumidor, `ultimo_contato` não é atualizado e a regra `sem_comunicacao` abre alerta para todas as células. Correção planejada: consumidor grava sinal de vida e a regra ignora a checagem quando ele estiver parado.
-- **Rotas antigas sem login e broker com `allow_anonymous true`.** Aceitável só em desenvolvimento. Qualquer um pode mandar setpoint para uma célula, mesmo com cultivo aberto. O login da interface ainda é só de demonstração (contas no `localStorage`).
+- **Rotas antigas sem login e broker com `allow_anonymous true`.** Aceitável só em desenvolvimento. Qualquer um pode mandar setpoint para uma célula, mesmo com cultivo aberto.
 - **`colisao_seq` não fecha sozinho.** Não há regra nem rota para fechar o alerta; ele fica aberto até o próximo `down -v`.
 - **`setpoint_confirmado: false` sem teste.** Se o broker cair entre gravar o cultivo e publicar o setpoint, o cultivo fica criado e o pedido segue como solicitado. Esse caso não tem teste automático.
 - **Alerta de pH por uma leitura só.** `ph_fora_da_faixa` olha só a última leitura do cultivo, sem tempo mínimo fora da faixa; uma leitura ruidosa abre o alerta.
 
 ## Próximos passos
 
-1. Ligar a interface à API: login, experimentos, acessos, cultivos, apelido da célula, tipos de alerta novos e status "cancelado"
+1. Ligar a interface à API: experimentos, acessos, cultivos, apelido da célula, tipos de alerta novos e status "cancelado"
 2. Sinal de vida do consumidor
 3. Login nas rotas antigas e senha no broker
 4. Endpoints de regras de alerta e de exportação agrupada (média por hora ou dia, Excel)

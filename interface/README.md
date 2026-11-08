@@ -46,7 +46,7 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 
 | Rota | Tela do Figma | O que já funciona de verdade |
 |---|---|---|
-| `/entrar`, `/cadastro`, `/recuperar-senha`, `/nova-senha?email=` | Login, Login · erro, Cadastro, Recuperar senha, e-mail enviado, Nova senha | Tudo, mas só no navegador (ver Login abaixo) |
+| `/entrar`, `/cadastro`, `/recuperar-senha`, `/nova-senha?email=` | Login, Login · erro, Cadastro, Recuperar senha, e-mail enviado, Nova senha | Login e cadastro pela API, sempre (ver Login abaixo). Recuperar e trocar a senha ainda não |
 | `/` | Visão geral | Igual antes |
 | `/celulas/{id}` (e `/ajustes`, `/diagnostico`) | Célula c08 e Célula c04 · livre, modal Confirmar temperatura | Setpoint de temperatura, agora com confirmação |
 | `/celulas/{id}/ajustes/calibracao` | Célula c08 · nova calibração de OD | Salva a nova curva pelo `POST /celulas/{id}/calibracoes` (no modo `api`) |
@@ -57,26 +57,41 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 | `/alertas` | Alertas · regras | Abertos e Histórico vêm da API (no modo `api`) |
 | `/exportar` | Exportar dados e · por célula e período | CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv` |
 
-A API ainda não tem experimentos, regras de alerta configuráveis, contas nem
-exportação agrupada. Até lá, essas telas usam dados de exemplo e as mudanças
+A interface ainda não usa as rotas de experimentos da API, e a API não tem
+regras de alerta configuráveis nem exportação agrupada. Até lá, essas telas usam dados de exemplo e as mudanças
 (novo experimento, compartilhar, encerrar, nova regra) ficam na memória até
 recarregar a página. Os botões que dependem do que falta ficam como no Figma
 e explicam o motivo ao passar o mouse.
 
 ### Login
 
-Todas as telas do sistema pedem login. Como a API ainda não tem
-autenticação, as contas ficam no `localStorage` do navegador
-(`src/sessao/SessaoProvider.tsx`). Há uma conta de demonstração:
+Todas as telas do sistema pedem login, e o login é sempre pela API, mesmo
+no modo `exemplo` (`src/sessao/SessaoProvider.tsx`). Por isso a API precisa
+estar no ar para entrar. Não há conta pronta: crie a sua em `/cadastro`.
 
-| E-mail | Senha |
+| Ação | Rota da API |
 |---|---|
-| `pedro.ximenes@cnpem.br` | `evolver123` |
+| Criar conta (entra direto) | `POST /auth/cadastro` |
+| Entrar | `POST /auth/entrar` |
+| Conferir o token ao abrir o sistema | `GET /auth/eu` |
 
-Quem cria uma conta em `/cadastro` entra direto. "Manter conectado"
-desmarcado faz a sessão acabar ao fechar o navegador. O e-mail de
-recuperação não é enviado de verdade; o link dele seria
-`/nova-senha?email=...`.
+- O token vai no cabeçalho `Authorization: Bearer <token>` de todas as
+  chamadas do cliente (`src/api/cliente.ts`).
+- "Manter conectado" marcado guarda o token no `localStorage`; desmarcado,
+  no `sessionStorage`, e a sessão acaba ao fechar o navegador. A chave é
+  `tupa.sessao`.
+- Se a API responder 401 a uma chamada com token (sessão vencida ou
+  inválida), a sessão é apagada e o `ExigeLogin` leva para `/entrar`. Depois
+  de entrar, a pessoa volta para a tela onde estava.
+- As mensagens de erro na tela são o `detail` da API, como "E-mail ou senha
+  incorretos." e "Já existe uma conta com este e-mail.". Os erros de
+  validação (422, que vêm em lista) também aparecem só com o texto.
+- Recuperar senha e Nova senha ficam como no Figma, mas a API ainda não tem
+  essas rotas: o botão fica indisponível e explica o motivo ao passar o mouse.
+
+Os experimentos de exemplo têm como responsável `pedro.ximenes@cnpem.br`.
+Com outra conta, eles aparecem sem permissão de edição até a tela de
+Experimentos passar a usar a API.
 
 ### Permissões dos experimentos
 
@@ -93,9 +108,10 @@ src/
   main.tsx              rotas
   app/                  casca do app: Layout, BarraLateral, ContaDoUsuario, ExigeLogin e
                         EmConstrucao (página não encontrada)
-  sessao/               SessaoProvider: conta logada, entrar, cadastrar, trocar senha e sair
-  api/                  cliente tipado: /celulas, /alertas, /celulas/{id}/leituras, /saude,
-                        /celulas/{id}/setpoint(s), /integridade
+  sessao/               SessaoProvider: conta logada, entrar, cadastrar e sair, pela API
+  api/                  cliente tipado, com o token em Authorization: /auth/cadastro,
+                        /auth/entrar, /auth/eu, /celulas, /alertas, /celulas/{id}/leituras,
+                        /saude, /celulas/{id}/setpoint(s), /calibracoes, /integridade
   dados/                dados gerais, atualizados a cada 20 s e usados por todas as telas:
                         modelo, fonte (API ou exemplo), exemplo e DadosProvider
   compartilhado/        formatar.ts e componentes reaproveitáveis: Botao, Campo,

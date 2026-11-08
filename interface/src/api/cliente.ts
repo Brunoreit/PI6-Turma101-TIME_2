@@ -2,7 +2,9 @@
 // ou pelo broker. O prefixo /api é repassado para a API pelo Vite (em
 // desenvolvimento) e pelo nginx (no Docker).
 
-import type { AlertaApi, CelulaApi, IntegridadeApi, LeituraApi, PedidoSetpointApi, SaudeApi } from "./tipos";
+import type {
+  AlertaApi, CelulaApi, IntegridadeApi, LeituraApi, PedidoSetpointApi, PessoaApi, SaudeApi, SessaoApi,
+} from "./tipos";
 
 const BASE = "/api";
 const API_FORA_DO_AR =
@@ -12,28 +14,84 @@ export class ErroDaApi extends Error {
   constructor(
     public readonly status: number,
     mensagem: string,
+    /** Só a explicação da API, sem o caminho: é o que aparece na tela. */
+    public readonly detalhe: string = mensagem,
   ) {
     super(mensagem);
     this.name = "ErroDaApi";
   }
 }
 
+// Token da pessoa logada. Quem guarda e restaura é o SessaoProvider; aqui ele
+// só vai no cabeçalho Authorization de todas as chamadas.
+let token: string | null = null;
+let aoPerderSessao: () => void = () => {};
+
+export function usarToken(novo: string | null): void {
+  token = novo;
+}
+
+/** Chamado quando a API recusa o token (401): a sessão expirou ou é inválida. */
+export function quandoPerderSessao(funcao: () => void): void {
+  aoPerderSessao = funcao;
+}
+
+/** A API devolve {"detail": "..."}. Erros de validação do FastAPI (422) vêm
+ *  como lista, com o texto em "msg" precedido de "Value error, ". */
+function lerDetalhe(corpo: unknown): string | null {
+  const detalhe = (corpo as { detail?: unknown } | null)?.detail;
+  if (typeof detalhe === "string") return detalhe;
+  if (Array.isArray(detalhe)) {
+    const mensagens = detalhe
+      .map((d) => (typeof d?.msg === "string" ? d.msg.replace(/^Value error, /, "") : null))
+      .filter((m): m is string => Boolean(m));
+    if (mensagens.length) return mensagens.join(" ");
+  }
+  return null;
+}
+
 async function buscar<T>(caminho: string, sinal?: AbortSignal, opcoes: RequestInit = {}): Promise<T> {
+  const comToken = token;
+  const cabecalhos = new Headers(opcoes.headers);
+  if (comToken) cabecalhos.set("Authorization", `Bearer ${comToken}`);
   let resposta: Response;
   try {
-    resposta = await fetch(`${BASE}${caminho}`, { ...opcoes, signal: sinal });
+    resposta = await fetch(`${BASE}${caminho}`, { ...opcoes, headers: cabecalhos, signal: sinal });
   } catch (erro) {
     if (erro instanceof DOMException && erro.name === "AbortError") throw erro;
     throw new ErroDaApi(0, API_FORA_DO_AR);
   }
   if (!resposta.ok) {
-    // A API devolve {"detail": "..."} com a explicação do erro. Sem esse
-    // corpo, quem respondeu foi o proxy (Vite ou nginx): a API está fora do ar.
-    const corpo = await resposta.json().catch(() => null);
-    if (typeof corpo?.detail !== "string") throw new ErroDaApi(resposta.status, API_FORA_DO_AR);
-    throw new ErroDaApi(resposta.status, `${caminho}: ${corpo.detail}`);
+    // Sem {"detail"} no corpo, quem respondeu foi o proxy (Vite ou nginx):
+    // a API está fora do ar.
+    const detalhe = lerDetalhe(await resposta.json().catch(() => null));
+    if (detalhe === null) throw new ErroDaApi(resposta.status, API_FORA_DO_AR);
+    // Só derruba a sessão se o token que foi enviado ainda é o atual.
+    if (resposta.status === 401 && comToken && comToken === token) aoPerderSessao();
+    throw new ErroDaApi(resposta.status, `${caminho}: ${detalhe}`, detalhe);
   }
   return resposta.json() as Promise<T>;
+}
+
+function enviar<T>(caminho: string, corpo: unknown): Promise<T> {
+  return buscar(caminho, undefined, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo),
+  });
+}
+
+export function cadastrarConta(nome: string, email: string, senha: string): Promise<SessaoApi> {
+  return enviar("/auth/cadastro", { nome, email, senha });
+}
+
+export function entrarNaConta(email: string, senha: string): Promise<SessaoApi> {
+  return enviar("/auth/entrar", { email, senha });
+}
+
+/** Pessoa dona do token atual. Com token vencido, dá 401. */
+export function consultarPessoaLogada(sinal?: AbortSignal): Promise<PessoaApi> {
+  return buscar("/auth/eu", sinal);
 }
 
 export function listarCelulas(sinal?: AbortSignal): Promise<CelulaApi[]> {
