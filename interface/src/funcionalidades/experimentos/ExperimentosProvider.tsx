@@ -32,13 +32,27 @@ interface Contexto {
   alterar: (codigo: string, ficha: Ficha) => Promise<void>;
   encerrar: (codigo: string) => Promise<void>;
   cancelar: (codigo: string, motivo: string) => Promise<void>;
-  /** Só no modo exemplo; o Compartilhar ainda não usa a API. */
-  definirConvidados: (codigo: string, convidados: Convidado[]) => void;
+  /** Compartilhar. Só o responsável pode; a API confere. */
+  convidar: (codigo: string, email: string, acesso: Convidado["acesso"]) => Promise<void>;
+  mudarPermissao: (codigo: string, convidado: Convidado, acesso: Convidado["acesso"]) => Promise<void>;
+  removerAcesso: (codigo: string, convidado: Convidado) => Promise<void>;
 }
 
 const ContextoExperimentos = createContext<Contexto | null>(null);
 
 const NAO_ENCONTRADO = "Experimento não encontrado ou sem acesso.";
+
+const PERMISSAO = { leitura: "leitura", modificar: "edicao" } as const;
+
+/** "ana.souza@cnpem.br" vira "Ana Souza". */
+function nomeDoEmail(email: string): string {
+  return email
+    .split("@")[0]
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((parte) => parte[0].toUpperCase() + parte.slice(1))
+    .join(" ");
+}
 
 export function ExperimentosProvider({ children }: { children: ReactNode }) {
   const valor = useFonte();
@@ -127,7 +141,22 @@ function useDaApi(): Contexto {
       await api.cancelarExperimento(await idDe(codigo), motivo);
       await depoisDe(codigo);
     },
-    definirConvidados() {},
+    async convidar(codigo, email, acesso) {
+      await api.concederAcesso(await idDe(codigo), email, PERMISSAO[acesso]);
+      await depoisDe(codigo);
+    },
+    // A rota de convidar também troca a permissão de quem já tem acesso, numa
+    // chamada só. Remover e convidar de novo deixaria a pessoa sem acesso se a
+    // segunda chamada falhasse.
+    async mudarPermissao(codigo, convidado, acesso) {
+      await api.concederAcesso(await idDe(codigo), convidado.email, PERMISSAO[acesso]);
+      await depoisDe(codigo);
+    },
+    async removerAcesso(codigo, convidado) {
+      if (convidado.idPessoa === undefined) throw new ErroDaApi(404, NAO_ENCONTRADO);
+      await api.revogarAcesso(await idDe(codigo), convidado.idPessoa);
+      await depoisDe(codigo);
+    },
   };
 }
 
@@ -211,8 +240,16 @@ function useDoExemplo(): Contexto {
     async cancelar(codigo, motivo) {
       fechar(codigo, "cancelado", motivo);
     },
-    definirConvidados(codigo, convidados) {
-      mudar(codigo, (e) => ({ ...e, convidados }));
+    // Sem API não há contas para conferir: qualquer e-mail entra, com o nome
+    // tirado do e-mail.
+    async convidar(codigo, email, acesso) {
+      mudar(codigo, (e) => ({ ...e, convidados: [...e.convidados, { nome: nomeDoEmail(email), email, acesso }] }));
+    },
+    async mudarPermissao(codigo, convidado, acesso) {
+      mudar(codigo, (e) => ({ ...e, convidados: e.convidados.map((c) => (c.email === convidado.email ? { ...c, acesso } : c)) }));
+    },
+    async removerAcesso(codigo, convidado) {
+      mudar(codigo, (e) => ({ ...e, convidados: e.convidados.filter((c) => c.email !== convidado.email) }));
     },
   };
 }

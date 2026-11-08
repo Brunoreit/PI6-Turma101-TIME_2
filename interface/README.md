@@ -53,13 +53,13 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 | `/experimentos` | Experimentos · compartilhados | Lista e filtro Todos, Meus e Compartilhados comigo; Duplicar. Pela API no modo `api` (ver Experimentos abaixo) |
 | `/experimentos/novo?base=EXP-01` | Novo experimento · etapas e metadados | Cria o experimento em Stand by. Pela API no modo `api` |
 | `/experimentos/{código}/editar` | Não está no Figma: o mesmo formulário do Novo experimento | Edita conforme o status. Pela API no modo `api` |
-| `/experimentos/{código}` | Experimento EXP-01, · só leitura, · compartilhar | Duplicar, editar, encerrar e cancelar, conforme o acesso. Compartilhar só no modo `exemplo` |
+| `/experimentos/{código}` | Experimento EXP-01, · só leitura, · compartilhar | Compartilhar, duplicar, editar, encerrar e cancelar, conforme o acesso. Pela API no modo `api` |
 | `/historiador?celulas=c04,c08` | Historiador | Gráfico das leituras pela API (no modo `api`) |
 | `/alertas` | Alertas · regras | Abertos e Histórico vêm da API (no modo `api`) |
 | `/exportar` | Exportar dados e · por célula e período | CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv` |
 
 A API não tem regras de alerta configuráveis nem exportação agrupada, e a
-interface ainda não usa as rotas de acessos (Compartilhar) e de cultivos. No
+interface ainda não usa as rotas de cultivos. No
 modo `exemplo`, as mudanças (novo experimento, compartilhar, encerrar,
 cancelar, nova regra) ficam na memória até recarregar a página. Os botões
 que dependem do que falta ficam como no Figma e explicam o motivo ao passar
@@ -110,6 +110,8 @@ O `ExperimentosProvider` segue `VITE_FONTE_DADOS`. No modo `exemplo`, usa
 | Salvar alterações | `PATCH /experimentos/{id}` |
 | Encerrar experimento | `POST /experimentos/{id}/encerrar` |
 | Cancelar experimento | `POST /experimentos/{id}/cancelar {motivo}` |
+| Compartilhar: convidar e trocar a permissão | `POST /experimentos/{id}/acessos {email, permissao}` |
+| Compartilhar: remover | `DELETE /experimentos/{id}/acessos/{id_pessoa}` |
 
 - **Código e id.** A URL usa o código que a API devolve (`EXP-01`). As
   chamadas usam o `id_experimento`, guardado junto com o experimento. Link
@@ -138,8 +140,30 @@ O `ExperimentosProvider` segue `VITE_FONTE_DADOS`. No modo `exemplo`, usa
   temperatura, OD e pH com os dados gerais das células.
 - **Erros.** 404 mostra "Experimento não encontrado ou sem acesso"; 403 abre
   o Aviso de acesso; os outros mostram o `detail` da API.
-- **Ainda não ligado:** Compartilhar (fica indisponível no modo `api`, com a
-  explicação) e iniciar ou encerrar cultivos de células.
+- **Ainda não ligado:** iniciar ou encerrar cultivos de células.
+
+### Compartilhar
+
+O modal Compartilhar só abre para o responsável. Para quem tem "Pode
+modificar" ou "Só leitura", o botão fica esmaecido e mostra o Aviso de acesso.
+
+- **Só quem já tem conta.** A API não tem convite pendente: o e-mail precisa
+  ser de uma conta que já existe. Se não for, a mensagem da API ("Nenhuma
+  conta com o e-mail ...") aparece embaixo do campo, como o erro do login.
+  Por isso o estado "convite enviado, ainda não entrou" do Figma saiu, e
+  ninguém recebe e-mail.
+- **Permissões.** "Só leitura" é `leitura` e "Pode modificar" é `edicao` na
+  API.
+- **Trocar a permissão** usa a mesma rota de convidar: com a pessoa que já
+  tem acesso, a API troca a permissão. É uma chamada só, então a pessoa nunca
+  fica sem acesso no meio da troca.
+- **Responsável no topo.** A lista de acessos da API não inclui o
+  responsável. O modal mostra ele no topo, com o selo "Responsável", a partir
+  dos dados do experimento. A API não devolve o e-mail do responsável; o
+  modal mostra o e-mail quando o responsável é a pessoa logada.
+- **Depois de cada mudança**, o experimento e a lista são recarregados, para
+  o modal e os selos da lista ("só leitura", "pode modificar") ficarem certos.
+- No modo `exemplo`, qualquer e-mail é aceito e a mudança fica na memória.
 
 ### Permissões dos experimentos
 

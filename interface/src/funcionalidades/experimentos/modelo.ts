@@ -18,10 +18,12 @@ export interface Pessoa {
   email: string;
 }
 
+/** Quem tem acesso ao experimento sem ser o responsável. Não há convite
+ *  pendente: só recebe acesso quem já tem conta. */
 export interface Convidado extends Pessoa {
+  /** Id da pessoa na API, usado para remover o acesso. No modo exemplo não existe. */
+  idPessoa?: number;
   acesso: Exclude<Acesso, "responsavel">;
-  /** Recebeu o convite, mas ainda não entrou no sistema. */
-  pendente?: boolean;
 }
 
 export interface CelulaNoExperimento {

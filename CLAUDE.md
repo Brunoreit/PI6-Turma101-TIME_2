@@ -171,7 +171,7 @@ Experimento ou cultivo fora do alcance da pessoa dá 404 (não revela que existe
 
 Base e modelo de dados do MVP implementados (branch `feat/modelo-dados-mvp`, 06/11/2026). Passam 38 testes de unidade e, no modo Docker Compose, 105 testes de `test_modelo_dados.py` e as 16 etapas do ponta a ponta (a 16 é a integridade final). Em 02/11/2026 o modo Docker Compose passou três vezes seguidas, com o pytest rodando no Windows e os serviços em contêineres Linux. O modo local não foi conferido depois do modelo de dados (falta confirmar o `btree_gist` no PostgreSQL de quem o usa).
 
-Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 · Antiga" e "Login · conta CNPEM (guardado)", que não serão usadas. São Login e as telas de conta, Visão geral, telas da célula (inclusive a célula livre e o modal de confirmar temperatura), Experimentos (lista, novo, detalhe, compartilhar, só leitura), Historiador, Alertas, Exportar dados e a nova calibração de OD (pela aba Ajustes da célula; a Calibração saiu da barra lateral). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`). Login e cadastro da interface usam a API (`/auth`), sempre, mesmo no modo exemplo: o token vai em todas as chamadas e um 401 volta para /entrar (branch `feature/ligar-api-login`, 08/11/2026). Recuperar e trocar senha não existem na API. No modo api, as telas de Experimentos usam a API (lista, detalhe, novo, duplicar, editar, encerrar e cancelar); no modo exemplo, continuam com dados de exemplo. Fases, OD do turbidostato e agitação vão em `metadados` e o backend ainda não os usa. Acessos (Compartilhar) e cultivos ainda não estão ligados na interface. Regras de alerta e exportação agrupada não existem na API (detalhes em `interface/README.md`).
+Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 · Antiga" e "Login · conta CNPEM (guardado)", que não serão usadas. São Login e as telas de conta, Visão geral, telas da célula (inclusive a célula livre e o modal de confirmar temperatura), Experimentos (lista, novo, detalhe, compartilhar, só leitura), Historiador, Alertas, Exportar dados e a nova calibração de OD (pela aba Ajustes da célula; a Calibração saiu da barra lateral). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`). Login e cadastro da interface usam a API (`/auth`), sempre, mesmo no modo exemplo: o token vai em todas as chamadas e um 401 volta para /entrar (branch `feature/ligar-api-login`, 08/11/2026). Recuperar e trocar senha não existem na API. No modo api, as telas de Experimentos usam a API (lista, detalhe, novo, duplicar, editar, encerrar, cancelar e compartilhar); no modo exemplo, continuam com dados de exemplo. Fases, OD do turbidostato e agitação vão em `metadados` e o backend ainda não os usa. Compartilhar só aceita quem já tem conta (não há convite pendente). Cultivos ainda não estão ligados na interface. Regras de alerta e exportação agrupada não existem na API (detalhes em `interface/README.md`).
 
 ## Problemas conhecidos
 
@@ -183,7 +183,7 @@ Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 �
 
 ## Próximos passos
 
-1. Ligar a interface à API: acessos, cultivos, apelido da célula, tipos de alerta novos e status "cancelado"
+1. Ligar a interface à API: cultivos, apelido da célula, tipos de alerta novos e status "cancelado"
 2. Sinal de vida do consumidor
 3. Login nas rotas antigas e senha no broker
 4. Endpoints de regras de alerta e de exportação agrupada (média por hora ou dia, Excel)

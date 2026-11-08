@@ -3,8 +3,8 @@
 // desenvolvimento) e pelo nginx (no Docker).
 
 import type {
-  AlertaApi, CelulaApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
-  LeituraApi, PedidoSetpointApi, PessoaApi, SaudeApi, SessaoApi,
+  AcessoApi, AlertaApi, CelulaApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
+  LeituraApi, PedidoSetpointApi, PermissaoApi, PessoaApi, SaudeApi, SessaoApi,
 } from "./tipos";
 
 const BASE = "/api";
@@ -71,10 +71,12 @@ async function buscar<T>(caminho: string, sinal?: AbortSignal, opcoes: RequestIn
     if (resposta.status === 401 && comToken && comToken === token) aoPerderSessao();
     throw new ErroDaApi(resposta.status, `${caminho}: ${detalhe}`, detalhe);
   }
+  // 204 (como o DELETE de acesso) não tem corpo.
+  if (resposta.status === 204) return undefined as T;
   return resposta.json() as Promise<T>;
 }
 
-function enviar<T>(caminho: string, corpo: unknown, metodo: "POST" | "PATCH" = "POST"): Promise<T> {
+function enviar<T>(caminho: string, corpo: unknown, metodo: "POST" | "PATCH" | "DELETE" = "POST"): Promise<T> {
   return buscar(caminho, undefined, {
     method: metodo,
     headers: { "Content-Type": "application/json" },
@@ -180,4 +182,14 @@ export function encerrarExperimento(id: number): Promise<ExperimentoApi> {
 
 export function cancelarExperimento(id: number, motivo: string): Promise<ExperimentoApi> {
   return enviar(`/experimentos/${id}/cancelar`, { motivo });
+}
+
+/** Compartilha com quem já tem conta (404 se o e-mail não tem conta). Se a
+ *  pessoa já tem acesso, a API troca a permissão: é a mesma rota. */
+export function concederAcesso(id: number, email: string, permissao: PermissaoApi): Promise<AcessoApi> {
+  return enviar(`/experimentos/${id}/acessos`, { email, permissao });
+}
+
+export function revogarAcesso(id: number, idPessoa: number): Promise<void> {
+  return buscar(`/experimentos/${id}/acessos/${idPessoa}`, undefined, { method: "DELETE" });
 }

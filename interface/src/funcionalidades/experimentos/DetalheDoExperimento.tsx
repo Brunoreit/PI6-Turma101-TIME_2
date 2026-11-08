@@ -12,7 +12,6 @@ import { AvisoDeAcesso, useAvisoDeAcesso } from "@/compartilhado/componentes/Avi
 import { Botao } from "@/compartilhado/componentes/Botao";
 import { SeloDeStatus } from "@/compartilhado/componentes/SeloDeStatus";
 import * as formatar from "@/compartilhado/formatar";
-import { FONTE_DADOS } from "@/dados/fonte";
 import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
 import { useSessao } from "@/sessao/SessaoProvider";
 import { CancelarExperimento } from "./CancelarExperimento";
@@ -23,7 +22,6 @@ import { useExperimentos } from "./ExperimentosProvider";
 import { acessoNoExperimento, diaAtual, fechado, progresso, terminoPrevisto } from "./modelo";
 import { TaxaDeCrescimento } from "./TaxaDeCrescimento";
 
-const COMPARTILHAR_SEM_API = "Ainda não disponível: compartilhar pela interface fica para a próxima etapa.";
 const NAO_ENCONTRADO = "Experimento não encontrado ou sem acesso. Volte para a lista e escolha outro.";
 
 const ou = (valor: number | null, formato: (v: number) => string) => (valor === null ? "—" : formato(valor));
@@ -124,13 +122,9 @@ export function DetalheDoExperimento() {
         </div>
         <div className={estilos.acoes}>
           <div className={estilos.botoes}>
-            {FONTE_DADOS === "api" ? (
-              <Botao indisponivel={COMPARTILHAR_SEM_API}>Compartilhar</Botao>
-            ) : (
-              <Botao onClick={() => setCompartilhando(true)} semAcesso={souResponsavel ? undefined : semAcesso("compartilhar")}>
-                Compartilhar
-              </Botao>
-            )}
+            <Botao onClick={() => setCompartilhando(true)} semAcesso={souResponsavel ? undefined : semAcesso("compartilhar")}>
+              Compartilhar
+            </Botao>
             <Botao
               ocupado={ocupado}
               onClick={() => executar(async () => navegar(`/experimentos/${await duplicar(experimento.codigo)}/editar`))}

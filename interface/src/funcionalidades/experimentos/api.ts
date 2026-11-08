@@ -66,7 +66,7 @@ function metadadosDe(api: ExperimentoApi): Metadados {
 }
 
 function convidadoDe(acesso: AcessoApi): Convidado {
-  return { nome: acesso.nome, email: acesso.email, acesso: acesso.permissao === "edicao" ? "modificar" : "leitura" };
+  return { idPessoa: acesso.id_pessoa, nome: acesso.nome, email: acesso.email, acesso: acesso.permissao === "edicao" ? "modificar" : "leitura" };
 }
 
 function acessoDaApi(acesso: ExperimentoListadoApi["acesso"]): Acesso {
