@@ -10,7 +10,7 @@ Versão 1. Documento para combinar com o grupo que desenvolve o firmware das pla
 | client_id | `evolver-celula-{id}`, fixo por placa |
 | Keepalive | 30 s. O broker declara a célula offline após 45 s sem sinal |
 | QoS | 1 em todas as mensagens |
-| Formato | JSON em UTF-8. Campos desconhecidos são rejeitados |
+| Formato | JSON em UTF-8. Campos desconhecidos são rejeitados, exceto na leitura (ver abaixo) |
 | id da célula | letras, números, `-` e `_`, até 32 caracteres. Ex.: `c01` |
 
 ## Tópicos
@@ -38,6 +38,8 @@ Na conexão, a placa registra no broker a mensagem de última vontade (LWT), que
 {"estado": "offline"}
 ```
 
+O campo `versao` é opcional. Quando vem, o sistema central o grava como a versão do firmware da célula.
+
 ### leitura
 
 ```json
@@ -50,13 +52,19 @@ Na conexão, a placa registra no broker a mensagem de última vontade (LWT), que
 | `ts` | Horário da medição em UTC, formato ISO 8601 |
 | `temperatura_c` | °C |
 | `od_bruto` | Valor do sensor óptico sem calibração. A conversão para OD é feita no sistema central |
-| `ph` | 0 a 14 |
+| `ph` | Sem faixa. O valor medido é gravado como veio |
 
 Campos de sensores que a placa não tiver podem ser omitidos.
 
+Os valores medidos não têm faixa: uma medição estranha é gravada e quem decide se ela é um problema são as regras de alerta. O que vale é a estrutura (`seq` inteiro de 0 em diante e `ts` válido).
+
+Campos que este contrato não conhece são aceitos na leitura e guardados à parte, para não perder a medição. O sistema central registra um aviso no log com o nome do campo, uma vez por campo e por célula. Para um campo novo passar a ser tratado como sensor, ele precisa entrar neste contrato. As outras mensagens (`estado`, `setpoint` e `setpoint/resposta`) continuam rejeitando campos desconhecidos.
+
 ### Quando a conexão cai
 
-A placa deve guardar as leituras localmente e reenviar todas, em ordem de seq, ao reconectar. Uma leitura só pode sair do armazenamento local depois que o broker confirmar o recebimento (PUBACK). Reenviar uma leitura que já chegou não causa problema: o sistema central descarta repetições pelo seq.
+A placa deve guardar as leituras localmente e reenviar todas, em ordem de seq, ao reconectar. Uma leitura só pode sair do armazenamento local depois que o broker confirmar o recebimento (PUBACK). Reenviar uma leitura que já chegou não causa problema: o sistema central descarta repetições pelo seq. Isso vale para o reenvio da **mesma** leitura, com o mesmo `ts`.
+
+Se um `seq` já gravado chegar com outro `ts`, são duas medições diferentes com o mesmo número (por exemplo, uma placa que perdeu o contador e voltou a zero). A leitura gravada primeiro é mantida, a nova é descartada e o sistema central abre o alerta `colisao_seq` para a célula.
 
 ### setpoint
 

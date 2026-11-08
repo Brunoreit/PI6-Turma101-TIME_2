@@ -2,6 +2,8 @@
 
 Todas as mensagens são JSON em UTF-8. Campos desconhecidos são rejeitados,
 para que um erro de digitação no firmware apareça logo no primeiro teste.
+A exceção é a leitura: uma medição nunca é perdida, então o que vier a mais
+é aceito e guardado à parte (ver Leitura).
 """
 
 from datetime import datetime
@@ -40,13 +42,20 @@ class Leitura(_Mensagem):
     ts é o horário da célula, em UTC. O sistema central grava também o
     horário de chegada, porque o relógio da placa pode estar errado.
     od_bruto é o valor do sensor antes da calibração.
+
+    Os valores medidos não têm faixa: uma medição estranha é gravada como
+    veio, e quem decide se ela é problema são as regras de alerta. Campos
+    que o contrato não conhece são aceitos e ficam em model_extra; o
+    sistema central os grava em leitura.extras.
     """
+
+    model_config = ConfigDict(extra="allow")
 
     seq: int = Field(ge=0)
     ts: datetime
     temperatura_c: float | None = None
     od_bruto: float | None = None
-    ph: float | None = Field(default=None, ge=0, le=14)
+    ph: float | None = None
 
 
 class PedidoSetpoint(_Mensagem):

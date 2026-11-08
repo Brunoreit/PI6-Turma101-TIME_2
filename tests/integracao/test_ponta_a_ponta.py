@@ -4,7 +4,10 @@ Três células simuladas publicam leituras. O teste derruba, uma de cada vez,
 a conexão de uma célula, o consumidor e o broker, e confere que o histórico
 no banco ficou completo e sem repetições. Depois envia setpoints e confere
 os estados solicitado, recebido, aplicado e atingido, e o alerta quando a
-célula não responde.
+célula não responde. Por fim, confere a colisão de seq, o firmware
+anunciado pelas células, o reenvio idêntico de uma leitura, o alerta de pH
+fora da faixa do cultivo e o setpoint enviado ao iniciar um cultivo pela API,
+inclusive a recusa com o broker parado.
 
 As etapas rodam em ordem e dependem umas das outras, como um roteiro.
 
@@ -83,6 +86,21 @@ def alerta_aberto(banco, id_celula: str, tipo: str) -> bool:
 def estado_celula(banco, id_celula: str) -> str | None:
     linha = banco.execute("SELECT estado FROM celula WHERE id_celula = %s", (id_celula,)).fetchone()
     return linha and linha["estado"]
+
+
+def entrar(ambiente, email: str) -> dict:
+    """Cadastra a pessoa pela API e devolve o cabeçalho com o token."""
+    resposta = requests.post(f"{ambiente.url_api}/auth/cadastro", timeout=10,
+                             json={"nome": "Ana", "email": email, "senha": "cultura123"})
+    assert resposta.status_code == 201, resposta.text
+    return {"Authorization": f"Bearer {resposta.json()['token']}"}
+
+
+def novo_experimento(ambiente, cabecalhos: dict, temperatura_alvo_c: float | None) -> int:
+    resposta = requests.post(f"{ambiente.url_api}/experimentos", headers=cabecalhos, timeout=10, json={
+        "nome": "Setpoint ao iniciar", "modo": "curva_crescimento", "temperatura_alvo_c": temperatura_alvo_c})
+    assert resposta.status_code == 201, resposta.text
+    return resposta.json()["id_experimento"]
 
 
 def cresceu_em_todas(banco, antes: dict[str, int], minimo: int):
@@ -174,26 +192,37 @@ def test_8_celula_que_nao_responde_gera_alerta(ambiente, banco):
     assert pedido["estado"] == "solicitado"
 
 
-def test_9_leitura_repetida_e_descartada(ambiente, banco):
-    """Publica de novo o seq 0 da c01 com valores diferentes, como faria um
-    reenvio. O banco precisa manter a leitura original."""
+def publicar_leituras(ambiente, id_celula: str, leitura, vezes: int = 1) -> None:
+    """Publica uma leitura como se fosse a célula, e espera o broker confirmar."""
     import paho.mqtt.client as mqtt
-    from contrato import Leitura, topicos
-    from datetime import datetime, timezone
+    from contrato import topicos
 
-    original = banco.execute("SELECT * FROM leitura WHERE id_celula = 'c01' AND seq = 0").fetchone()
     cliente = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="teste-duplicata")
     cliente.connect(ambiente.host_mqtt, ambiente.porta_mqtt)
     cliente.loop_start()
-    repetida = Leitura(seq=0, ts=datetime.now(timezone.utc), temperatura_c=99.0, od_bruto=1.0, ph=1.0)
-    for _ in range(3):
-        cliente.publish(topicos.leitura("c01"), repetida.para_json(), qos=1).wait_for_publish(5)
+    for _ in range(vezes):
+        cliente.publish(topicos.leitura(id_celula), leitura.para_json(), qos=1).wait_for_publish(5)
     time.sleep(2)
     cliente.loop_stop()
     cliente.disconnect()
 
+
+def test_9_leitura_repetida_e_descartada(ambiente, banco):
+    """Publica de novo o seq 0 da c01 com outro horário e outros valores.
+    São duas medições com o mesmo número (colisão): o banco mantém a
+    original e abre o alerta colisao_seq."""
+    from contrato import Leitura
+    from datetime import datetime, timezone
+
+    original = banco.execute("SELECT * FROM leitura WHERE id_celula = 'c01' AND seq = 0").fetchone()
+    repetida = Leitura(seq=0, ts=datetime.now(timezone.utc), temperatura_c=99.0, od_bruto=1.0, ph=1.0)
+    publicar_leituras(ambiente, "c01", repetida, vezes=3)
+
+    esperar(lambda: alerta_aberto(banco, "c01", "colisao_seq"), 10, "alerta de colisão de seq na c01")
     atual = banco.execute("SELECT * FROM leitura WHERE id_celula = 'c01' AND seq = 0").fetchone()
-    assert atual["temperatura_c"] == original["temperatura_c"] != 99.0
+    assert atual == original
+    assert atual["temperatura_c"] != 99.0
+    assert banco.execute("SELECT count(*) AS n FROM alerta WHERE id_celula = 'c01' AND tipo = 'colisao_seq'").fetchone()["n"] == 1
     assert historico_completo(banco)
 
 
@@ -224,7 +253,112 @@ def test_10_calibracao_recalcula_so_o_pedido(ambiente, banco):
     assert all(l["od"] == antes[l["seq"]]["od"] for l in linhas if l["ts_origem"] < desde)
 
 
-def test_11_integridade_final(ambiente, banco):
+def test_11_estado_grava_o_firmware(banco):
+    """O simulador anuncia versao "sim-0.1" na mensagem de estado."""
+    firmwares = {l["id_celula"]: l["firmware"] for l in banco.execute("SELECT id_celula, firmware FROM celula").fetchall()}
+    assert firmwares == {c: "sim-0.1" for c in CELULAS}
+
+
+def test_12_reenvio_identico_nao_abre_alerta(ambiente, banco):
+    """Publica de novo uma leitura da c02 exatamente como foi gravada, como
+    faria uma placa reenviando o que guardou. É só descartada."""
+    from contrato import Leitura
+
+    original = banco.execute("SELECT * FROM leitura WHERE id_celula = 'c02' AND seq = 1").fetchone()
+    reenvio = Leitura(seq=1, ts=original["ts_origem"], temperatura_c=original["temperatura_c"],
+                      od_bruto=original["od_bruto"], ph=original["ph"])
+    publicar_leituras(ambiente, "c02", reenvio, vezes=2)
+
+    assert banco.execute("SELECT * FROM leitura WHERE id_celula = 'c02' AND seq = 1").fetchone() == original
+    assert not alerta_aberto(banco, "c02", "colisao_seq")
+    assert historico_completo(banco)
+
+
+def test_13_ph_fora_da_faixa_do_cultivo_abre_alerta(banco):
+    """Põe a c01 num cultivo com faixa de pH que exclui o pH simulado (entre
+    6,7 e 7,0) e espera o processo de regras abrir o alerta. Depois só muda
+    a faixa, e o alerta fecha; volta a faixa, e o alerta reabre; encerrar o
+    cultivo fecha. O simulador não muda. O cultivo é criado pelos
+    repositórios, não pela API (decisão da etapa 4)."""
+    from app.banco import repositorios as repo
+
+    pessoa = repo.criar_pessoa(banco, "Teste", "teste-ph@cnpem.br", "x")["id_pessoa"]
+    experimento = repo.criar_experimento(banco, pessoa, nome="pH", modo="curva_crescimento",
+                                         ph_ref_min=7.5, ph_ref_max=8.0)
+    cultivo = repo.iniciar_cultivo(banco, experimento["id_experimento"], "c01", pessoa)["id_cultivo"]
+    esperar(lambda: alerta_aberto(banco, "c01", "ph_fora_da_faixa"), 15, "alerta de pH fora da faixa na c01")
+
+    repo.atualizar_cultivo(banco, cultivo, ph_ref_min=6.0, ph_ref_max=7.5)
+    esperar(lambda: not alerta_aberto(banco, "c01", "ph_fora_da_faixa"), 15, "alerta de pH fechar com a faixa nova")
+
+    repo.atualizar_cultivo(banco, cultivo, ph_ref_min=7.5, ph_ref_max=8.0)
+    esperar(lambda: alerta_aberto(banco, "c01", "ph_fora_da_faixa"), 15, "alerta de pH reabrir")
+    repo.encerrar_cultivo(banco, cultivo, pessoa)
+    esperar(lambda: not alerta_aberto(banco, "c01", "ph_fora_da_faixa"), 15, "alerta de pH fechar ao encerrar o cultivo")
+    assert not any(alerta_aberto(banco, c, "ph_fora_da_faixa") for c in CELULAS)
+
+
+def test_14_cultivo_com_temperatura_alvo_envia_o_setpoint(ambiente, banco):
+    """G.8: iniciar o cultivo pela API publica a temperatura alvo do
+    experimento, com a pessoa logada no pedido, e o pedido avança até
+    aplicado numa célula normal (c02)."""
+    api = ambiente.url_api
+    cabecalhos = entrar(ambiente, "ana-setpoint@cnpem.br")
+    e = novo_experimento(ambiente, cabecalhos, 33.0)
+
+    resposta = requests.post(f"{api}/experimentos/{e}/cultivos", json={"id_celula": "c02"},
+                             headers=cabecalhos, timeout=15)
+    assert resposta.status_code == 201, resposta.text
+    corpo = resposta.json()
+    assert corpo["setpoint_confirmado"] is True
+    pedido = corpo["pedido_setpoint"]
+    id_pessoa = requests.get(f"{api}/auth/eu", headers=cabecalhos, timeout=5).json()["id_pessoa"]
+    assert (pedido["id_celula"], pedido["temperatura_c"], pedido["solicitado_por"], pedido["id_pessoa"]) == (
+        "c02", 33.0, "Ana", id_pessoa)
+
+    final = esperar(
+        lambda: (p := requests.get(f"{api}/setpoints/{pedido['id_pedido']}", timeout=5).json())["estado"]
+        in ("aplicado", "atingido") and p,
+        30, "setpoint do cultivo chegar a aplicado na c02",
+    )
+    assert final["recebido_em"] and final["aplicado_em"] and final["id_pessoa"] == id_pessoa
+
+
+def test_15_broker_parado_recusa_cultivo_com_temperatura_alvo(ambiente, banco):
+    """RN-03: com o broker parado, iniciar um cultivo de experimento com
+    temperatura alvo dá 503 e nada é gravado. Sem temperatura alvo, o
+    cultivo começa normalmente."""
+    api = ambiente.url_api
+    cabecalhos = entrar(ambiente, "ana-broker@cnpem.br")
+    com_temperatura = novo_experimento(ambiente, cabecalhos, 33.0)
+    sem_temperatura = novo_experimento(ambiente, cabecalhos, None)
+    pedidos = lambda: banco.execute("SELECT count(*) AS n FROM pedido_setpoint").fetchone()["n"]
+    cultivos = lambda: banco.execute("SELECT count(*) AS n FROM cultivo").fetchone()["n"]
+    antes = (pedidos(), cultivos())
+
+    ambiente.parar("broker")
+    parado = contagem(banco)
+    esperar(lambda: not requests.get(f"{api}/saude", timeout=5).json()["broker"], 30, "API perceber o broker parado")
+    recusado = requests.post(f"{api}/experimentos/{com_temperatura}/cultivos", json={"id_celula": "c03"},
+                             headers=cabecalhos, timeout=15)
+    assert recusado.status_code == 503, recusado.text
+    assert (pedidos(), cultivos()) == antes
+    status = requests.get(f"{api}/experimentos/{com_temperatura}", headers=cabecalhos, timeout=5).json()["status"]
+    assert status == "cadastrado"
+
+    aceito = requests.post(f"{api}/experimentos/{sem_temperatura}/cultivos", json={"id_celula": "c03"},
+                           headers=cabecalhos, timeout=15)
+    assert aceito.status_code == 201, aceito.text
+    assert (aceito.json()["pedido_setpoint"], aceito.json()["setpoint_confirmado"]) == (None, None)
+    assert pedidos() == antes[0]
+
+    ambiente.iniciar_servico("broker")
+    esperar(lambda: requests.get(f"{api}/saude", timeout=5).json()["broker"], 30, "API reconectar ao broker")
+    esperar(cresceu_em_todas(banco, parado, 8), 40, "reenvio das três células após o broker voltar")
+    esperar(lambda: historico_completo(banco), 20, "histórico completo após o broker voltar")
+
+
+def test_16_integridade_final(ambiente, banco):
     integridade = requests.get(f"{ambiente.url_api}/integridade", timeout=5).json()
     assert len(integridade) == len(CELULAS)
     assert all(linha["completo"] for linha in integridade), integridade

@@ -101,4 +101,43 @@ def desvio_temperatura(conn: psycopg.Connection, cfg: Config) -> None:
             repo.fechar_alerta(conn, c["id_celula"], "desvio_temperatura")
 
 
-TODAS = [sem_comunicacao, setpoint_sem_confirmacao, setpoint_atingido, desvio_temperatura]
+def _faixa(minimo: float | None, maximo: float | None) -> str:
+    if minimo is not None and maximo is not None:
+        return f"de {minimo:.2f} a {maximo:.2f}"
+    return f"mínimo de {minimo:.2f}" if minimo is not None else f"máximo de {maximo:.2f}"
+
+
+def ph_fora_da_faixa(conn: psycopg.Connection, cfg: Config) -> None:
+    """Célula com cultivo aberto cuja última leitura de pH do período do
+    cultivo (a de maior ts_origem) está fora da faixa de referência dele.
+    Fecha o alerta quando o pH volta, quando o cultivo não tem leitura de pH
+    no período e quando a célula fica sem cultivo aberto ou sem faixa."""
+    fora = set()
+    for c in conn.execute(
+        """
+        SELECT c.id_celula, c.ph_ref_min, c.ph_ref_max, u.ph
+          FROM cultivo c
+          JOIN LATERAL (
+                SELECT ph FROM leitura l
+                 WHERE l.id_celula = c.id_celula AND l.ph IS NOT NULL
+                   AND l.ts_origem >= c.iniciado_em
+                 ORDER BY ts_origem DESC LIMIT 1) u ON true
+         WHERE c.status = 'em_andamento'
+           AND (c.ph_ref_min IS NOT NULL OR c.ph_ref_max IS NOT NULL)
+           AND (u.ph < c.ph_ref_min OR u.ph > c.ph_ref_max)
+        """
+    ).fetchall():
+        fora.add(c["id_celula"])
+        if repo.abrir_alerta(conn, c["id_celula"], "ph_fora_da_faixa",
+                             f"pH em {c['ph']:.2f}, fora da faixa de referência "
+                             f"({_faixa(c['ph_ref_min'], c['ph_ref_max'])})."):
+            log.warning("alerta aberto: pH fora da faixa em %s", c["id_celula"])
+    for c in conn.execute(
+        "SELECT id_celula FROM alerta WHERE tipo = 'ph_fora_da_faixa' AND fechado_em IS NULL"
+    ).fetchall():
+        if c["id_celula"] not in fora and repo.fechar_alerta(conn, c["id_celula"], "ph_fora_da_faixa"):
+            log.info("alerta fechado: pH de %s voltou à faixa ou o cultivo mudou", c["id_celula"])
+
+
+TODAS = [sem_comunicacao, setpoint_sem_confirmacao, setpoint_atingido, desvio_temperatura,
+         ph_fora_da_faixa]
