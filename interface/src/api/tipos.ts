@@ -145,6 +145,10 @@ export interface CultivoApi {
   motivo_encerramento: string | null;
   /** Cultivo de onde a cultura veio (troca de placa ou de célula). */
   continua_de: number | null;
+  /** Quem abriu e quem fechou o cultivo (id da pessoa). */
+  id_iniciado_por: number | null;
+  id_encerrado_por: number | null;
+  metadados: Record<string, unknown>;
 }
 
 /** POST /experimentos/{id}/cultivos. Sem temperatura alvo no experimento,
@@ -189,5 +193,10 @@ export interface CalibracaoSalvaApi {
   a: number;
   b: number;
   criada_em: string;
+  sensor: string | null;
+  pontos: { od_referencia: number; bruto: number }[] | null;
+  r2: number | null;
+  organismo: string | null;
+  id_pessoa: number | null;
   leituras_reprocessadas: number;
 }

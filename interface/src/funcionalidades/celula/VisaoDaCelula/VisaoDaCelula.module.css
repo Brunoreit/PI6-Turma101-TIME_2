@@ -768,3 +768,20 @@
   font-size: 13px;
   color: var(--texto\/principal);
 }
+
+/* Horário em que o pedido chegou a cada etapa. */
+.etapaHora {
+  margin-left: 4px;
+  font-family: var(--fonte-mono);
+  font-size: 10px;
+  color: var(--texto\/secundario);
+}
+
+.avisoCultivoOk {
+  padding: 10px 14px;
+  border: 1px solid var(--status\/online);
+  border-radius: 8px;
+  background: var(--status\/online-fundo);
+  font-size: 13px;
+  color: var(--status\/online);
+}

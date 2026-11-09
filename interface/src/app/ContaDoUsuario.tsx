@@ -3,6 +3,7 @@
 
 import { useNavigate } from "react-router-dom";
 import iconeSair from "@/assets/icones/sair.svg";
+import * as formatar from "@/compartilhado/formatar";
 import { iniciais, useSessao } from "@/sessao/SessaoProvider";
 import estilos from "./ContaDoUsuario.module.css";
 
@@ -18,6 +19,7 @@ export function ContaDoUsuario() {
       </span>
       <span className={estilos.nome} title={usuario.email}>
         {usuario.nome}
+        {usuario.criadoEm && <span className={estilos.desde} title="Data em que a conta foi criada">desde {formatar.data(new Date(usuario.criadoEm))}</span>}
       </span>
       <button
         type="button"

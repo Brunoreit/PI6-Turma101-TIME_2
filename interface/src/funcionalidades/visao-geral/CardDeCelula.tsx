@@ -38,7 +38,14 @@ export function CardDeCelula({ celula, agora }: { celula: CelulaResumo; agora: D
             {nomeDaCelula(celula)}
             {celula.apelido && <span className={estilos.idDaPlaca}>{celula.id}</span>}
           </h3>
-          <SeloDeStatus situacao={celula.situacao} />
+          <SeloDeStatus
+            situacao={celula.situacao}
+            rotulo={
+              celula.situacao === "alerta" && celula.alertasAbertos && celula.alertasAbertos > 1
+                ? `${celula.alertasAbertos} alertas`
+                : undefined
+            }
+          />
         </div>
         <p className={celula.experimento === null ? estilos.livre : estilos.subtitulo}>{subtitulo}</p>
       </div>

@@ -22,7 +22,9 @@ import estilos from "./VisaoDaCelula.module.css";
 /** Temperatura alvo do cadastro: a da primeira fase, ou nenhuma. */
 const alvoDe = (e: Experimento | undefined) => e?.fases[0]?.temperaturaC ?? null;
 
-export function AtribuirExperimento({ dados, aoAtribuir }: { dados: DetalheDaCelula; aoAtribuir: (aviso: string | null) => void }) {
+export function AtribuirExperimento({
+  dados, aoAtribuir,
+}: { dados: DetalheDaCelula; aoAtribuir: (aviso: { erro: boolean; texto: string }) => void }) {
   const { experimentos, buscar, carregarDetalhe } = useExperimentos();
   const { usuario } = useSessao();
   // Em andamento ou em Stand by, e com acesso para atribuir.

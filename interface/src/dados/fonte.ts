@@ -113,6 +113,7 @@ function celulaDaApi(
     id: celula.id_celula,
     apelido: celula.apelido,
     situacao,
+    alertasAbertos: celula.alertas_abertos,
     experimento: experimentoDaCelula(celula, experimentos, agora),
     temperaturaC: celula.temperatura_c,
     ph: celula.ph,

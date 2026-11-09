@@ -38,6 +38,8 @@ const ETAPAS: { estado: EstadoDoPedido; rotulo: string }[] = [
 
 function UltimoPedido({ pedido }: { pedido: NonNullable<DetalheDaCelula["pedido"]> }) {
   const alcancada = ETAPAS.findIndex((e) => e.estado === pedido.estado);
+  // Horário de cada etapa, na mesma ordem de ETAPAS.
+  const horarios = [pedido.solicitadoEm, pedido.recebidoEm, pedido.aplicadoEm, pedido.atingidoEm];
   return (
     <div className={estilos.ultimoPedido}>
       <p className={estilos.ultimoPedidoTexto}>
@@ -56,6 +58,7 @@ function UltimoPedido({ pedido }: { pedido: NonNullable<DetalheDaCelula["pedido"
                 <span className={estilos.etapaVazia} aria-hidden />
               )}
               {etapa.rotulo}
+              {horarios[i] && <span className={estilos.etapaHora}>{formatar.hora(horarios[i]!)}</span>}
               <span className={comum.oculto}>{i <= alcancada ? " (feito)" : " (aguardando)"}</span>
             </li>
           ))}

@@ -29,11 +29,11 @@ export function VisaoDaCelula() {
   const [periodo, setPeriodo] = useState<Periodo>("24h");
   const { dados, erro, recarregar } = useCelula(id, periodo);
   const experimentos = useExperimentos();
-  /** Depois de atribuir: o cultivo começou, mas a temperatura pode não ter ido. */
-  const [aviso, setAviso] = useState<string | null>(null);
+  /** Depois de atribuir: o cultivo e o pedido de temperatura, ou o que deu errado. */
+  const [aviso, setAviso] = useState<{ erro: boolean; texto: string } | null>(null);
 
   // Atribuir, encerrar ou cancelar mudam a célula e o status do experimento.
-  function depoisDeMudar(novoAviso: string | null = null) {
+  function depoisDeMudar(novoAviso: { erro: boolean; texto: string } | null = null) {
     setAviso(novoAviso);
     recarregar();
     experimentos.recarregar();
@@ -66,8 +66,8 @@ export function VisaoDaCelula() {
       />
 
       {aviso && (
-        <p className={estilos.avisoCultivo} role="alert">
-          {aviso}
+        <p className={aviso.erro ? estilos.avisoCultivo : estilos.avisoCultivoOk} role={aviso.erro ? "alert" : "status"}>
+          {aviso.texto}
         </p>
       )}
 

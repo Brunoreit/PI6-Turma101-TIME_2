@@ -17,6 +17,8 @@ export interface CelulaResumo {
    *  telas mostram o id. */
   apelido?: string | null;
   situacao: SituacaoCelula;
+  /** Quantos alertas a célula tem abertos (alertas_abertos de GET /celulas). */
+  alertasAbertos?: number;
   /** `null`: célula livre. `undefined`: a API ainda não informa. */
   experimento: Experimento | null | undefined;
   temperaturaC: number | null;

@@ -114,7 +114,19 @@ export function NovaCalibracao() {
       const recalculadas = recalcular
         ? ` ${formatar.inteiro(salva.reprocessadas)} ${salva.reprocessadas === 1 ? "leitura teve" : "leituras tiveram"} a OD recalculada.`
         : " O histórico não foi recalculado.";
-      navegar(`${base}/ajustes`, { state: { aviso: `Versão ${salva.versao} da calibração de OD salva.${recalculadas}` } });
+      const detalhes = [
+        formula(salva.a, salva.b),
+        salva.r2 !== null ? `R² = ${formatar.decimal(salva.r2, 3)}` : null,
+        `${salva.pontos} ${salva.pontos === 1 ? "ponto" : "pontos"}`,
+        salva.organismo ? `organismo ${salva.organismo}` : null,
+        salva.sensor ? `sensor ${salva.sensor}` : null,
+      ].filter(Boolean).join(", ");
+      navegar(`${base}/ajustes`, {
+        state: {
+          aviso: `Versão ${salva.versao} da calibração de OD (nº ${salva.idCalibracao}) salva em ${formatar.diaHora(salva.criadaEm)}${
+            salva.porVoce ? " por você" : ""}: ${detalhes}.${recalculadas}`,
+        },
+      });
     } catch (erro) {
       setAviso({ erro: true, texto: erro instanceof Error ? erro.message : String(erro) });
     } finally {

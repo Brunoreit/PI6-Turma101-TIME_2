@@ -21,6 +21,8 @@ export interface Pessoa {
 /** Quem tem acesso ao experimento sem ser o responsável. Não há convite
  *  pendente: só recebe acesso quem já tem conta. */
 export interface Convidado extends Pessoa {
+  /** Desde quando tem acesso (modo api). */
+  desde?: Date;
   /** Id da pessoa na API, usado para remover o acesso. No modo exemplo não existe. */
   idPessoa?: number;
   acesso: Exclude<Acesso, "responsavel">;
@@ -37,6 +39,11 @@ export interface CelulaNoExperimento {
   replica?: number | null;
   /** Célula de onde a cultura veio, quando continua outro cultivo. */
   continuaDe?: string | null;
+  /** Nome de quem pôs a célula no experimento e de quem a tirou. */
+  iniciadoPor?: string | null;
+  encerradoPor?: string | null;
+  /** Metadados livres do cultivo, gravados pela API. */
+  metadados?: Record<string, unknown>;
   /** Como "30 °C": a condição testada nesta célula. */
   condicao: string;
   /** `null` quando a célula não aparece nos dados gerais. */
@@ -90,6 +97,8 @@ export interface Ficha {
 export interface Experimento {
   /** Id da API, usado nas chamadas. No modo exemplo não existe. */
   id?: number;
+  /** Quando o experimento foi cadastrado (modo api). */
+  criadoEm?: Date;
   codigo: string;
   nome: string;
   descricao: string;

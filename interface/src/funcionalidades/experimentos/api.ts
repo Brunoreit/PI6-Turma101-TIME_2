@@ -66,7 +66,13 @@ function metadadosDe(api: ExperimentoApi): Metadados {
 }
 
 function convidadoDe(acesso: AcessoApi): Convidado {
-  return { idPessoa: acesso.id_pessoa, nome: acesso.nome, email: acesso.email, acesso: acesso.permissao === "edicao" ? "modificar" : "leitura" };
+  return {
+    idPessoa: acesso.id_pessoa,
+    nome: acesso.nome,
+    email: acesso.email,
+    acesso: acesso.permissao === "edicao" ? "modificar" : "leitura",
+    desde: new Date(acesso.concedido_em),
+  };
 }
 
 function acessoDaApi(acesso: ExperimentoListadoApi["acesso"]): Acesso {
@@ -74,7 +80,10 @@ function acessoDaApi(acesso: ExperimentoListadoApi["acesso"]): Acesso {
 }
 
 /** As leituras atuais vêm dos dados gerais (atualizados a cada 20 s). */
-function celulaDe(cultivo: CultivoApi, celulas: CelulaResumo[], todos: CultivoApi[]): CelulaNoExperimento {
+function celulaDe(
+  cultivo: CultivoApi, celulas: CelulaResumo[], todos: CultivoApi[], nomes: Map<number, string>,
+): CelulaNoExperimento {
+  const nomeDe = (id: number | null) => (id === null ? null : (nomes.get(id) ?? `pessoa nº ${id}`));
   const atual = celulas.find((c) => c.id === cultivo.id_celula);
   const aberta = cultivo.encerrado_em === null;
   return {
@@ -83,6 +92,9 @@ function celulaDe(cultivo: CultivoApi, celulas: CelulaResumo[], todos: CultivoAp
     cancelada: cultivo.status === "cancelado",
     motivo: cultivo.motivo_encerramento,
     replica: cultivo.replica,
+    iniciadoPor: nomeDe(cultivo.id_iniciado_por),
+    encerradoPor: nomeDe(cultivo.id_encerrado_por),
+    metadados: cultivo.metadados,
     continuaDe: todos.find((c) => c.id_cultivo === cultivo.continua_de)?.id_celula ?? (cultivo.continua_de ? `cultivo ${cultivo.continua_de}` : null),
     condicao: cultivo.condicao ?? "—",
     situacao: aberta ? (atual?.situacao ?? null) : "offline",
@@ -99,6 +111,7 @@ function base(api: ExperimentoApi, responsavelNome: string): Experimento {
   const motivo = api.metadados.motivo_cancelamento;
   return {
     id: api.id_experimento,
+    criadoEm: new Date(api.criado_em),
     codigo: api.codigo,
     nome: api.nome,
     descricao: api.descricao ?? "",
@@ -131,11 +144,18 @@ export function experimentoDaLista(api: ExperimentoListadoApi): Experimento {
 export function experimentoDoDetalhe(api: DetalheDoExperimentoApi, usuario: Usuario | null, celulas: CelulaResumo[]): Experimento {
   const meu = usuario !== null && api.id_responsavel === usuario.id;
   const convite = api.acessos.find((a) => a.id_pessoa === usuario?.id);
+  // Nomes de quem abriu e fechou cada cultivo: o responsável, quem tem acesso
+  // e a pessoa logada. Outra pessoa (que perdeu o acesso) aparece pelo número.
+  const nomes = new Map<number, string>([
+    [api.id_responsavel, api.responsavel_nome],
+    ...api.acessos.map((a) => [a.id_pessoa, a.nome] as [number, string]),
+    ...(usuario ? [[usuario.id, usuario.nome] as [number, string]] : []),
+  ]);
   return {
     ...base(api, api.responsavel_nome),
     acesso: meu ? "responsavel" : convite?.permissao === "edicao" ? "modificar" : "leitura",
     convidados: api.acessos.map(convidadoDe),
-    celulas: api.cultivos.map((c) => celulaDe(c, celulas, api.cultivos)),
+    celulas: api.cultivos.map((c) => celulaDe(c, celulas, api.cultivos, nomes)),
   };
 }
 

@@ -115,6 +115,24 @@ compartilhados com ela.
 
 ### Outros dados da API nas telas
 
+Todo campo que a API devolve aparece em alguma tela no modo `api`:
+
+| Campo | Onde aparece |
+|---|---|
+| `criado_em` da pessoa | Barra lateral, embaixo do nome ("desde 08/11/2026") |
+| `criado_em` do experimento | Subtítulo do detalhe ("cadastrado em") |
+| `concedido_em` do acesso | Modal Compartilhar ("acesso desde") |
+| `id_iniciado_por` e `id_encerrado_por` do cultivo | Detalhe do experimento, coluna Período ("entrou por", "saiu por"); o nome vem do responsável e dos acessos |
+| `metadados` do cultivo | Detalhe do experimento, coluna Condição |
+| `recebido_em`, `aplicado_em` e `atingido_em` do pedido | Comandos, com o horário de cada etapa |
+| `pedido_setpoint` ao atribuir | Aviso verde na tela da célula, com o número do cultivo e do pedido |
+| `alertas_abertos` da célula | Card da Visão geral ("2 alertas") |
+| `ts_recebido` e `id_calibracao` da leitura | Diagnóstico, painel Sensores (medida, recebida, atraso e calibração) |
+| `primeiro_seq` da integridade | Diagnóstico, Integridade do histórico |
+| Resposta da nova calibração (`id_calibracao`, `criada_em`, `sensor`, `r2`, `pontos`, `organismo`, `id_pessoa`) | Aviso em Ajustes ao voltar da calibração |
+
+Outros dados ligados nesta parte:
+
 - **Setpoint:** depois de Confirmar, o pedido é acompanhado pelo
   `GET /setpoints/{id}` a cada 2 s (até atingir, ser recusado ou passar
   3 min), em vez de esperar a atualização de 20 s.

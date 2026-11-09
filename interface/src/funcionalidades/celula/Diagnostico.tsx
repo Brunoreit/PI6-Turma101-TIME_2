@@ -126,6 +126,13 @@ function Placa({ dados }: { dados: DetalheDaCelula }) {
   );
 }
 
+/** "chegou 0,4 s depois" ou "chegou 3 min depois" (leitura guardada na placa). */
+function atraso(medida: Date, recebida: Date): string {
+  const ms = Math.max(0, recebida.getTime() - medida.getTime());
+  if (ms < 60_000) return `chegou ${formatar.decimal(ms / 1000, 1)} s depois`;
+  return `chegou ${formatar.duracao(medida, recebida)} depois`;
+}
+
 function Sensores({ dados }: { dados: DetalheDaCelula }) {
   const quando = dados.ultimaLeituraEm ? formatar.tempoDecorrido(dados.ultimaLeituraEm, dados.atualizadoEm) : null;
   const linha = (valor: string | null) => (valor === null || quando === null ? "sem leitura" : `${valor} · ${quando}`);
@@ -144,6 +151,20 @@ function Sensores({ dados }: { dados: DetalheDaCelula }) {
         <h2 id="titulo-sensores" className={comum.painelNome}>Sensores</h2>
         <p className={comum.painelDescricao}>Última leitura de cada um.</p>
       </div>
+      {dados.ultimaLeitura && (
+        <>
+          <Dado rotulo="Última leitura" valor={`seq ${formatar.inteiro(dados.ultimaLeitura.seq)}`} mono />
+          <Dado rotulo="Medida pela placa" valor={formatar.diaHora(dados.ultimaLeitura.medidaEm, true)} />
+          <Dado
+            rotulo="Recebida pelo servidor"
+            valor={`${formatar.diaHora(dados.ultimaLeitura.recebidaEm, true)} · ${atraso(dados.ultimaLeitura.medidaEm, dados.ultimaLeitura.recebidaEm)}`}
+          />
+          <Dado
+            rotulo="Calibração que converteu a OD"
+            valor={dados.ultimaLeitura.idCalibracao === null ? "nenhuma" : `nº ${dados.ultimaLeitura.idCalibracao}`}
+          />
+        </>
+      )}
       {sensores.map(([nome, valor]) => (
         <div key={nome} className={estilos.sensor}>
           <span className={valor === null ? estilos.pontoApagado : estilos.pontoOk} aria-hidden />
@@ -167,6 +188,7 @@ function IntegridadeDoHistorico({ dados }: { dados: DetalheDaCelula }) {
         <p className={comum.semDados}>Ainda não há leituras gravadas desta célula.</p>
       ) : (
         <>
+          {integridade.primeiroSeq !== undefined && <Dado rotulo="Primeiro seq" valor={formatar.inteiro(integridade.primeiroSeq)} mono />}
           <Dado rotulo="Último seq" valor={formatar.inteiro(integridade.ultimoSeq)} mono />
           <Dado rotulo="Leituras gravadas" valor={formatar.inteiro(integridade.gravadas)} />
           <Dado rotulo="Repetidas descartadas" valor={integridade.repetidas === null ? "—" : formatar.inteiro(integridade.repetidas)} />

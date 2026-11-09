@@ -67,7 +67,7 @@ export async function atribuirCelula(
   experimento: { id?: number; alvoC: number | null },
   temperaturaC: number | null,
   cultivo: { condicao: string; replica: number | null; continuaDe: number | null },
-): Promise<string | null> {
+): Promise<{ erro: boolean; texto: string }> {
   if (FONTE_DADOS === "exemplo" || experimento.id === undefined) throw SO_NA_API("a célula não foi atribuída");
   let iniciado;
   try {
@@ -83,18 +83,24 @@ export async function atribuirCelula(
     }
     throw erro; // 409 (célula em outro cultivo, experimento fechado) traz a explicação da API.
   }
+  const inicio = `A ${idCelula} entrou no experimento às ${formatar.hora(new Date(iniciado.iniciado_em))} (cultivo nº ${iniciado.id_cultivo}).`;
+  const pedidoDaApi = iniciado.pedido_setpoint;
+  const enviado = (p: PedidoSetpointApi) => ` Pedido de ${formatar.temperatura(p.temperatura_c)} ${p.estado} (${p.id_pedido}).`;
   const outra = temperaturaC !== null && (experimento.alvoC === null || Math.abs(temperaturaC - experimento.alvoC) >= 0.05);
   if (!outra) {
-    return iniciado.setpoint_confirmado === false
-      ? "O cultivo começou, mas a temperatura alvo não foi enviada: o broker não confirmou o envio. Mande de novo em Comandos."
-      : null;
+    if (iniciado.setpoint_confirmado === false) {
+      return { erro: true, texto: `${inicio} Mas a temperatura alvo não foi enviada: o broker não confirmou o envio. Mande de novo em Comandos.` };
+    }
+    return { erro: false, texto: inicio + (pedidoDaApi ? enviado(pedidoDaApi) : " O experimento não tem temperatura alvo.") };
   }
   try {
-    await pedirSetpoint(idCelula, temperaturaC);
-    return null;
+    return { erro: false, texto: inicio + enviado(await pedirSetpoint(idCelula, temperaturaC)) };
   } catch (erro) {
     const motivo = erro instanceof ErroDaApi ? erro.detalhe : String(erro);
-    return `O cultivo começou, mas a temperatura de ${formatar.temperatura(temperaturaC)} não foi enviada: ${motivo} Mande de novo em Comandos.`;
+    return {
+      erro: true,
+      texto: `${inicio} Mas a temperatura de ${formatar.temperatura(temperaturaC)} não foi enviada: ${motivo} Mande de novo em Comandos.`,
+    };
   }
 }
 
@@ -196,6 +202,9 @@ function pedidoDaApi(p: PedidoSetpointApi): PedidoDeSetpoint {
     motivo: p.motivo,
     solicitadoPor: p.solicitado_por,
     solicitadoEm: new Date(p.solicitado_em),
+    recebidoEm: p.recebido_em ? new Date(p.recebido_em) : null,
+    aplicadoEm: p.aplicado_em ? new Date(p.aplicado_em) : null,
+    atingidoEm: p.atingido_em ? new Date(p.atingido_em) : null,
   };
 }
 
@@ -223,7 +232,19 @@ export async function salvarCalibracao(
   recalcular: boolean,
   desde: Date | null,
   extras: { pontos: { od: number; bruto: number }[]; r2: number | null; organismo: string },
-): Promise<{ versao: number; reprocessadas: number }> {
+): Promise<{
+  versao: number;
+  idCalibracao: number;
+  reprocessadas: number;
+  criadaEm: Date;
+  sensor: string | null;
+  a: number;
+  b: number;
+  r2: number | null;
+  pontos: number;
+  organismo: string | null;
+  porVoce: boolean;
+}> {
   if (FONTE_DADOS === "exemplo") {
     throw new Error("Modo exemplo: a calibração não foi salva. Rode com VITE_FONTE_DADOS=api para gravar a nova versão.");
   }
@@ -232,7 +253,19 @@ export async function salvarCalibracao(
     r2: extras.r2,
     organismo: extras.organismo.trim() || null,
   });
-  return { versao: salva.versao, reprocessadas: salva.leituras_reprocessadas };
+  return {
+    versao: salva.versao,
+    idCalibracao: salva.id_calibracao,
+    reprocessadas: salva.leituras_reprocessadas,
+    criadaEm: new Date(salva.criada_em),
+    sensor: salva.sensor,
+    a: salva.a,
+    b: salva.b,
+    r2: salva.r2,
+    pontos: salva.pontos?.length ?? 0,
+    organismo: salva.organismo,
+    porVoce: salva.id_pessoa !== null,
+  };
 }
 
 async function carregarDaApi(id: string, periodo: Periodo, idPessoa: number | null, sinal?: AbortSignal): Promise<DetalheDaCelula> {
@@ -264,9 +297,11 @@ async function carregarDaApi(id: string, periodo: Periodo, idPessoa: number | nu
     celula.estado === "offline" ? "offline" : daCelula.length > 0 ? "alerta" : "online";
   const ultimaLeituraEm = celula.ultima_leitura_em ? new Date(celula.ultima_leitura_em) : null;
   const odBruto = leituras.length ? leituras[leituras.length - 1].od_bruto : null;
+  const ultimaGravada = leituras.length ? leituras[leituras.length - 1] : null;
   const linha = integridades?.find((i) => i.id_celula === id);
   const integridade = linha
     ? {
+        primeiroSeq: linha.primeiro_seq,
         ultimoSeq: linha.ultimo_seq,
         gravadas: linha.leituras,
         repetidas: null,
@@ -317,6 +352,14 @@ async function carregarDaApi(id: string, periodo: Periodo, idPessoa: number | nu
     id,
     apelido: celula.apelido,
     descricao: celula.descricao,
+    ultimaLeitura: ultimaGravada
+      ? {
+          seq: ultimaGravada.seq,
+          medidaEm: new Date(ultimaGravada.ts_origem),
+          recebidaEm: new Date(ultimaGravada.ts_recebido),
+          idCalibracao: ultimaGravada.id_calibracao,
+        }
+      : null,
     situacao,
     experimento,
     placa: {

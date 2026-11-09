@@ -131,6 +131,7 @@ export function DetalheDoExperimento() {
           </div>
           <p className={estilos.subtitulo}>
             {experimento.tipo} · responsável {responsavel}
+            {experimento.criadoEm && ` · cadastrado em ${formatar.data(experimento.criadoEm)}`}
             {experimento.baseadoEm && (
               <>
                 {" · duplicado do "}
@@ -270,6 +271,13 @@ export function DetalheDoExperimento() {
                   {c.condicao}
                   {c.replica != null && ` · réplica ${c.replica}`}
                   {c.continuaDe && <span className={estilos.motivoCelula}>continua de {c.continuaDe}</span>}
+                  {c.metadados && Object.keys(c.metadados).length > 0 && (
+                    <span className={estilos.motivoCelula}>
+                      {Object.entries(c.metadados)
+                        .map(([chave, valor]) => `${chave}: ${typeof valor === "object" ? JSON.stringify(valor) : String(valor)}`)
+                        .join(" · ")}
+                    </span>
+                  )}
                 </span>
                 <span role="cell">
                   {c.cancelada ? (
@@ -291,6 +299,11 @@ export function DetalheDoExperimento() {
                 <span role="cell">{ou(c.ph, (v) => formatar.decimal(v, 2))}</span>
                 <span role="cell">
                   {formatar.diaMes(c.inicio)} {c.fim ? `a ${formatar.diaMes(c.fim)}` : "até agora"}
+                  {(c.iniciadoPor || c.encerradoPor) && (
+                    <span className={estilos.motivoCelula}>
+                      {[c.iniciadoPor && `entrou por ${c.iniciadoPor}`, c.encerradoPor && `saiu por ${c.encerradoPor}`].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
                 </span>
                 <span role="cell">{c.fim || !c.ultimaLeituraEm ? "—" : formatar.tempoDecorrido(c.ultimaLeituraEm)}</span>
                 <span role="cell">

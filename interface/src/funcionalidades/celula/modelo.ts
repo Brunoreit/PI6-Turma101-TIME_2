@@ -59,6 +59,10 @@ export interface PedidoDeSetpoint {
   motivo: string | null;
   solicitadoPor: string;
   solicitadoEm: Date;
+  /** Horário de cada etapa, quando a API informa. */
+  recebidoEm?: Date | null;
+  aplicadoEm?: Date | null;
+  atingidoEm?: Date | null;
 }
 
 /** Médias de cada intervalo do período, da mais antiga para a mais recente.
@@ -104,6 +108,8 @@ export interface EtapaDoCaminho {
 }
 
 export interface Integridade {
+  /** Primeiro número de sequência gravado (modo api). */
+  primeiroSeq?: number;
   ultimoSeq: number;
   gravadas: number;
   repetidas: number | null;
@@ -125,6 +131,9 @@ export interface DetalheDaCelula {
   apelido?: string | null;
   /** Anotação livre da equipe sobre a célula. */
   descricao?: string | null;
+  /** A última leitura gravada, com os horários de medida e de chegada e a
+   *  calibração que converteu a OD (modo api). */
+  ultimaLeitura?: { seq: number; medidaEm: Date; recebidaEm: Date; idCalibracao: number | null } | null;
   situacao: SituacaoCelula;
   /** `null`: célula livre. `undefined`: a API ainda não informa. */
   experimento: ExperimentoDaCelula | null | undefined;

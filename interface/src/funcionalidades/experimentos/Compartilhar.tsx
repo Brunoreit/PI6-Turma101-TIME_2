@@ -15,6 +15,7 @@ import lapis from "@/assets/icones/lapis-13.svg";
 import olho from "@/assets/icones/olho-13.svg";
 import iconeRemover from "@/assets/icones/remover-16.svg";
 import { Botao } from "@/compartilhado/componentes/Botao";
+import * as formatar from "@/compartilhado/formatar";
 import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
 import { iniciais, useSessao } from "@/sessao/SessaoProvider";
 import estilos from "./Compartilhar.module.css";
@@ -169,7 +170,10 @@ export function Compartilhar({ experimento, onFechar }: { experimento: Experimen
                 <span className={estilos.avatar}>{iniciais(c.nome)}</span>
                 <span className={estilos.pessoaTextos}>
                   <span className={estilos.pessoaNome}>{c.nome}</span>
-                  <span className={estilos.pessoaEmail}>{c.email}</span>
+                  <span className={estilos.pessoaEmail}>
+                    {c.email}
+                    {c.desde && ` · acesso desde ${formatar.data(c.desde)}`}
+                  </span>
                 </span>
                 <SeletorDePermissao
                   valor={c.acesso}

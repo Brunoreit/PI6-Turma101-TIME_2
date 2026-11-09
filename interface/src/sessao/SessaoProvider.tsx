@@ -12,6 +12,8 @@ export interface Usuario {
   id: number;
   nome: string;
   email: string;
+  /** Quando a conta foi criada (ISO 8601). */
+  criadoEm?: string;
 }
 
 interface Sessao {
@@ -78,13 +80,16 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
     if (!lerGuardada()) return;
     const controle = new AbortController();
     consultarPessoaLogada(controle.signal)
-      .then((pessoa) => setUsuario({ id: pessoa.id_pessoa, nome: pessoa.nome, email: pessoa.email }))
+      .then((pessoa) => setUsuario({ id: pessoa.id_pessoa, nome: pessoa.nome, email: pessoa.email, criadoEm: pessoa.criado_em }))
       .catch(() => {});
     return () => controle.abort();
   }, []);
 
   function iniciar({ token, pessoa }: SessaoApi, manterConectado: boolean) {
-    const guardada: Guardada = { token, usuario: { id: pessoa.id_pessoa, nome: pessoa.nome, email: pessoa.email } };
+    const guardada: Guardada = {
+      token,
+      usuario: { id: pessoa.id_pessoa, nome: pessoa.nome, email: pessoa.email, criadoEm: pessoa.criado_em },
+    };
     apagarGuardada();
     (manterConectado ? localStorage : sessionStorage).setItem(CHAVE_SESSAO, JSON.stringify(guardada));
     usarToken(token);
