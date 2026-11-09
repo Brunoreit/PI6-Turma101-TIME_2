@@ -146,9 +146,9 @@ Rotas na raiz (sem prefixo; quem tira o `/api` é o proxy do Vite e o `nginx.con
 
 **Login:** `POST /auth/cadastro {nome, email, senha}` (201) e `POST /auth/entrar {email, senha}` devolvem `{token, pessoa}`; `GET /auth/eu` devolve a pessoa. O token vai em `Authorization: Bearer <token>`. Senha de 8 a 128 caracteres, com letra e número. Token HMAC sem tabela de sessão, válido por `SESSAO_HORAS`.
 
-**Rotas que já existiam continuam abertas.** Com token, `POST /celulas/{id}/setpoint` usa o nome da pessoa logada em `solicitado_por` e grava `id_pessoa`, e `POST /celulas/{id}/calibracoes` grava `id_pessoa`. Token presente e inválido dá 401 mesmo nelas. `GET /celulas` ganhou `descricao`, `apelido`, `modelo`, `firmware` e `cultivo_atual`.
+**Todas as rotas exigem login, menos `GET /saude` (healthcheck do Docker), `POST /auth/cadastro` e `POST /auth/entrar`.** Vale também para as que já existiam antes do modelo de dados: células, leituras e o CSV, setpoint, calibração, alertas e integridade. Sem token, ou com token inválido, dá 401. `POST /celulas/{id}/setpoint` grava o nome da pessoa logada em `solicitado_por` (o corpo não tem mais esse campo) e `id_pessoa`; `POST /celulas/{id}/calibracoes` grava `id_pessoa`. `GET /celulas` ganhou `descricao`, `apelido`, `modelo`, `firmware` e `cultivo_atual`. O teste `test_todas_as_rotas_exigem_login_menos_saude_e_auth` lê o `/openapi.json` e falha se alguma rota nova ficar sem login.
 
-**Rotas novas, todas com login:**
+**Rotas do modelo de dados e quem pode usar:**
 
 | Rota | Quem pode |
 |---|---|
@@ -171,12 +171,15 @@ Experimento ou cultivo fora do alcance da pessoa dá 404 (não revela que existe
 
 Base e modelo de dados do MVP implementados (branch `feat/modelo-dados-mvp`, 06/11/2026). Passam 38 testes de unidade e, no modo Docker Compose, 105 testes de `test_modelo_dados.py` e as 16 etapas do ponta a ponta (a 16 é a integridade final). Em 02/11/2026 o modo Docker Compose passou três vezes seguidas, com o pytest rodando no Windows e os serviços em contêineres Linux. O modo local não foi conferido depois do modelo de dados (falta confirmar o `btree_gist` no PostgreSQL de quem o usa).
 
+**Login em todas as rotas da API** (branch `feat/login-rotas-antigas`, 09/11/2026), menos `/saude` e `/auth`; a interface baixa o CSV pela chamada com token. Passam os 38 testes de unidade e os 121 de integração (105 de `test_modelo_dados.py` e as 16 etapas do ponta a ponta).
+
 Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 · Antiga" e "Login · conta CNPEM (guardado)", que não serão usadas. **No modo api (`VITE_FONTE_DADOS=api`), a interface está ligada à API** (branch `feat/interface-api`, 08/11/2026): login e cadastro (`/auth`, token em todas as chamadas, 401 volta para /entrar), experimentos (lista, detalhe, novo, duplicar, editar, encerrar e cancelar), compartilhamento (acessos), cultivos (atribuir, encerrar e resetar a célula, faixa de pH do cultivo, taxa de crescimento pelas leituras), apelido, descrição e modelo da célula (`PATCH /celulas/{id}`, em Ajustes), os cinco tipos de alerta com título e ajuda, o status cancelado em todas as telas, a calibração com padrões, R² e organismo, condição, réplica e `continua_de` do cultivo, o acompanhamento do setpoint pelo `GET /setpoints/{id}` e os setpoints aguardando. Toda rota e todo campo que a API devolve aparecem na interface (a tabela está em `interface/README.md`). O login usa a API sempre, mesmo no modo exemplo; o resto do modo exemplo (o padrão) continua com os dados do Figma e guarda as mudanças na memória. Fases, OD do turbidostato e agitação vão em `metadados` e o backend ainda não os usa. **Ainda falta na API:** regras de alerta configuráveis (no modo api, a aba Regras mostra as regras fixas do backend) e exportação agrupada (média por hora ou dia, Excel; hoje só sai o CSV de dados brutos). Também não existem recuperar ou trocar senha, convite para quem não tem conta, rota para fechar o `colisao_seq`, `GET` de calibrações (a versão em uso aparece como "—"), MAC, período de leitura, bombas, manutenção e o estado do consumidor e das regras (detalhes em `interface/README.md`).
 
 ## Problemas conhecidos
 
 - **Alerta falso com consumidor parado.** Sem o consumidor, `ultimo_contato` não é atualizado e a regra `sem_comunicacao` abre alerta para todas as células. Correção planejada: consumidor grava sinal de vida e a regra ignora a checagem quando ele estiver parado.
-- **Rotas antigas sem login e broker com `allow_anonymous true`.** Aceitável só em desenvolvimento. Qualquer um pode mandar setpoint para uma célula, mesmo com cultivo aberto.
+- **Broker com `allow_anonymous true`.** Aceitável só em desenvolvimento. A API exige login, mas quem alcança a porta do broker pode publicar um setpoint direto para a célula, mesmo com cultivo aberto.
+- **Senhas de desenvolvimento no repositório.** O `SEGREDO_SESSAO` do `docker-compose.yml` e a senha `evolver` do banco são valores de desenvolvimento. Fora dele, troque os dois: com o segredo do repositório, qualquer um cria um token válido.
 - **`colisao_seq` não fecha sozinho.** Não há regra nem rota para fechar o alerta; ele fica aberto até o próximo `down -v`.
 - **`setpoint_confirmado: false` sem teste.** Se o broker cair entre gravar o cultivo e publicar o setpoint, o cultivo fica criado e o pedido segue como solicitado. Esse caso não tem teste automático.
 - **Alerta de pH por uma leitura só.** `ph_fora_da_faixa` olha só a última leitura do cultivo, sem tempo mínimo fora da faixa; uma leitura ruidosa abre o alerta.
@@ -185,6 +188,6 @@ Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 �
 
 1. Endpoints de regras de alerta e de exportação agrupada (média por hora ou dia, Excel), para a interface deixar de usar dados de exemplo nessas telas
 2. Sinal de vida do consumidor
-3. Login nas rotas antigas e senha no broker
+3. Senha no broker
 4. Fechar o contrato com o grupo do hardware, inclusive o ID por MAC e o modelo da placa
 5. Escolher um processo de migração do banco depois da entrega

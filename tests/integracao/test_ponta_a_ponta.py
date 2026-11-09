@@ -96,6 +96,13 @@ def entrar(ambiente, email: str) -> dict:
     return {"Authorization": f"Bearer {resposta.json()['token']}"}
 
 
+@pytest.fixture(scope="module")
+def login(ambiente) -> dict:
+    """Cabeçalho com o token de uma conta: todas as rotas, menos /saude e
+    /auth, exigem login."""
+    return entrar(ambiente, "ana-rotas@cnpem.br")
+
+
 def novo_experimento(ambiente, cabecalhos: dict, temperatura_alvo_c: float | None) -> int:
     resposta = requests.post(f"{ambiente.url_api}/experimentos", headers=cabecalhos, timeout=10, json={
         "nome": "Setpoint ao iniciar", "modo": "curva_crescimento", "temperatura_alvo_c": temperatura_alvo_c})
@@ -158,17 +165,17 @@ def test_5_broker_parado_nao_perde_dados(ambiente, banco):
     esperar(lambda: historico_completo(banco), 20, "histórico completo após o broker voltar")
 
 
-def test_6_setpoint_passa_por_todos_os_estados(ambiente):
+def test_6_setpoint_passa_por_todos_os_estados(ambiente, login):
     api = ambiente.url_api
     esperar(lambda: requests.get(f"{api}/saude", timeout=5).json()["broker"], 30, "API reconectar ao broker")
 
-    resposta = requests.post(f"{api}/celulas/c01/setpoint", json={"temperatura_c": 37.0}, timeout=10)
+    resposta = requests.post(f"{api}/celulas/c01/setpoint", json={"temperatura_c": 37.0}, headers=login, timeout=10)
     assert resposta.status_code == 202, resposta.text
     pedido = resposta.json()
-    assert pedido["estado"] == "solicitado"
+    assert (pedido["estado"], pedido["solicitado_por"]) == ("solicitado", "Ana")
 
     final = esperar(
-        lambda: (p := requests.get(f"{api}/setpoints/{pedido['id_pedido']}", timeout=5).json())["estado"] == "atingido" and p,
+        lambda: (p := requests.get(f"{api}/setpoints/{pedido['id_pedido']}", headers=login, timeout=5).json())["estado"] == "atingido" and p,
         40, "setpoint de c01 chegar a atingido",
     )
     instantes = [final["solicitado_em"], final["recebido_em"], final["aplicado_em"], final["atingido_em"]]
@@ -176,19 +183,19 @@ def test_6_setpoint_passa_por_todos_os_estados(ambiente):
     assert instantes == sorted(instantes), "os estados devem acontecer em ordem"
 
 
-def test_7_setpoint_fora_da_faixa_e_recusado_pela_api(ambiente):
+def test_7_setpoint_fora_da_faixa_e_recusado_pela_api(ambiente, login):
     resposta = requests.post(f"{ambiente.url_api}/celulas/c01/setpoint",
-                             json={"temperatura_c": 80.0}, timeout=10)
+                             json={"temperatura_c": 80.0}, headers=login, timeout=10)
     assert resposta.status_code == 422
 
 
-def test_8_celula_que_nao_responde_gera_alerta(ambiente, banco):
+def test_8_celula_que_nao_responde_gera_alerta(ambiente, banco, login):
     resposta = requests.post(f"{ambiente.url_api}/celulas/c03/setpoint",
-                             json={"temperatura_c": 35.0}, timeout=10)
+                             json={"temperatura_c": 35.0}, headers=login, timeout=10)
     assert resposta.status_code == 202
     esperar(lambda: alerta_aberto(banco, "c03", "setpoint_sem_confirmacao"), 20,
             "alerta de setpoint sem confirmação em c03")
-    pedido = requests.get(f"{ambiente.url_api}/setpoints/{resposta.json()['id_pedido']}", timeout=5).json()
+    pedido = requests.get(f"{ambiente.url_api}/setpoints/{resposta.json()['id_pedido']}", headers=login, timeout=5).json()
     assert pedido["estado"] == "solicitado"
 
 
@@ -226,14 +233,14 @@ def test_9_leitura_repetida_e_descartada(ambiente, banco):
     assert historico_completo(banco)
 
 
-def test_10_calibracao_recalcula_so_o_pedido(ambiente, banco):
+def test_10_calibracao_recalcula_so_o_pedido(ambiente, banco, login):
     """Nova calibração da c02 sem recalcular e depois a partir de um instante.
     As leituras de antes ficam como estavam; o valor bruto nunca muda."""
     url = f"{ambiente.url_api}/celulas/c02/calibracoes"
     antes = {l["seq"]: l for l in banco.execute(
         "SELECT seq, ts_origem, od_bruto::float8 AS od_bruto, od::float8 AS od FROM leitura WHERE id_celula = 'c02' ORDER BY seq").fetchall()}
 
-    resposta = requests.post(url, json={"a": 0.001, "b": 0.0, "recalcular": False}, timeout=10)
+    resposta = requests.post(url, json={"a": 0.001, "b": 0.0, "recalcular": False}, headers=login, timeout=10)
     assert resposta.status_code == 201, resposta.text
     assert resposta.json()["leituras_reprocessadas"] == 0
     depois = {l["seq"]: l for l in banco.execute(
@@ -243,7 +250,8 @@ def test_10_calibracao_recalcula_so_o_pedido(ambiente, banco):
     # Recalcula só a segunda metade das leituras que já existiam.
     meio = sorted(antes)[len(antes) // 2]
     desde = antes[meio]["ts_origem"]
-    resposta = requests.post(url, json={"a": 0.002, "b": 0.01, "recalcular_desde": desde.isoformat()}, timeout=10)
+    resposta = requests.post(url, json={"a": 0.002, "b": 0.01, "recalcular_desde": desde.isoformat()},
+                             headers=login, timeout=10)
     assert resposta.status_code == 201, resposta.text
     linhas = banco.execute(
         "SELECT seq, ts_origem, od_bruto::float8 AS od_bruto, od::float8 AS od FROM leitura WHERE id_celula = 'c02' AND od_bruto IS NOT NULL").fetchall()
@@ -317,7 +325,7 @@ def test_14_cultivo_com_temperatura_alvo_envia_o_setpoint(ambiente, banco):
         "c02", 33.0, "Ana", id_pessoa)
 
     final = esperar(
-        lambda: (p := requests.get(f"{api}/setpoints/{pedido['id_pedido']}", timeout=5).json())["estado"]
+        lambda: (p := requests.get(f"{api}/setpoints/{pedido['id_pedido']}", headers=cabecalhos, timeout=5).json())["estado"]
         in ("aplicado", "atingido") and p,
         30, "setpoint do cultivo chegar a aplicado na c02",
     )
@@ -358,7 +366,7 @@ def test_15_broker_parado_recusa_cultivo_com_temperatura_alvo(ambiente, banco):
     esperar(lambda: historico_completo(banco), 20, "histórico completo após o broker voltar")
 
 
-def test_16_integridade_final(ambiente, banco):
-    integridade = requests.get(f"{ambiente.url_api}/integridade", timeout=5).json()
+def test_16_integridade_final(ambiente, banco, login):
+    integridade = requests.get(f"{ambiente.url_api}/integridade", headers=login, timeout=5).json()
     assert len(integridade) == len(CELULAS)
     assert all(linha["completo"] for linha in integridade), integridade

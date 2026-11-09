@@ -1152,3 +1152,16 @@ Etapa aprovada com estas decisões:
 - P-2, P-3, P-9 e P-13 continuam abertas. Nada que dependa delas é implementado antes da resposta.
 - **Etapa 7a** aprovada em 06/11/2026 com as decisões acima, mais dois ajustes antes da 7b: travar o experimento no `PATCH` e o campo `codigo` (P-8). `APIRouter` continua de fora.
 - **Etapa 7b** aprovada em 06/11/2026 com as decisões acima.
+
+### Login em todas as rotas (09/11/2026)
+
+Revê a P-2 ("rotas existentes continuam sem login"), depois que a interface passou a mandar o token em todas as chamadas.
+
+| Ponto | Decisão |
+|---|---|
+| Rotas sem login | Só `GET /saude` (healthcheck do Docker), `POST /auth/cadastro` e `POST /auth/entrar`. Todas as outras usam `_pessoa_logada` e dão 401 sem token ou com token inválido |
+| `solicitado_por` do setpoint | Sai do corpo de `POST /celulas/{id}/setpoint`. É sempre o nome da pessoa logada; um `solicitado_por` enviado é ignorado |
+| `id_pessoa` | Setpoint e calibração pela API sempre gravam quem pediu |
+| CSV na interface | `GET /celulas/{id}/leituras.csv` exige login, então a interface baixa o arquivo pela chamada com token, e não por um link direto |
+| Teste | `test_todas_as_rotas_exigem_login_menos_saude_e_auth` percorre o `/openapi.json`: uma rota nova sem login faz o teste falhar |
+| Fora desta mudança | Senha no broker (`allow_anonymous true`) e a troca do `SEGREDO_SESSAO` e da senha do banco fora do desenvolvimento |

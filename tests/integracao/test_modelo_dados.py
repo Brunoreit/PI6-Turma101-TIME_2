@@ -889,13 +889,19 @@ CAMPOS_CELULA_ANTES = {"id_celula", "estado", "sensores", "primeiro_anuncio", "u
 CAMPOS_CELULA_NOVOS = {"descricao", "apelido", "modelo", "firmware", "cultivo_atual"}
 
 
-def _celulas_da_api(ambiente) -> dict[str, dict]:
-    resposta = requests.get(f"{ambiente.url_api}/celulas", timeout=10)
+@pytest.fixture(scope="module")
+def leo(ambiente) -> "Conta":
+    """Conta usada nas rotas de células e calibração, que exigem login."""
+    return Conta(ambiente, "Leo")
+
+
+def _celulas_da_api(conta: "Conta") -> dict[str, dict]:
+    resposta = conta.chamar("GET", "/celulas")
     assert resposta.status_code == 200, resposta.text
     return {c["id_celula"]: c for c in resposta.json()}
 
 
-def test_get_celulas_mantem_os_campos_e_acrescenta_os_novos(ambiente, cenario):
+def test_get_celulas_mantem_os_campos_e_acrescenta_os_novos(cenario, leo):
     conn = cenario.conn
     livre, ocupada = cenario.celulas[0], cenario.celulas[1]
     conn.execute("UPDATE celula SET descricao = 'bancada 2', apelido = %s, modelo = 'ESP32' WHERE id_celula = %s",
@@ -904,7 +910,7 @@ def test_get_celulas_mantem_os_campos_e_acrescenta_os_novos(ambiente, cenario):
     _medir(conn, livre, 0, 7.0)
     cultivo = cenario.iniciar(1, condicao="30 °C")
 
-    celulas = _celulas_da_api(ambiente)
+    celulas = _celulas_da_api(leo)
     assert all(set(c) == CAMPOS_CELULA_ANTES | CAMPOS_CELULA_NOVOS for c in celulas.values())
     assert {k: celulas[livre][k] for k in ("descricao", "apelido", "modelo", "firmware", "cultivo_atual", "ultima_seq", "ph")} == {
         "descricao": "bancada 2", "apelido": f"apelido-{livre}", "modelo": "ESP32", "firmware": "fw-2.0",
@@ -916,29 +922,29 @@ def test_get_celulas_mantem_os_campos_e_acrescenta_os_novos(ambiente, cenario):
     assert datetime.fromisoformat(atual["iniciado_em"]) == cultivo["iniciado_em"]
 
     repo.encerrar_cultivo(conn, cultivo["id_cultivo"], cenario.ana)
-    assert _celulas_da_api(ambiente)[ocupada]["cultivo_atual"] is None
+    assert _celulas_da_api(leo)[ocupada]["cultivo_atual"] is None
 
 
-def test_calibracao_sem_os_campos_novos_funciona_como_antes(ambiente, cenario):
+def test_calibracao_sem_os_campos_novos_funciona_como_antes(cenario, leo):
     conn, celula = cenario.conn, cenario.celulas[0]
     for seq in range(3):
         repo.gravar_leitura(conn, celula, seq, T0 + seq * DIA, 30.0, 1000.0 + seq, 0.45, 7.0, None)
-    resposta = requests.post(f"{ambiente.url_api}/celulas/{celula}/calibracoes",
-                             json={"a": 0.001, "b": 0.0, "recalcular_desde": (T0 + DIA).isoformat()}, timeout=10)
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes",
+                          {"a": 0.001, "b": 0.0, "recalcular_desde": (T0 + DIA).isoformat()})
     assert resposta.status_code == 201, resposta.text
     corpo = resposta.json()
     assert (corpo["versao"], corpo["a"], corpo["b"], corpo["leituras_reprocessadas"]) == (2, 0.001, 0.0, 2)
     assert {"id_calibracao", "criada_em"} <= set(corpo)
     assert {k: corpo[k] for k in ("sensor", "pontos", "r2", "organismo", "id_pessoa")} == {
-        "sensor": "od", "pontos": None, "r2": None, "organismo": None, "id_pessoa": None}
+        "sensor": "od", "pontos": None, "r2": None, "organismo": None, "id_pessoa": leo.id}
     od = [l["od"] for l in repo.listar_leituras(conn, celula)]
     assert od == [0.45, 1.001, 1.002]
 
 
-def test_calibracao_guarda_pontos_r2_e_organismo(ambiente, cenario):
+def test_calibracao_guarda_pontos_r2_e_organismo(cenario, leo):
     celula = cenario.celulas[0]
     pontos = [{"od_referencia": 0.0, "bruto": 100.0}, {"od_referencia": 1.0, "bruto": 2100.0}]
-    resposta = requests.post(f"{ambiente.url_api}/celulas/{celula}/calibracoes", timeout=10, json={
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {
         "a": 0.0005, "b": -0.05, "recalcular": False, "pontos": pontos, "r2": 0.998, "organismo": "E. coli K-12"})
     assert resposta.status_code == 201, resposta.text
     gravada = cenario.conn.execute(
@@ -947,8 +953,7 @@ def test_calibracao_guarda_pontos_r2_e_organismo(ambiente, cenario):
     assert gravada == {"pontos": pontos, "r2": 0.998, "organismo": "E. coli K-12", "ativa": True}
 
     for invalido in ([{"od_referencia": 0.0}], [{"od_referencia": "x", "bruto": 1}], {"od_referencia": 0, "bruto": 1}):
-        resposta = requests.post(f"{ambiente.url_api}/celulas/{celula}/calibracoes", timeout=10,
-                                 json={"a": 1, "b": 0, "pontos": invalido})
+        resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"a": 1, "b": 0, "pontos": invalido})
         assert resposta.status_code == 422, resposta.text
 
 
@@ -1059,34 +1064,34 @@ def test_token_expirado_adulterado_ou_de_outro_segredo_da_401(ambiente):
         assert resposta.headers["WWW-Authenticate"] == "Bearer", caso
 
 
-def test_rotas_existentes_continuam_sem_token_e_gravam_quem_pediu_com_token(ambiente, cenario):
+def test_setpoint_e_calibracao_exigem_login_e_gravam_quem_pediu(ambiente, cenario):
     celula = cenario.celulas[0]
     pessoa = _cadastrar(ambiente, _email()).json()
     com_token = _bearer(pessoa["token"])
     url = f"{ambiente.url_api}/celulas/{celula}"
+    versao = lambda: cenario.conn.execute(
+        "SELECT max(versao) AS v FROM calibracao WHERE id_celula = %s", (celula,)).fetchone()["v"]
+    antes = versao()
 
-    sem = requests.post(f"{url}/setpoint", json={"temperatura_c": 30}, timeout=10)
+    # Sem token ou com token inválido: 401 e nada é gravado (nem publicado).
+    for cabecalhos in ({}, _bearer(pessoa["token"] + "x")):
+        assert requests.post(f"{url}/setpoint", json={"temperatura_c": 30}, headers=cabecalhos,
+                             timeout=10).status_code == 401
+        assert requests.post(f"{url}/calibracoes", json={"a": 2, "b": 0}, headers=cabecalhos,
+                             timeout=10).status_code == 401
+    assert repo.listar_pedidos(cenario.conn, celula) == []
+    assert versao() == antes
+
+    # Quem pediu é sempre a pessoa do token; um solicitado_por no corpo é ignorado.
     com = requests.post(f"{url}/setpoint", json={"temperatura_c": 31, "solicitado_por": "outra pessoa"},
                         headers=com_token, timeout=10)
-    assert (sem.status_code, com.status_code) == (202, 202), (sem.text, com.text)
-    assert (sem.json()["id_pessoa"], com.json()["id_pessoa"]) == (None, pessoa["pessoa"]["id_pessoa"])
-    # Com token vale o nome da pessoa logada, não o do corpo; sem token, o de antes.
-    assert (sem.json()["solicitado_por"], com.json()["solicitado_por"]) == ("anonimo", "Ana")
-    sem_token_com_nome = requests.post(f"{url}/setpoint", json={"temperatura_c": 30, "solicitado_por": "Bia"}, timeout=10)
-    assert sem_token_com_nome.json()["solicitado_por"] == "Bia"
+    assert com.status_code == 202, com.text
+    assert (com.json()["solicitado_por"], com.json()["id_pessoa"]) == ("Ana", pessoa["pessoa"]["id_pessoa"])
 
     calibracao = requests.post(f"{url}/calibracoes", json={"a": 1, "b": 0, "recalcular": False},
                                headers=com_token, timeout=10)
     assert calibracao.status_code == 201, calibracao.text
     assert calibracao.json()["id_pessoa"] == pessoa["pessoa"]["id_pessoa"]
-
-    # Token presente e inválido é recusado, mesmo onde o login não é exigido, e nada é gravado.
-    invalido = _bearer(pessoa["token"] + "x")
-    assert requests.post(f"{url}/setpoint", json={"temperatura_c": 32}, headers=invalido, timeout=10).status_code == 401
-    assert requests.post(f"{url}/calibracoes", json={"a": 2, "b": 0}, headers=invalido, timeout=10).status_code == 401
-    assert sorted(p["temperatura_c"] for p in repo.listar_pedidos(cenario.conn, celula)) == [30, 30, 31]
-    assert cenario.conn.execute("SELECT max(versao) AS v FROM calibracao WHERE id_celula = %s",
-                                (celula,)).fetchone()["v"] == 2
 
 
 # ------------------------------------------------------------------ API: experimentos, acessos e cultivos
@@ -1206,18 +1211,31 @@ def test_fluxo_de_referencia_pela_api(ambiente, cenario, contas):
     assert ana.chamar("GET", f"/experimentos/{copia.json()['id_experimento']}").json()["cultivos"] == []
 
 
-def test_rotas_novas_exigem_login(ambiente, cenario, contas):
+# Únicas rotas sem login: o healthcheck do Docker e as que dão o token.
+ROTAS_ABERTAS = {("GET", "/saude"), ("POST", "/auth/cadastro"), ("POST", "/auth/entrar")}
+
+
+def test_todas_as_rotas_exigem_login_menos_saude_e_auth(ambiente, cenario, contas):
+    """A lista vem do /openapi.json da API: uma rota nova sem login faz este
+    teste falhar."""
     e = _criar(contas[0])["id_experimento"]
-    for metodo, caminho in [("POST", "/experimentos"), ("GET", "/experimentos"), ("GET", f"/experimentos/{e}"),
-                            ("PATCH", f"/experimentos/{e}"), ("POST", f"/experimentos/{e}/encerrar"),
-                            ("POST", f"/experimentos/{e}/cancelar"), ("POST", f"/experimentos/{e}/duplicar"),
-                            ("POST", f"/experimentos/{e}/acessos"), ("DELETE", f"/experimentos/{e}/acessos/1"),
-                            ("POST", f"/experimentos/{e}/cultivos"), ("PATCH", "/cultivos/1"),
-                            ("POST", "/cultivos/1/encerrar"), ("POST", "/cultivos/1/cancelar"),
-                            ("GET", "/cultivos/1/leituras"), ("PATCH", f"/celulas/{cenario.celulas[0]}")]:
-        resposta = requests.request(metodo, f"{ambiente.url_api}{caminho}", json={}, timeout=10)
-        assert resposta.status_code == 401, (metodo, caminho)
+    exemplos = {"id_celula": cenario.celulas[0], "id_experimento": e, "id_cultivo": 1, "id_pessoa": 1,
+                "id_pedido": "sp-00000000"}
+    rotas = requests.get(f"{ambiente.url_api}/openapi.json", timeout=10).json()["paths"]
+    conferidas = 0
+    for caminho, metodos in rotas.items():
+        for metodo in metodos:
+            if (metodo.upper(), caminho) in ROTAS_ABERTAS:
+                continue
+            url = ambiente.url_api + caminho.format(**exemplos)
+            for cabecalhos in ({}, _bearer("token-falso")):
+                resposta = requests.request(metodo, url, json={}, headers=cabecalhos, timeout=10)
+                assert resposta.status_code == 401, (metodo, caminho, cabecalhos, resposta.text)
+            conferidas += 1
+    assert conferidas >= 25, conferidas
+    assert requests.get(f"{ambiente.url_api}/saude", timeout=10).status_code == 200
     assert repo.buscar_experimento(cenario.conn, e)["status"] == "cadastrado"
+    assert repo.listar_pedidos(cenario.conn, cenario.celulas[0]) == []
 
 
 def test_experimento_de_outra_pessoa_responde_404(cenario, contas):
@@ -1477,7 +1495,7 @@ def test_alterar_celula_pela_api(ambiente, cenario, contas):
     assert alterada.status_code == 200, alterada.text
     assert (alterada.json()["apelido"], alterada.json()["modelo"], alterada.json()["descricao"]) == (apelido, "ESP32", None)
     assert ana.chamar("PATCH", f"/celulas/{celula}", {"descricao": "bancada 2"}).json()["apelido"] == apelido
-    assert {k: _celulas_da_api(ambiente)[celula][k] for k in ("apelido", "modelo", "descricao")} == {
+    assert {k: _celulas_da_api(ana)[celula][k] for k in ("apelido", "modelo", "descricao")} == {
         "apelido": apelido, "modelo": "ESP32", "descricao": "bancada 2"}
 
     repetido = ana.chamar("PATCH", f"/celulas/{outra}", {"apelido": apelido})
