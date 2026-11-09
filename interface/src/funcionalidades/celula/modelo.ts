@@ -113,6 +113,10 @@ export interface Mensagem {
 
 export interface DetalheDaCelula {
   id: string;
+  /** Nome de exibição, editável em Ajustes. Sem apelido, as telas mostram o id. */
+  apelido?: string | null;
+  /** Anotação livre da equipe sobre a célula. */
+  descricao?: string | null;
   situacao: SituacaoCelula;
   /** `null`: célula livre. `undefined`: a API ainda não informa. */
   experimento: ExperimentoDaCelula | null | undefined;

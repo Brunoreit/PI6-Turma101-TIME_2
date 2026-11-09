@@ -226,3 +226,11 @@ export function listarLeiturasDoCultivo(
   const consulta = parametros.size ? `?${parametros}` : "";
   return buscar(`/cultivos/${id}/leituras${consulta}`, sinal);
 }
+
+/** Apelido, descrição e modelo da placa. `null` tira o valor; o apelido é
+ *  único (409 se outra célula já usa). Exige login. */
+export function alterarCelula(
+  id: string, campos: { apelido?: string | null; descricao?: string | null; modelo?: string | null },
+): Promise<CelulaApi> {
+  return enviar(`/celulas/${encodeURIComponent(id)}`, campos, "PATCH");
+}

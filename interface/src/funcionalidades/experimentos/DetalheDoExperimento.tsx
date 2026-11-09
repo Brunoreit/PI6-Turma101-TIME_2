@@ -263,7 +263,10 @@ export function DetalheDoExperimento() {
                 <span role="cell">{c.condicao}</span>
                 <span role="cell">
                   {c.cancelada ? (
-                    <SeloDeStatus situacao="cancelado" rotulo="Cancelada" />
+                    <span title={c.motivo ? `Motivo: ${c.motivo}` : undefined}>
+                      <SeloDeStatus situacao="cancelado" rotulo="Cancelada" />
+                      {c.motivo && <span className={estilos.motivoCelula}>{c.motivo}</span>}
+                    </span>
                   ) : c.situacao ? (
                     <SeloDeStatus situacao={c.situacao} rotulo={c.fim ? "Liberada" : undefined} />
                   ) : (

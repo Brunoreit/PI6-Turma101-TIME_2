@@ -187,7 +187,9 @@ export function Experimentos() {
                   {e.nome}
                 </Link>
               </span>
-              <span className={estilos.descricao}>{e.descricao}</span>
+              <span className={estilos.descricao}>
+                {e.status === "cancelado" ? `Cancelado: ${e.motivoCancelamento ?? "motivo não informado"}` : e.descricao}
+              </span>
             </span>
             <span className={`${estilos.coluna} ${estilos.tipo}`} role="cell">
               {e.tipo}

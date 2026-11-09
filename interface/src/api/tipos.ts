@@ -28,12 +28,18 @@ export interface CelulaApi {
   } | null;
 }
 
-export type TipoAlerta = "sem_comunicacao" | "setpoint_sem_confirmacao" | "desvio_temperatura";
+export type TipoAlerta =
+  | "sem_comunicacao"
+  | "setpoint_sem_confirmacao"
+  | "desvio_temperatura"
+  | "ph_fora_da_faixa"
+  | "colisao_seq";
 
 export interface AlertaApi {
   id_alerta: number;
   id_celula: string;
-  tipo: TipoAlerta;
+  /** Um tipo que a interface não conhece aparece com o próprio nome. */
+  tipo: TipoAlerta | (string & {});
   mensagem: string;
   aberto_em: string;
   fechado_em: string | null;

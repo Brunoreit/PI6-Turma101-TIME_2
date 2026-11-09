@@ -1,5 +1,7 @@
-// Tela "Alertas · regras" do Figma (nó 83:1303). A aba Regras é a do Figma;
-// Abertos e Histórico listam os alertas que o backend já abre.
+// Tela "Alertas · regras" do Figma (nó 83:1303). Abertos e Histórico listam
+// os alertas que o backend abre, com o título e a ajuda de cada tipo. A aba
+// Regras é a do Figma no modo exemplo; no modo api, a API ainda não tem regras
+// configuráveis, então ela mostra as regras fixas do backend, sem editar.
 
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -11,7 +13,8 @@ import iconeSino from "@/assets/icones/sino-15.svg";
 import { Botao } from "@/compartilhado/componentes/Botao";
 import * as formatar from "@/compartilhado/formatar";
 import { useDados } from "@/dados/DadosProvider";
-import { FONTE_DADOS } from "@/dados/fonte";
+import { useCelulas } from "@/dados/useCelulas";
+import { FONTE_DADOS, infoDoAlerta, TITULO_DO_ALERTA } from "@/dados/fonte";
 import estilos from "./Alertas.module.css";
 import { REGRAS_EXEMPLO, type Regra } from "./modelo";
 import { NovaRegra } from "./NovaRegra";
@@ -21,6 +24,7 @@ type Aba = "abertos" | "regras" | "historico";
 interface AlertaFechado {
   id: number;
   idCelula: string;
+  titulo: string;
   mensagem: string;
   abertoEm: Date;
   fechadoEm: Date;
@@ -28,9 +32,9 @@ interface AlertaFechado {
 
 const HORA = 3_600_000;
 const HISTORICO_EXEMPLO: AlertaFechado[] = [
-  { id: 101, idCelula: "c08", mensagem: "Desvio de temperatura: 31,3 °C com alvo de 30,0 °C", abertoEm: new Date(Date.now() - 30 * HORA), fechadoEm: new Date(Date.now() - 29.7 * HORA) },
-  { id: 102, idCelula: "c08", mensagem: "Sem comunicação: placa ficou offline", abertoEm: new Date(Date.now() - 26 * HORA), fechadoEm: new Date(Date.now() - 25.9 * HORA) },
-  { id: 103, idCelula: "c11", mensagem: "Setpoint sem confirmação: pedido de 37,0 °C", abertoEm: new Date(Date.now() - 50 * HORA), fechadoEm: new Date(Date.now() - 49 * HORA) },
+  { id: 101, idCelula: "c08", titulo: "Desvio de temperatura", mensagem: "Desvio de temperatura: 31,3 °C com alvo de 30,0 °C", abertoEm: new Date(Date.now() - 30 * HORA), fechadoEm: new Date(Date.now() - 29.7 * HORA) },
+  { id: 102, idCelula: "c08", titulo: "Sem comunicação", mensagem: "Sem comunicação: placa ficou offline", abertoEm: new Date(Date.now() - 26 * HORA), fechadoEm: new Date(Date.now() - 25.9 * HORA) },
+  { id: 103, idCelula: "c11", titulo: "Setpoint sem confirmação", mensagem: "Setpoint sem confirmação: pedido de 37,0 °C", abertoEm: new Date(Date.now() - 50 * HORA), fechadoEm: new Date(Date.now() - 49 * HORA) },
 ];
 
 function useHistorico(ativo: boolean) {
@@ -47,6 +51,7 @@ function useHistorico(ativo: boolean) {
             .map((a) => ({
               id: a.id_alerta,
               idCelula: a.id_celula,
+              titulo: infoDoAlerta(a.tipo).titulo,
               mensagem: a.mensagem,
               abertoEm: new Date(a.aberto_em),
               fechadoEm: new Date(a.fechado_em!),
@@ -67,10 +72,35 @@ function Chave({ ligada, onClick, nome }: { ligada: boolean; onClick: () => void
   );
 }
 
+const SEM_REGRAS_NA_API = "Ainda não disponível: a API ainda não tem regras de alerta configuráveis.";
+
+/** Modo api: as regras que o backend já roda, fixas no código. */
+function RegrasDoBackend() {
+  return (
+    <div className={estilos.lista}>
+      <p className={estilos.descricao}>
+        A API ainda não tem regras configuráveis. Estas são as verificações que o backend já faz, iguais para todas as
+        células.
+      </p>
+      {Object.entries(TITULO_DO_ALERTA).map(([tipo, { titulo, ajuda }]) => (
+        <div key={tipo} className={estilos.alerta}>
+          <span className={estilos.pontoFechado} />
+          <div className={estilos.alertaTextos}>
+            <p className={estilos.alertaTitulo}>{titulo}</p>
+            <p className={estilos.descricao}>{ajuda}</p>
+          </div>
+          <span className={estilos.codigo}>{tipo}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Alertas() {
   const { dados } = useDados();
+  const nomeDa = useCelulas().nome;
   const [parametros, setParametros] = useSearchParams();
-  const aba = (parametros.get("aba") as Aba | null) ?? "regras";
+  const aba = (parametros.get("aba") as Aba | null) ?? (FONTE_DADOS === "api" ? "abertos" : "regras");
   const [regras, setRegras] = useState(REGRAS_EXEMPLO);
   const [destacada, setDestacada] = useState<number | null>(6);
   const [criando, setCriando] = useState(true);
@@ -79,7 +109,7 @@ export function Alertas() {
 
   const abas: { valor: Aba; rotulo: string }[] = [
     { valor: "abertos", rotulo: `Abertos ${abertos.length}` },
-    { valor: "regras", rotulo: `Regras ${regras.length}` },
+    { valor: "regras", rotulo: FONTE_DADOS === "api" ? "Regras" : `Regras ${regras.length}` },
     { valor: "historico", rotulo: "Histórico" },
   ];
 
@@ -94,10 +124,15 @@ export function Alertas() {
       <header className={estilos.cabecalho}>
         <div className={estilos.tituloBloco}>
           <h1>Alertas</h1>
-          <p>Regras que decidem quando o sistema avisa e por onde. Você cria regras para os experimentos que pode modificar.</p>
+          <p>
+            {FONTE_DADOS === "api"
+              ? "Alertas que o backend abre e fecha sozinho. As regras configuráveis ainda não existem na API."
+              : "Regras que decidem quando o sistema avisa e por onde. Você cria regras para os experimentos que pode modificar."}
+          </p>
         </div>
         <Botao
           tipo="primario"
+          indisponivel={FONTE_DADOS === "api" ? SEM_REGRAS_NA_API : undefined}
           onClick={() => {
             setParametros({ aba: "regras" });
             setCriando(true);
@@ -121,7 +156,9 @@ export function Alertas() {
         ))}
       </nav>
 
-      {aba === "regras" && (
+      {aba === "regras" && FONTE_DADOS === "api" && <RegrasDoBackend />}
+
+      {aba === "regras" && FONTE_DADOS === "exemplo" && (
         <div className={estilos.corpo}>
           <div className={estilos.tabela} role="table" aria-label="Regras de alerta">
             <div className={estilos.cabecalhoTabela} role="row">
@@ -172,9 +209,10 @@ export function Alertas() {
               <span className={estilos.pontoAlerta} />
               <div className={estilos.alertaTextos}>
                 <p className={estilos.alertaTitulo}>
-                  <span className={estilos.codigo}>{a.idCelula}</span> · {a.titulo}
+                  <span className={estilos.codigo}>{nomeDa(a.idCelula)}</span> · {a.titulo}
                 </p>
                 <p className={estilos.descricao}>{a.mensagem}</p>
+                {a.ajuda && <p className={estilos.ajudaAlerta}>{a.ajuda}</p>}
               </div>
               <span className={estilos.alertaTempo}>aberto {formatar.tempoDecorrido(a.abertoEm)}</span>
               <Link to={`/celulas/${a.idCelula}`} className={estilos.link}>
@@ -195,8 +233,9 @@ export function Alertas() {
               <span className={estilos.pontoFechado} />
               <div className={estilos.alertaTextos}>
                 <p className={estilos.alertaTitulo}>
-                  <span className={estilos.codigo}>{a.idCelula}</span> · {a.mensagem}
+                  <span className={estilos.codigo}>{nomeDa(a.idCelula)}</span> · {a.titulo}
                 </p>
+                <p className={estilos.descricao}>{a.mensagem}</p>
                 <p className={estilos.descricao}>
                   Aberto em {formatar.diaHora(a.abertoEm)} · fechou depois de {formatar.duracao(a.abertoEm, a.fechadoEm)}
                 </p>

@@ -65,9 +65,11 @@ interface Props {
   rotulosTempo: string[];
   /** Instantes sem leitura de alguma célula, marcados em vermelho claro. */
   buracos: number[];
+  /** Apelido da célula, ou o id. */
+  nome: (id: string) => string;
 }
 
-export function GraficoDeComparacao({ series, cores, variaveis, contexto, rotulosTempo, buracos }: Props) {
+export function GraficoDeComparacao({ series, cores, variaveis, contexto, rotulosTempo, buracos, nome }: Props) {
   const [cursor, setCursor] = useState<number | null>(null);
   const n = series[0]?.pontos.length ?? 0;
 
@@ -135,7 +137,7 @@ export function GraficoDeComparacao({ series, cores, variaveis, contexto, rotulo
                     <th />
                     {series.map((s) => (
                       <th key={s.idCelula} style={{ color: cores[s.idCelula] }}>
-                        {s.idCelula}
+                        {nome(s.idCelula)}
                       </th>
                     ))}
                   </tr>

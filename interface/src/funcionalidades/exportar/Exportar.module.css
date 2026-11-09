@@ -355,3 +355,9 @@ div.data {
   background: none;
   cursor: not-allowed;
 }
+
+/* Experimento encerrado ou cancelado: status e motivo, sem bloquear a exportação. */
+.avisoFechado {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}

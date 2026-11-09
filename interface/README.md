@@ -17,13 +17,17 @@ http://localhost:8080 (porta em `PORTA_INTERFACE`).
 
 ## Fonte dos dados
 
-A API ainda não devolve tudo que a tela mostra: experimento e alvo de
-temperatura, estado do consumidor e das regras, setpoints aguardando. Por isso há duas fontes:
+Há duas fontes:
 
 | `VITE_FONTE_DADOS` | O que mostra |
 |---|---|
-| `exemplo` (padrão) | Dados iguais aos do Figma, em `src/dados/exemplo.ts` |
-| `api` | Dados reais. O que a API não informa aparece como "sem dados" |
+| `exemplo` (padrão) | Dados iguais aos do Figma, em `src/dados/exemplo.ts` e nos `exemplo.ts` de cada tela. As mudanças ficam na memória até recarregar a página |
+| `api` | Tudo pela API: células, alertas, experimentos, acessos e cultivos. O que a API não informa (estado do consumidor e das regras, setpoints aguardando, MAC, calibração em uso, bombas, manutenção) aparece como "sem dados" ou "—" |
+
+O login é sempre pela API, nos dois modos. No modo `api`, nenhuma tela usa
+dados de exemplo: a lista de células do Historiador e do Exportar vem de
+`GET /celulas`, e a aba Regras dos Alertas mostra as regras fixas do backend.
+O que falta na API está em "Ainda falta na API", abaixo.
 
 ```bash
 VITE_FONTE_DADOS=api npm run dev
@@ -59,8 +63,17 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 | `/alertas` | Alertas · regras | Abertos e Histórico vêm da API (no modo `api`) |
 | `/exportar` | Exportar dados e · por célula e período | CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv` |
 
-A API não tem regras de alerta configuráveis nem exportação agrupada. No
-modo `exemplo`, as mudanças (novo experimento, compartilhar, encerrar,
+### Ainda falta na API
+
+- **Regras de alerta configuráveis.** No modo `exemplo`, a aba Regras é a do
+  Figma, em memória. No modo `api`, ela mostra as cinco verificações fixas do
+  backend, e "Nova regra" fica indisponível.
+- **Exportação agrupada** (média por hora ou dia, intervalos, Excel, anexos).
+  Só sai o CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv`.
+- **Recuperar e trocar senha**, **convite para quem não tem conta** e **fechar
+  o alerta `colisao_seq`**.
+
+No modo `exemplo`, as mudanças (novo experimento, compartilhar, encerrar,
 cancelar, nova regra) ficam na memória até recarregar a página. Os botões
 que dependem do que falta ficam como no Figma e explicam o motivo ao passar
 o mouse.
@@ -96,6 +109,35 @@ No modo `exemplo`, os experimentos de exemplo têm como responsável
 edição. No modo `api`, cada conta vê os próprios experimentos e os
 compartilhados com ela.
 
+### Apelido da célula
+
+Em Ajustes, o painel Identificação (não está no Figma) edita o apelido, a
+descrição e o modelo da placa pelo `PATCH /celulas/{id}`, que exige login. O
+firmware vem de `GET /celulas` e só aparece. Em branco, o campo tira o valor.
+
+- O apelido aparece no card da Visão geral, no cabeçalho e na trilha das
+  telas da célula, no Historiador, no Exportar e nos Alertas, com o id
+  pequeno ao lado. Sem apelido, aparece o id (`c01`). Quem decide o nome é
+  `nomeDaCelula()` em `src/dados/modelo.ts`.
+- O apelido é único: com 409, a tela mostra "Esse apelido já é usado por
+  outra célula. Escolha outro."
+
+### Alertas
+
+Os títulos e a ajuda de cada tipo ficam em `TITULO_DO_ALERTA`
+(`src/dados/fonte.ts`) e aparecem nos Alertas (abertos e histórico) e no
+painel de alertas da célula.
+
+| Tipo | Título | Fecha sozinho? |
+|---|---|---|
+| `sem_comunicacao` | Sem comunicação | Sim, quando a célula volta |
+| `setpoint_sem_confirmacao` | Setpoint sem confirmação | Sim, quando a célula confirma |
+| `desvio_temperatura` | Desvio de temperatura | Sim, quando a temperatura volta para perto do alvo |
+| `ph_fora_da_faixa` | pH fora da faixa do cultivo | Sim, quando o pH volta para a faixa. A mensagem traz a faixa e o último valor |
+| `colisao_seq` | Leitura repetida com horário diferente | Não. A leitura original foi mantida; não há rota para fechar, então não há botão |
+
+Um tipo que a interface não conhece aparece com o próprio nome.
+
 ### Experimentos
 
 O `ExperimentosProvider` segue `VITE_FONTE_DADOS`. No modo `exemplo`, usa
@@ -119,7 +161,12 @@ O `ExperimentosProvider` segue `VITE_FONTE_DADOS`. No modo `exemplo`, usa
 - **Status.** `cadastrado` aparece como "Stand by", `em_andamento` como "Em
   andamento", `encerrado` como "Encerrado" e `cancelado` como "Cancelado".
   O selo de cancelado não está no Figma: segue o desenho dos outros, em
-  vermelho. Cancelados aparecem na lista e contam nos filtros.
+  vermelho. Cancelados aparecem na lista e contam nos filtros. O motivo
+  aparece na lista (no lugar da descrição), no detalhe, no Exportar e no
+  histórico da célula; o Historiador marca o experimento cancelado ou
+  encerrado na faixa de contexto. Encerrado e cancelado são fechados: nada
+  pode ser editado, e nenhum dos dois aparece para atribuir célula nem para
+  criar regra.
 - **Encerrar e cancelar.** Encerrar só aparece em andamento (a API recusa
   encerrar o que não começou). "Cancelar experimento" não está no Figma: é um
   botão Perigo ao lado de Encerrar, em Stand by ou em andamento, com um modal
@@ -231,7 +278,8 @@ src/
                         /saude, /celulas/{id}/setpoint(s), /calibracoes, /integridade,
                         /experimentos (e acessos) e /cultivos
   dados/                dados gerais, atualizados a cada 20 s e usados por todas as telas:
-                        modelo, fonte (API ou exemplo), exemplo e DadosProvider
+                        modelo, fonte (API ou exemplo), exemplo, DadosProvider
+                        e useCelulas (lista de células e o nome de cada uma, com apelido)
   compartilhado/        formatar.ts e componentes reaproveitáveis: Botao, Campo,
                         CaixaDeSelecao, AvisoDeAcesso, ModalDeMotivo, GraficoDeLinha,
                         SeloDeStatus, CurvaDeCalibracao

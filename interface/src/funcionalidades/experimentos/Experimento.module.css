@@ -369,3 +369,11 @@
 .historiadorLink:hover {
   text-decoration: underline;
 }
+
+/* Motivo da participação cancelada, embaixo do selo. */
+.motivoCelula {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}

@@ -171,7 +171,7 @@ Experimento ou cultivo fora do alcance da pessoa dá 404 (não revela que existe
 
 Base e modelo de dados do MVP implementados (branch `feat/modelo-dados-mvp`, 06/11/2026). Passam 38 testes de unidade e, no modo Docker Compose, 105 testes de `test_modelo_dados.py` e as 16 etapas do ponta a ponta (a 16 é a integridade final). Em 02/11/2026 o modo Docker Compose passou três vezes seguidas, com o pytest rodando no Windows e os serviços em contêineres Linux. O modo local não foi conferido depois do modelo de dados (falta confirmar o `btree_gist` no PostgreSQL de quem o usa).
 
-Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 · Antiga" e "Login · conta CNPEM (guardado)", que não serão usadas. São Login e as telas de conta, Visão geral, telas da célula (inclusive a célula livre e o modal de confirmar temperatura), Experimentos (lista, novo, detalhe, compartilhar, só leitura), Historiador, Alertas, Exportar dados e a nova calibração de OD (pela aba Ajustes da célula; a Calibração saiu da barra lateral). Por padrão usa dados de exemplo (`VITE_FONTE_DADOS=exemplo`). Login e cadastro da interface usam a API (`/auth`), sempre, mesmo no modo exemplo: o token vai em todas as chamadas e um 401 volta para /entrar (branch `feature/ligar-api-login`, 08/11/2026). Recuperar e trocar senha não existem na API. No modo api, as telas de Experimentos usam a API (lista, detalhe, novo, duplicar, editar, encerrar, cancelar e compartilhar); no modo exemplo, continuam com dados de exemplo. Fases, OD do turbidostato e agitação vão em `metadados` e o backend ainda não os usa. Compartilhar só aceita quem já tem conta (não há convite pendente). Os cultivos também estão ligados: atribuir a célula livre, encerrar e resetar a participação, faixa de pH do cultivo e taxa de crescimento pelas leituras do cultivo. Regras de alerta e exportação agrupada não existem na API (detalhes em `interface/README.md`).
+Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 · Antiga" e "Login · conta CNPEM (guardado)", que não serão usadas. **No modo api (`VITE_FONTE_DADOS=api`), a interface está ligada à API** (branch `feat/interface-api`, 08/11/2026): login e cadastro (`/auth`, token em todas as chamadas, 401 volta para /entrar), experimentos (lista, detalhe, novo, duplicar, editar, encerrar e cancelar), compartilhamento (acessos), cultivos (atribuir, encerrar e resetar a célula, faixa de pH do cultivo, taxa de crescimento pelas leituras), apelido, descrição e modelo da célula (`PATCH /celulas/{id}`, em Ajustes), os cinco tipos de alerta com título e ajuda, e o status cancelado em todas as telas. O login usa a API sempre, mesmo no modo exemplo; o resto do modo exemplo (o padrão) continua com os dados do Figma e guarda as mudanças na memória. Fases, OD do turbidostato e agitação vão em `metadados` e o backend ainda não os usa. **Ainda falta na API:** regras de alerta configuráveis (no modo api, a aba Regras mostra as regras fixas do backend) e exportação agrupada (média por hora ou dia, Excel; hoje só sai o CSV de dados brutos). Também não existem recuperar ou trocar senha, convite para quem não tem conta nem rota para fechar o `colisao_seq` (detalhes em `interface/README.md`).
 
 ## Problemas conhecidos
 
@@ -183,9 +183,8 @@ Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 �
 
 ## Próximos passos
 
-1. Ligar a interface à API: apelido da célula, tipos de alerta novos e status "cancelado"
+1. Endpoints de regras de alerta e de exportação agrupada (média por hora ou dia, Excel), para a interface deixar de usar dados de exemplo nessas telas
 2. Sinal de vida do consumidor
 3. Login nas rotas antigas e senha no broker
-4. Endpoints de regras de alerta e de exportação agrupada (média por hora ou dia, Excel)
-5. Fechar o contrato com o grupo do hardware, inclusive o ID por MAC e o modelo da placa
-6. Escolher um processo de migração do banco depois da entrega
+4. Fechar o contrato com o grupo do hardware, inclusive o ID por MAC e o modelo da placa
+5. Escolher um processo de migração do banco depois da entrega

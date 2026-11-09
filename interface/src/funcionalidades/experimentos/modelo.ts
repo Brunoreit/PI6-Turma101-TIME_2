@@ -32,6 +32,8 @@ export interface CelulaNoExperimento {
   idCultivo?: number;
   /** Participação cancelada ("Resetar célula"): não vale para a taxa. */
   cancelada?: boolean;
+  /** Motivo dado ao encerrar ou cancelar a participação. */
+  motivo?: string | null;
   /** Como "30 °C": a condição testada nesta célula. */
   condicao: string;
   /** `null` quando a célula não aparece nos dados gerais. */

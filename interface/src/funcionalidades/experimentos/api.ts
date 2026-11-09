@@ -81,6 +81,7 @@ function celulaDe(cultivo: CultivoApi, celulas: CelulaResumo[]): CelulaNoExperim
     id: cultivo.id_celula,
     idCultivo: cultivo.id_cultivo,
     cancelada: cultivo.status === "cancelado",
+    motivo: cultivo.motivo_encerramento,
     condicao: cultivo.condicao ?? "—",
     situacao: aberta ? (atual?.situacao ?? null) : "offline",
     temperaturaC: aberta ? (atual?.temperaturaC ?? null) : null,

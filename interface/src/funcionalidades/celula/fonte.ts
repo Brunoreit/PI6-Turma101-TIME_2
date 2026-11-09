@@ -4,6 +4,7 @@
 // calibração, bombas, manutenção, mensagens recebidas) fica `null`.
 
 import {
+  alterarCelula,
   buscarExperimento,
   cadastrarCalibracao,
   cancelarCultivo,
@@ -100,6 +101,20 @@ export async function encerrarParticipacao(idCultivo: number | undefined): Promi
 export async function cancelarParticipacao(idCultivo: number | undefined, motivo: string): Promise<void> {
   if (FONTE_DADOS === "exemplo" || idCultivo === undefined) throw SO_NA_API("a participação não foi cancelada");
   await cancelarCultivo(idCultivo, motivo);
+}
+
+/** Apelido, descrição e modelo da célula. Em branco tira o valor. */
+export async function salvarIdentificacao(
+  id: string, campos: { apelido: string; descricao: string; modelo: string },
+): Promise<void> {
+  if (FONTE_DADOS === "exemplo") throw SO_NA_API("a identificação não foi salva");
+  const ouNulo = (texto: string) => texto.trim() || null;
+  try {
+    await alterarCelula(id, { apelido: ouNulo(campos.apelido), descricao: ouNulo(campos.descricao), modelo: ouNulo(campos.modelo) });
+  } catch (erro) {
+    if (erro instanceof ErroDaApi && erro.status === 409) throw new Error("Esse apelido já é usado por outra célula. Escolha outro.");
+    throw erro;
+  }
 }
 
 /** Faixa de pH de referência deste cultivo, usada só pelos alertas. */
@@ -254,6 +269,8 @@ async function carregarDaApi(id: string, periodo: Periodo, idPessoa: number | nu
 
   return {
     id,
+    apelido: celula.apelido,
+    descricao: celula.descricao,
     situacao,
     experimento,
     placa: { modelo: celula.modelo, mac: null, firmware: celula.firmware, sensores: celula.sensores, onlineDesde: null, keepaliveS: null },

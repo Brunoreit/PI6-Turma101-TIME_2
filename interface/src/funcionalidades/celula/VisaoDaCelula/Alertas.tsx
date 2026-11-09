@@ -33,6 +33,7 @@ export function Alertas({ dados }: { dados: DetalheDaCelula }) {
             <li key={alerta.id} className={estilos.alerta}>
               <span className={estilos.alertaTitulo}>{alerta.titulo}</span>
               <span className={estilos.alertaMensagem}>{alerta.mensagem}</span>
+              {alerta.ajuda && <span className={estilos.alertaMensagem}>{alerta.ajuda}</span>}
               <span className={estilos.alertaTempo}>{formatar.tempoDecorrido(alerta.abertoEm, dados.atualizadoEm)}</span>
             </li>
           ))}

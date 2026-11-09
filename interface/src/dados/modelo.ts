@@ -13,6 +13,9 @@ export interface Experimento {
 
 export interface CelulaResumo {
   id: string;
+  /** Nome de exibição dado pela equipe (PATCH /celulas/{id}). Sem apelido, as
+   *  telas mostram o id. */
+  apelido?: string | null;
   situacao: SituacaoCelula;
   /** `null`: célula livre. `undefined`: a API ainda não informa. */
   experimento: Experimento | null | undefined;
@@ -29,7 +32,11 @@ export interface CelulaResumo {
 export interface AlertaResumo {
   id: number;
   idCelula: string;
+  /** Tipo da API, como "ph_fora_da_faixa". */
+  tipo?: string;
   titulo: string;
+  /** O que o alerta quer dizer e quando fecha. */
+  ajuda?: string;
   mensagem: string;
   abertoEm: Date;
 }
@@ -54,3 +61,8 @@ export const HORAS_DE_HISTORICO = 24;
 /** OD que enche a barra do histórico. Fixa, e não relativa a cada célula,
  *  para que os cards possam ser comparados entre si. */
 export const ESCALA_OD = 1.6;
+
+/** O nome que as telas mostram: o apelido ou, sem ele, o id. */
+export function nomeDaCelula(celula: { id: string; apelido?: string | null }): string {
+  return celula.apelido || celula.id;
+}

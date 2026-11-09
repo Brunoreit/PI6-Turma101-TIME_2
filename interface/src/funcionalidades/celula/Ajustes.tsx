@@ -1,6 +1,8 @@
-// Tela "Célula c08 · ajustes" do Figma (nó 85:1321). Nada aqui tem endpoint
-// na API ainda: os botões aparecem como no Figma e dizem isso ao passar o
-// mouse. No modo api, os painéis sem dados avisam que a API não os informa.
+// Tela "Célula c08 · ajustes" do Figma (nó 85:1321). A Identificação (não
+// está no Figma) salva apelido, descrição e modelo pelo PATCH /celulas/{id};
+// o firmware só aparece. A nova calibração salva pela API. O resto ainda não
+// tem endpoint: os botões aparecem como no Figma e dizem isso ao passar o
+// mouse, e os painéis sem dados avisam que a API não os informa.
 
 import { useState } from "react";
 import { useParams } from "react-router-dom";
@@ -11,6 +13,9 @@ import { Botao, SEM_API } from "@/compartilhado/componentes/Botao";
 import { Campo } from "@/compartilhado/componentes/Campo";
 import { CurvaDeCalibracao } from "@/compartilhado/componentes/CurvaDeCalibracao";
 import * as formatar from "@/compartilhado/formatar";
+import { useDados } from "@/dados/DadosProvider";
+import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
+import { salvarIdentificacao } from "./fonte";
 import type { Bomba, DetalheDaCelula, VersaoDeCalibracao } from "./modelo";
 import { useCelula } from "./useCelula";
 import estilos from "./Ajustes.module.css";
@@ -33,6 +38,62 @@ function TituloDoPainel({ id, nome, descricao }: { id: string; nome: string; des
       <h2 id={id} className={comum.painelNome}>{nome}</h2>
       <p className={comum.painelDescricao}>{descricao}</p>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- identificação
+
+function Identificacao({ dados, aoSalvar }: { dados: DetalheDaCelula; aoSalvar: () => void }) {
+  const [apelido, setApelido] = useState(dados.apelido ?? "");
+  const [descricao, setDescricao] = useState(dados.descricao ?? "");
+  const [modelo, setModelo] = useState(dados.placa.modelo ?? "");
+  const [salvando, setSalvando] = useState(false);
+  const [aviso, setAviso] = useState<{ erro: boolean; texto: string } | null>(null);
+
+  async function salvar() {
+    if (salvando) return;
+    setSalvando(true);
+    setAviso(null);
+    try {
+      await salvarIdentificacao(dados.id, { apelido, descricao, modelo });
+      setAviso({ erro: false, texto: apelido.trim() ? `Salvo. A célula aparece como ${apelido.trim()}.` : `Salvo. Sem apelido, a célula aparece como ${dados.id}.` });
+      aoSalvar();
+    } catch (falha) {
+      setAviso({ erro: true, texto: mensagemDoErro(falha) });
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <section className={comum.painel} aria-labelledby="titulo-identificacao">
+      <TituloDoPainel
+        id="titulo-identificacao"
+        nome="Identificação"
+        descricao={`O apelido aparece no lugar de ${dados.id} na Visão geral, nesta tela e no Historiador. Em branco, volta a ser ${dados.id}.`}
+      />
+      <form
+        className={estilos.identificacao}
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          salvar();
+        }}
+      >
+        <Campo rotulo="Apelido" tipo="texto" valor={apelido} onChange={setApelido} placeholder={dados.id} erro={aviso?.erro} />
+        <Campo rotulo="Modelo da placa" tipo="texto" valor={modelo} onChange={setModelo} placeholder="ESP32" />
+        <Campo rotulo="Descrição" tipo="texto" valor={descricao} onChange={setDescricao} placeholder="Bancada 2, perto da janela" />
+        <Campo rotulo="Firmware" tipo="texto" valor={dados.placa.firmware ?? "—"} somenteLeitura ajuda="Informado pela placa. Não se edita aqui." />
+        <div className={estilos.identificacaoRodape}>
+          <p className={aviso?.erro ? estilos.erroIdentificacao : estilos.ajudaIdentificacao} role="status">
+            {aviso?.texto ?? "O apelido é único: duas células não podem ter o mesmo."}
+          </p>
+          <Botao tipo="primario" submit ocupado={salvando}>
+            Salvar
+          </Botao>
+        </div>
+      </form>
+    </section>
   );
 }
 
@@ -226,7 +287,8 @@ function ModoManutencao({ manutencao }: { manutencao: DetalheDaCelula["manutenca
 
 export function Ajustes() {
   const { id = "" } = useParams();
-  const { dados, erro } = useCelula(id);
+  const { dados, erro, recarregar } = useCelula(id);
+  const gerais = useDados();
 
   if (!dados) return <CarregandoCelula id={id} aba="Ajustes" erro={erro} />;
 
@@ -244,6 +306,15 @@ export function Ajustes() {
         aba="Ajustes"
         subtitulo={subtitulo || "Calibração, bombas, período de leitura e manutenção da célula."}
         erro={erro}
+      />
+      {/* key: ao trocar de célula, os campos voltam aos valores dela. */}
+      <Identificacao
+        key={id}
+        dados={dados}
+        aoSalvar={() => {
+          recarregar();
+          gerais.recarregar();
+        }}
       />
       <div className={estilos.corpo}>
         <CalibracaoDeOd idCelula={dados.id} calibracao={dados.calibracao} />

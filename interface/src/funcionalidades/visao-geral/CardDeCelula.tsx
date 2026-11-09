@@ -4,7 +4,7 @@
 
 import { Link } from "react-router-dom";
 import * as formatar from "@/compartilhado/formatar";
-import type { CelulaResumo, Experimento } from "@/dados/modelo";
+import { nomeDaCelula, type CelulaResumo, type Experimento } from "@/dados/modelo";
 import estilos from "./CardDeCelula.module.css";
 import { HistoricoOd } from "./HistoricoOd";
 import { SeloDeStatus } from "@/compartilhado/componentes/SeloDeStatus";
@@ -12,7 +12,8 @@ import { SeloDeStatus } from "@/compartilhado/componentes/SeloDeStatus";
 function descricaoDoExperimento(experimento: Experimento): string {
   const partes = [experimento.nome];
   if (experimento.alvoC !== null) partes.push(`${formatar.decimal(experimento.alvoC, 0)} °C`);
-  partes.push(`dia ${experimento.dia} de ${experimento.duracaoDias}`);
+  // Experimento de outra pessoa: a API não conta o nome nem o prazo.
+  if (experimento.dia > 0) partes.push(experimento.duracaoDias ? `dia ${experimento.dia} de ${experimento.duracaoDias}` : `dia ${experimento.dia}`);
   return partes.join(" · ");
 }
 
@@ -30,10 +31,13 @@ export function CardDeCelula({ celula, agora }: { celula: CelulaResumo; agora: D
     offline || celula.temperaturaC === null ? "—" : formatar.temperatura(celula.temperaturaC);
 
   return (
-    <Link to={`/celulas/${celula.id}`} className={classes} aria-label={`Abrir célula ${celula.id}`}>
+    <Link to={`/celulas/${celula.id}`} className={classes} aria-label={`Abrir célula ${nomeDaCelula(celula)}`}>
       <div className={estilos.identificacao}>
         <div className={estilos.topo}>
-          <h3 className={estilos.id}>{celula.id}</h3>
+          <h3 className={celula.apelido ? `${estilos.id} ${estilos.apelido}` : estilos.id}>
+            {nomeDaCelula(celula)}
+            {celula.apelido && <span className={estilos.idDaPlaca}>{celula.id}</span>}
+          </h3>
           <SeloDeStatus situacao={celula.situacao} />
         </div>
         <p className={celula.experimento === null ? estilos.livre : estilos.subtitulo}>{subtitulo}</p>
