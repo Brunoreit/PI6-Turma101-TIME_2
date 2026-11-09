@@ -1,8 +1,8 @@
 # T.U.P.A
 
-Sistema central de monitoramento das células de cultivo do eVOLVER, projeto PI6 da PUC-Campinas em parceria com o CNPEM.
+O T.U.P.A é o sistema central de monitoramento das células de cultivo. Ele acompanha de longe as culturas do eVOLVER, o equipamento de cultura contínua de microrganismos usado no CNPEM, e avisa o pesquisador quando algo dá errado. É o projeto PI6 de Engenharia de Software da PUC-Campinas, em parceria com o CNPEM.
 
-As células publicam leituras num broker MQTT. Este repositório contém tudo que fica depois do broker (consumidor, regras, banco e API) e um simulador que faz o papel das placas para testar sem hardware.
+As células publicam leituras num broker MQTT. Este repositório contém tudo que fica depois do broker (consumidor, regras, banco, API e interface web) e um simulador que faz o papel das placas para testar sem hardware.
 
 ```
 célula simulada ──MQTT──▶ Mosquitto ──▶ consumidor ──▶ PostgreSQL ◀── API FastAPI ◀── interface web
@@ -57,6 +57,7 @@ Depois de alguns segundos:
 | O quê | Onde |
 |---|---|
 | Interface web | http://localhost:8080 (crie uma conta em "Criar conta"; o login é pela API) |
+| Interface com os dados reais | `VITE_FONTE_DADOS=api docker compose up --build` (sem a variável, as telas mostram os dados de exemplo do Figma) |
 | Documentação interativa da API | http://localhost:8000/docs |
 | Estado das células | http://localhost:8000/celulas |
 | Histórico completo e sem repetições? | http://localhost:8000/integridade |

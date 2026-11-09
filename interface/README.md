@@ -1,4 +1,4 @@
-# Interface web
+# Interface web do T.U.P.A
 
 React com TypeScript e Vite, feita a partir do Figma (arquivo **Telas**).
 Fala só com a API, sempre pelo prefixo `/api`.
