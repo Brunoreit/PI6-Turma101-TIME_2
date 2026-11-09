@@ -112,6 +112,16 @@ function Placa({ dados }: { dados: DetalheDaCelula }) {
         valor={placa.onlineDesde ? formatar.diaHora(placa.onlineDesde).replace(" ", " às ") : "—"}
       />
       <Dado rotulo="Keepalive" valor={placa.keepaliveS === null ? "—" : `${placa.keepaliveS} s`} />
+      {placa.primeiroAnuncio !== undefined && (
+        <>
+          <Dado rotulo="Primeiro anúncio" valor={placa.primeiroAnuncio ? formatar.diaHora(placa.primeiroAnuncio).replace(" ", " às ") : "—"} />
+          <Dado
+            rotulo="Último contato"
+            valor={placa.ultimoContato ? formatar.tempoDecorrido(placa.ultimoContato, dados.atualizadoEm) : "nunca"}
+          />
+          <Dado rotulo="Último seq gravado" valor={placa.ultimoSeq == null ? "—" : formatar.inteiro(placa.ultimoSeq)} mono />
+        </>
+      )}
     </section>
   );
 }

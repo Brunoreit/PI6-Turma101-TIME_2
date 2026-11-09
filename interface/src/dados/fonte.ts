@@ -4,10 +4,11 @@
 //   VITE_FONTE_DADOS=api      dados reais, pela API
 //
 // No modo api, o que a API ainda não informa (estado do consumidor e das
-// regras, setpoints aguardando) fica como "sem dados".
+// regras) fica como "sem dados".
 
-import { consultarSaude, listarAlertas, listarCelulas, listarExperimentos, listarLeituras } from "@/api/cliente";
-import type { AlertaApi, CelulaApi, ExperimentoListadoApi, LeituraApi, TipoAlerta } from "@/api/tipos";
+import { consultarSaude, listarAlertas, listarCelulas, listarExperimentos, listarLeituras, listarSetpoints } from "@/api/cliente";
+import type { AlertaApi, CelulaApi, ExperimentoListadoApi, LeituraApi, PedidoSetpointApi, TipoAlerta } from "@/api/tipos";
+import * as formatar from "@/compartilhado/formatar";
 import { gerarExemplo } from "./exemplo";
 import {
   HORAS_DE_HISTORICO,
@@ -72,9 +73,11 @@ async function carregarDaApi(sinal?: AbortSignal): Promise<VisaoGeral> {
     listarExperimentos(sinal).catch(() => [] as ExperimentoListadoApi[]),
   ]);
   // Uma leitura a cada 20 s dá 4.320 por dia, abaixo do limite de 10.000.
-  const leituras = await Promise.all(
-    celulas.map((c) => listarLeituras(c.id_celula, { desde: inicio, limite: 10000 }, sinal)),
-  );
+  const [leituras, pedidos] = await Promise.all([
+    Promise.all(celulas.map((c) => listarLeituras(c.id_celula, { desde: inicio, limite: 10000 }, sinal))),
+    // O último pedido de cada célula, para contar os que ainda não chegaram ao alvo.
+    Promise.all(celulas.map((c) => listarSetpoints(c.id_celula, sinal).catch(() => [] as PedidoSetpointApi[]))),
+  ]);
 
   let total = 0;
   let perdidas = 0;
@@ -89,7 +92,7 @@ async function carregarDaApi(sinal?: AbortSignal): Promise<VisaoGeral> {
     celulas: celulas.map((c, i) => celulaDaApi(c, leituras[i], alertas, inicio, experimentos, agora)),
     alertas: alertas.map(alertaDaApi),
     sistema: { broker: saude?.broker ?? null, consumidor: null, regras: null },
-    setpointsAguardando: null,
+    setpointsAguardando: setpointsAguardando(pedidos.map((lista) => lista[0]).filter(Boolean)),
     leituras24h: { total, perdidas },
     atualizadoEm: agora,
   };
@@ -118,6 +121,18 @@ function celulaDaApi(
     historicoOd: mediaPorHora(leituras, inicio),
     ultimaLeituraEm: celula.ultima_leitura_em ? new Date(celula.ultima_leitura_em) : null,
   };
+}
+
+/** Pedidos que ainda não chegaram ao alvo nem foram recusados: o último de
+ *  cada célula, se estiver solicitado, recebido ou aplicado. */
+function setpointsAguardando(ultimos: PedidoSetpointApi[]): { total: number; detalhe: string } {
+  const pendentes = ultimos.filter((p) => p.estado === "solicitado" || p.estado === "recebido" || p.estado === "aplicado");
+  if (pendentes.length === 0) return { total: 0, detalhe: "nenhum pedido pendente" };
+  const detalhe = pendentes
+    .slice(0, 3)
+    .map((p) => `${p.id_celula} em ${formatar.temperatura(p.temperatura_c)} (${p.estado})`)
+    .join(", ");
+  return { total: pendentes.length, detalhe: pendentes.length > 3 ? `${detalhe}…` : detalhe };
 }
 
 /** O experimento do cultivo aberto na célula, ou null se ela está livre. */

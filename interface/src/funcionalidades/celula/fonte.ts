@@ -6,6 +6,7 @@
 import {
   alterarCelula,
   buscarExperimento,
+  buscarSetpoint,
   cadastrarCalibracao,
   cancelarCultivo,
   alterarCultivo,
@@ -20,13 +21,13 @@ import {
   listarSetpoints,
   pedirSetpoint,
 } from "@/api/cliente";
-import type { CelulaApi, LeituraApi } from "@/api/tipos";
+import type { CelulaApi, LeituraApi, PedidoSetpointApi } from "@/api/tipos";
 import { TIPO } from "@/funcionalidades/experimentos/api";
 import { gerarExemploDaCelula } from "./exemplo";
 import { alertaDaApi, FONTE_DADOS } from "@/dados/fonte";
 import * as formatar from "@/compartilhado/formatar";
 import type { SituacaoCelula } from "@/dados/modelo";
-import type { DetalheDaCelula, EtapaDoCaminho, ExperimentoDaCelula, Periodo, Series } from "./modelo";
+import type { DetalheDaCelula, EtapaDoCaminho, ExperimentoDaCelula, PedidoDeSetpoint, Periodo, Series } from "./modelo";
 
 const MINUTO = 60 * 1000;
 const HORA = 60 * MINUTO;
@@ -65,11 +66,17 @@ export async function atribuirCelula(
   idCelula: string,
   experimento: { id?: number; alvoC: number | null },
   temperaturaC: number | null,
+  cultivo: { condicao: string; replica: number | null; continuaDe: number | null },
 ): Promise<string | null> {
   if (FONTE_DADOS === "exemplo" || experimento.id === undefined) throw SO_NA_API("a célula não foi atribuída");
-  let cultivo;
+  let iniciado;
   try {
-    cultivo = await iniciarCultivo(experimento.id, idCelula, temperaturaC === null ? null : formatar.temperatura(temperaturaC));
+    iniciado = await iniciarCultivo(experimento.id, idCelula, {
+      // Sem condição escrita, vale a temperatura escolhida, como "32,0 °C".
+      condicao: cultivo.condicao.trim() || (temperaturaC === null ? null : formatar.temperatura(temperaturaC)),
+      replica: cultivo.replica,
+      continuaDe: cultivo.continuaDe,
+    });
   } catch (erro) {
     if (erro instanceof ErroDaApi && erro.status === 503) {
       throw new Error("A célula não foi atribuída porque o broker está fora do ar. Tente de novo em instantes.");
@@ -78,7 +85,7 @@ export async function atribuirCelula(
   }
   const outra = temperaturaC !== null && (experimento.alvoC === null || Math.abs(temperaturaC - experimento.alvoC) >= 0.05);
   if (!outra) {
-    return cultivo.setpoint_confirmado === false
+    return iniciado.setpoint_confirmado === false
       ? "O cultivo começou, mas a temperatura alvo não foi enviada: o broker não confirmou o envio. Mande de novo em Comandos."
       : null;
   }
@@ -91,10 +98,17 @@ export async function atribuirCelula(
   }
 }
 
-/** "Encerrar participação": a célula sai do experimento a partir de agora. */
-export async function encerrarParticipacao(idCultivo: number | undefined): Promise<void> {
+/** "Encerrar participação": a célula sai do experimento a partir de agora.
+ *  O motivo é opcional. */
+export async function encerrarParticipacao(idCultivo: number | undefined, motivo: string | null = null): Promise<void> {
   if (FONTE_DADOS === "exemplo" || idCultivo === undefined) throw SO_NA_API("a participação não foi encerrada");
-  await encerrarCultivo(idCultivo);
+  await encerrarCultivo(idCultivo, motivo);
+}
+
+/** Condição e réplica do cultivo. Em branco tira o valor. */
+export async function salvarCultivo(idCultivo: number | undefined, condicao: string, replica: number | null): Promise<void> {
+  if (FONTE_DADOS === "exemplo" || idCultivo === undefined) throw SO_NA_API("o cultivo não foi alterado");
+  await alterarCultivo(idCultivo, { condicao: condicao.trim() || null, replica });
 }
 
 /** "Resetar célula": cancela o cultivo. Nada é apagado, nem na placa. */
@@ -145,6 +159,7 @@ async function experimentoDoCultivo(
     const dia = Math.floor((agora.getTime() - inicio.getTime()) / DIA) + 1;
     return {
       ...base,
+      replica: doCultivo?.replica ?? null,
       acesso: e.id_responsavel === idPessoa ? "responsavel" : convite?.permissao === "edicao" ? "modificar" : "leitura",
       codigo: e.codigo,
       nome: e.nome,
@@ -173,20 +188,51 @@ async function experimentoDoCultivo(
   }
 }
 
-/** Pede a nova temperatura alvo. No modo exemplo não há para onde enviar. */
-export async function enviarSetpoint(id: string, temperaturaC: number): Promise<void> {
+function pedidoDaApi(p: PedidoSetpointApi): PedidoDeSetpoint {
+  return {
+    id: p.id_pedido,
+    temperaturaC: p.temperatura_c,
+    estado: p.estado,
+    motivo: p.motivo,
+    solicitadoPor: p.solicitado_por,
+    solicitadoEm: new Date(p.solicitado_em),
+  };
+}
+
+/** Pede a nova temperatura alvo e devolve o pedido, para acompanhar as
+ *  etapas. No modo exemplo não há para onde enviar. */
+export async function enviarSetpoint(id: string, temperaturaC: number): Promise<PedidoDeSetpoint> {
   if (FONTE_DADOS === "exemplo") {
     throw new Error("Modo exemplo: o pedido não foi enviado. Rode com VITE_FONTE_DADOS=api para comandar a célula.");
   }
-  await pedirSetpoint(id, temperaturaC);
+  return pedidoDaApi(await pedirSetpoint(id, temperaturaC));
 }
 
-/** Salva a nova versão da curva de OD. No modo exemplo não há para onde enviar. */
-export async function salvarCalibracao(id: string, a: number, b: number, recalcular: boolean, desde: Date | null): Promise<void> {
+/** O pedido agora (GET /setpoints/{id}), entre as atualizações de 20 s. */
+export async function consultarPedido(idPedido: string, sinal?: AbortSignal): Promise<PedidoDeSetpoint> {
+  return pedidoDaApi(await buscarSetpoint(idPedido, sinal));
+}
+
+/** Salva a nova versão da curva de OD, com os padrões lidos, o R² e o
+ *  organismo. Devolve a versão gravada e quantas leituras foram recalculadas.
+ *  No modo exemplo não há para onde enviar. */
+export async function salvarCalibracao(
+  id: string,
+  a: number,
+  b: number,
+  recalcular: boolean,
+  desde: Date | null,
+  extras: { pontos: { od: number; bruto: number }[]; r2: number | null; organismo: string },
+): Promise<{ versao: number; reprocessadas: number }> {
   if (FONTE_DADOS === "exemplo") {
     throw new Error("Modo exemplo: a calibração não foi salva. Rode com VITE_FONTE_DADOS=api para gravar a nova versão.");
   }
-  await cadastrarCalibracao(id, a, b, recalcular, desde);
+  const salva = await cadastrarCalibracao(id, a, b, recalcular, desde, {
+    pontos: extras.pontos.map((p) => ({ od_referencia: p.od, bruto: p.bruto })),
+    r2: extras.r2,
+    organismo: extras.organismo.trim() || null,
+  });
+  return { versao: salva.versao, reprocessadas: salva.leituras_reprocessadas };
 }
 
 async function carregarDaApi(id: string, periodo: Periodo, idPessoa: number | null, sinal?: AbortSignal): Promise<DetalheDaCelula> {
@@ -273,22 +319,23 @@ async function carregarDaApi(id: string, periodo: Periodo, idPessoa: number | nu
     descricao: celula.descricao,
     situacao,
     experimento,
-    placa: { modelo: celula.modelo, mac: null, firmware: celula.firmware, sensores: celula.sensores, onlineDesde: null, keepaliveS: null },
+    placa: {
+      modelo: celula.modelo,
+      mac: null,
+      firmware: celula.firmware,
+      sensores: celula.sensores,
+      onlineDesde: null,
+      keepaliveS: null,
+      primeiroAnuncio: new Date(celula.primeiro_anuncio),
+      ultimoContato: celula.ultimo_contato ? new Date(celula.ultimo_contato) : null,
+      ultimoSeq: celula.ultima_seq,
+    },
     temperaturaC: celula.temperatura_c,
     od: celula.od,
     odBruto,
     ph: celula.ph,
     ultimaLeituraEm,
-    pedido: ultimo
-      ? {
-          id: ultimo.id_pedido,
-          temperaturaC: ultimo.temperatura_c,
-          estado: ultimo.estado,
-          motivo: ultimo.motivo,
-          solicitadoPor: ultimo.solicitado_por,
-          solicitadoEm: new Date(ultimo.solicitado_em),
-        }
-      : null,
+    pedido: ultimo ? pedidoDaApi(ultimo) : null,
     alertas: daCelula.map(alertaDaApi),
     series: mediasPorIntervalo(leituras, inicio, duracaoMs, quantidade),
     calibracao: null,

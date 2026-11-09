@@ -10,6 +10,7 @@ import iconeOk from "@/assets/icones/check-13-verde.svg";
 import iconeEtapa from "@/assets/icones/etapa-feita.svg";
 import iconeMais from "@/assets/icones/mais-14-marca.svg";
 import { Botao } from "@/compartilhado/componentes/Botao";
+import { Campo } from "@/compartilhado/componentes/Campo";
 import { CaixaDeSelecao } from "@/compartilhado/componentes/CaixaDeSelecao";
 import * as formatar from "@/compartilhado/formatar";
 import { salvarCalibracao } from "@/funcionalidades/celula/fonte";
@@ -67,9 +68,13 @@ export function NovaCalibracao() {
   const [recalcular, setRecalcular] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [aviso, setAviso] = useState<{ erro: boolean; texto: string } | null>(null);
+  const [organismo, setOrganismo] = useState("");
 
   const atual = dados?.calibracao?.atual ?? null;
-  const proxima = (atual?.versao ?? 0) + 1;
+  // A API ainda não informa a versão em uso: sem ela, o número só aparece
+  // depois de salvar ("versão nova" até lá).
+  const proxima = atual ? String(atual.versao + 1) : null;
+  const versaoNova = proxima ? `versão ${proxima}` : "versão nova";
   const experimento = dados?.experimento;
   const base = `/celulas/${encodeURIComponent(id)}`;
 
@@ -99,8 +104,17 @@ export function NovaCalibracao() {
     setAviso(null);
     try {
       // Sem versão em uso, recalcula o histórico todo.
-      await salvarCalibracao(id, reta.a, reta.b, recalcular, atual?.criadaEm ?? null);
-      navegar(`${base}/ajustes`);
+      // Vão junto os pontos usados na reta (branco e padrões), o R² e o organismo.
+      const usados = pontoEditando ? [...pontos, pontoEditando] : pontos;
+      const salva = await salvarCalibracao(id, reta.a, reta.b, recalcular, atual?.criadaEm ?? null, {
+        pontos: usados.map((p) => ({ od: p.od, bruto: p.bruto })),
+        r2: reta.r2 ?? null,
+        organismo,
+      });
+      const recalculadas = recalcular
+        ? ` ${formatar.inteiro(salva.reprocessadas)} ${salva.reprocessadas === 1 ? "leitura teve" : "leituras tiveram"} a OD recalculada.`
+        : " O histórico não foi recalculado.";
+      navegar(`${base}/ajustes`, { state: { aviso: `Versão ${salva.versao} da calibração de OD salva.${recalculadas}` } });
     } catch (erro) {
       setAviso({ erro: true, texto: erro instanceof Error ? erro.message : String(erro) });
     } finally {
@@ -112,7 +126,7 @@ export function NovaCalibracao() {
     { titulo: "Escolher a célula", detalhe: id, feita: true },
     { titulo: "Branco", detalhe: "meio sem células", feita: brancoOk },
     { titulo: "Padrões", detalhe: `${preenchidos} de ${padroes.length} preenchidos`, feita: pronto && conferindo },
-    { titulo: "Conferir e salvar", detalhe: `versão ${proxima}`, feita: false },
+    { titulo: "Conferir e salvar", detalhe: versaoNova, feita: false },
   ];
   const etapaAtual = !brancoOk ? 1 : conferindo ? 3 : 2;
 
@@ -133,7 +147,7 @@ export function NovaCalibracao() {
           <h1 className={estilos.titulo}>Nova calibração de OD</h1>
           <p className={comum.subtitulo}>
             {id}
-            {experimento ? ` · ${experimento.codigo}` : ""}. Registre o branco e os padrões medidos para criar a versão {proxima} da curva de OD.
+            {experimento ? ` · ${experimento.codigo}` : ""}. Registre o branco e os padrões medidos para criar a {versaoNova} da curva de OD.
           </p>
         </div>
         <Botao para={`${base}/ajustes`}>Cancelar calibração</Botao>
@@ -249,24 +263,32 @@ export function NovaCalibracao() {
           </div>
           <GraficoDaCurva pontos={pontos} editando={pontoEditando} nova={reta} atual={atual} />
           <div className={estilos.formula}>
-            <span>Versão {proxima} (provisória)</span>
+            <span>{proxima ? `Versão ${proxima}` : "Versão nova"} (provisória)</span>
             <strong>{reta ? formula(reta.a, reta.b) : "faltam pontos para a curva"}</strong>
             <span>
               {reta?.r2 != null ? `R² = ${formatar.decimal(reta.r2, 3)} com ${pontos.length + (pontoEditando ? 1 : 0)} pontos` : "R² aparece a partir de 3 pontos"}
               {faltam > 0 ? ` · ${faltam === 1 ? "falta 1 padrão" : `faltam ${faltam} padrões`}` : ""}
             </span>
           </div>
+          <Campo
+            rotulo="Organismo usado na curva"
+            tipo="texto"
+            valor={organismo}
+            onChange={setOrganismo}
+            placeholder={experimento?.nome ? "Ex.: E. coli K-12" : "Opcional"}
+            ajuda="Opcional. Fica guardado com a versão, junto com os padrões e o R²."
+          />
           <CaixaDeSelecao marcada={recalcular} onChange={setRecalcular}>
             <span className={estilos.recalcular}>
               Recalcular o histórico da {id}
-              {atual ? ` desde ${formatar.diaMes(atual.criadaEm)}` : ""} com a versão {proxima}. O valor bruto não muda, só a OD calculada.
+              {atual ? ` desde ${formatar.diaMes(atual.criadaEm)}` : ""} com a {versaoNova}. O valor bruto não muda, só a OD calculada.
             </span>
           </CaixaDeSelecao>
           {conferindo && reta && (
             <div className={estilos.conferir}>
               <p>
                 Confira antes de salvar: {formula(reta.a, reta.b)}
-                {reta.r2 != null ? `, R² = ${formatar.decimal(reta.r2, 3)}` : ""}. A versão {proxima} passa a valer para as próximas leituras
+                {reta.r2 != null ? `, R² = ${formatar.decimal(reta.r2, 3)}` : ""}. A {versaoNova} passa a valer para as próximas leituras
                 {recalcular ? ` e para as leituras desde ${atual ? formatar.diaMes(atual.criadaEm) : "o início"}` : ""}.
               </p>
             </div>
@@ -275,7 +297,7 @@ export function NovaCalibracao() {
             <Botao onClick={() => (conferindo ? setConferindo(false) : navegar(`${base}/ajustes`))}>Voltar</Botao>
             {conferindo ? (
               <Botao tipo="primario" ocupado={salvando} onClick={salvar}>
-                Salvar versão {proxima}
+                {proxima ? `Salvar versão ${proxima}` : "Salvar nova versão"}
               </Botao>
             ) : (
               // Esmaecido até ter padrões suficientes, como no Figma.

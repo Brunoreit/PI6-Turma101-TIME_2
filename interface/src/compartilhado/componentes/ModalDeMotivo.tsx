@@ -1,5 +1,6 @@
-// Modal que pede um motivo obrigatório antes de uma ação sem volta, como
-// cancelar um experimento ou resetar uma célula. Não existe no Figma: segue o
+// Modal que pede um motivo antes de uma ação sem volta, como cancelar um
+// experimento ou resetar uma célula (obrigatório), ou encerrar a participação
+// de uma célula (opcional). Não existe no Figma: segue o
 // desenho do modal Confirmar temperatura.
 
 import { useEffect, useId, useState, type ReactNode } from "react";
@@ -11,7 +12,7 @@ import estilos from "./ModalDeMotivo.module.css";
 interface Props {
   titulo: string;
   subtitulo: string;
-  /** O que acontece, em vermelho, antes do campo. */
+  /** O que acontece, antes do campo (em vermelho quando é `perigo`). */
   consequencias: ReactNode;
   placeholder: string;
   /** Texto do botão de confirmar, como "Cancelar experimento". */
@@ -19,9 +20,15 @@ interface Props {
   /** Rejeitar mostra a mensagem do erro no modal, que continua aberto. */
   onConfirmar: (motivo: string) => Promise<void>;
   onFechar: () => void;
+  /** Motivo pode ficar em branco. */
+  opcional?: boolean;
+  /** Botão de confirmar vermelho (padrão) ou comum. */
+  perigo?: boolean;
 }
 
-export function ModalDeMotivo({ titulo, subtitulo, consequencias, placeholder, acao, onConfirmar, onFechar }: Props) {
+export function ModalDeMotivo({
+  titulo, subtitulo, consequencias, placeholder, acao, onConfirmar, onFechar, opcional = false, perigo = true,
+}: Props) {
   const id = useId();
   const [motivo, setMotivo] = useState("");
   const [faltaMotivo, setFaltaMotivo] = useState(false);
@@ -36,7 +43,7 @@ export function ModalDeMotivo({ titulo, subtitulo, consequencias, placeholder, a
 
   async function confirmar() {
     if (enviando) return;
-    if (!motivo.trim()) return setFaltaMotivo(true);
+    if (!opcional && !motivo.trim()) return setFaltaMotivo(true);
     setEnviando(true);
     setErro(null);
     try {
@@ -62,10 +69,10 @@ export function ModalDeMotivo({ titulo, subtitulo, consequencias, placeholder, a
           </button>
         </div>
 
-        <p className={estilos.consequencias}>{consequencias}</p>
+        <p className={perigo ? estilos.consequencias : estilos.observacao}>{consequencias}</p>
 
         <div className={estilos.campo}>
-          <label htmlFor={`${id}-motivo`}>Motivo *</label>
+          <label htmlFor={`${id}-motivo`}>{opcional ? "Motivo (opcional)" : "Motivo *"}</label>
           <textarea
             id={`${id}-motivo`}
             value={motivo}
@@ -89,7 +96,7 @@ export function ModalDeMotivo({ titulo, subtitulo, consequencias, placeholder, a
 
         <div className={estilos.botoes}>
           <Botao onClick={onFechar}>Voltar</Botao>
-          <Botao tipo="perigo" ocupado={enviando} onClick={confirmar}>
+          <Botao tipo={perigo ? "perigo" : "primario"} ocupado={enviando} onClick={confirmar}>
             {enviando ? "Enviando..." : acao}
           </Botao>
         </div>

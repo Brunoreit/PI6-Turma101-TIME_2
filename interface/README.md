@@ -72,6 +72,10 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
   Só sai o CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv`.
 - **Recuperar e trocar senha**, **convite para quem não tem conta** e **fechar
   o alerta `colisao_seq`**.
+- **Dados da placa e da calibração:** não há `GET` de calibrações (a versão
+  em uso, a curva e o histórico de versões aparecem como "—"), nem MAC,
+  período de leitura, bombas e modo manutenção.
+- **Estado do consumidor e das regras** na barra lateral.
 
 No modo `exemplo`, as mudanças (novo experimento, compartilhar, encerrar,
 cancelar, nova regra) ficam na memória até recarregar a página. Os botões
@@ -108,6 +112,22 @@ No modo `exemplo`, os experimentos de exemplo têm como responsável
 `pedro.ximenes@cnpem.br`. Com outra conta, eles aparecem sem permissão de
 edição. No modo `api`, cada conta vê os próprios experimentos e os
 compartilhados com ela.
+
+### Outros dados da API nas telas
+
+- **Setpoint:** depois de Confirmar, o pedido é acompanhado pelo
+  `GET /setpoints/{id}` a cada 2 s (até atingir, ser recusado ou passar
+  3 min), em vez de esperar a atualização de 20 s.
+- **Setpoints aguardando** (Visão geral): o último pedido de cada célula
+  (`GET /celulas/{id}/setpoints`) que ainda está solicitado, recebido ou
+  aplicado.
+- **Nova calibração:** vão junto os padrões usados na reta (branco e
+  padrões), o R² e o organismo (campo opcional). Ao voltar para Ajustes,
+  aparece a versão gravada e quantas leituras tiveram a OD recalculada. A
+  API não informa a versão em uso, então antes de salvar a tela diz "versão
+  nova".
+- **Diagnóstico:** primeiro anúncio, último contato e último `seq` gravado da
+  placa, de `GET /celulas`.
 
 ### Apelido da célula
 
@@ -196,9 +216,9 @@ Um cultivo é uma célula dentro de um experimento durante um período. No modo
 | Ação na tela | Rota da API |
 |---|---|
 | Experimento da célula (faixa de status, "Abrir experimento", alvo e pH) | `cultivo_atual` de `GET /celulas` e `GET /experimentos/{id}` |
-| Atribuir e iniciar (célula livre) | `POST /experimentos/{id}/cultivos {id_celula, condicao}` e, se a temperatura mudou, `POST /celulas/{id}/setpoint` |
-| Salvar a faixa de pH (Comandos) | `PATCH /cultivos/{id} {ph_ref_min, ph_ref_max}` |
-| Encerrar participação | `POST /cultivos/{id}/encerrar` |
+| Atribuir e iniciar (célula livre) | `POST /experimentos/{id}/cultivos {id_celula, condicao, replica, continua_de}` e, se a temperatura mudou, `POST /celulas/{id}/setpoint` |
+| Salvar a faixa de pH, a condição e a réplica (Comandos) | `PATCH /cultivos/{id}` |
+| Encerrar participação | `POST /cultivos/{id}/encerrar {motivo?}`, com o motivo opcional pedido num modal |
 | Resetar célula | `POST /cultivos/{id}/cancelar {motivo}`, com o motivo pedido num modal |
 | Taxa de crescimento do detalhe do experimento | `GET /cultivos/{id}/leituras` |
 
@@ -207,7 +227,10 @@ Um cultivo é uma célula dentro de um experimento durante um período. No modo
   cadastro (a da primeira fase). Se o experimento tem temperatura alvo, a
   API já manda o setpoint ao abrir o cultivo; se a pessoa mudou a
   temperatura desta célula, a tela manda um segundo pedido com o valor novo.
-  A condição do cultivo é a temperatura escolhida, como "32,0 °C".
+  A condição e a réplica são opcionais; sem condição, vale a temperatura
+  escolhida, como "32,0 °C". "Continua a cultura de" aparece quando o
+  experimento tem células que já saíram dele, para troca de placa ou de
+  célula (`continua_de`).
 - **Erros ao atribuir.** 503: "A célula não foi atribuída porque o broker está
   fora do ar. Tente de novo em instantes." 409: a mensagem da API (célula já
   em outro cultivo, ou experimento fechado). Se o cultivo começou mas a
@@ -223,7 +246,9 @@ Um cultivo é uma célula dentro de um experimento durante um período. No modo
   acesso. Célula num experimento não compartilhado com a pessoa aparece como
   "experimento de outra pessoa", sem link.
 - **Detalhe do experimento.** A tabela de células vem dos cultivos, com início
-  e fim; cultivo cancelado aparece com o selo "Cancelada". A taxa de
+  e fim, a condição, a réplica, de onde a cultura continua e o motivo de
+  quem saiu; cultivo cancelado aparece com o selo "Cancelada". Um
+  experimento duplicado mostra "duplicado do EXP-xx" no subtítulo. A taxa de
   crescimento é a inclinação de ln(OD) nas leituras dos últimos 7 dias de
   cada cultivo (cancelados não entram), dividida por ln 2, em divisões por
   hora, com a média por condição. "Ver no historiador" abre o historiador com

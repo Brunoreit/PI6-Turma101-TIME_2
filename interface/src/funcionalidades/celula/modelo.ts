@@ -19,6 +19,8 @@ export interface ExperimentoDaCelula {
   acesso?: "responsavel" | "modificar" | "leitura" | null;
   /** Condição deste cultivo, como "30 °C". */
   condicao?: string | null;
+  /** Número da réplica dentro da condição, quando há. */
+  replica?: number | null;
   codigo: string;
   nome: string;
   modo: string;
@@ -40,6 +42,12 @@ export interface Placa {
   sensores: string[];
   onlineDesde: Date | null;
   keepaliveS: number | null;
+  /** Primeira vez que a placa se anunciou ao sistema (modo api). */
+  primeiroAnuncio?: Date | null;
+  /** Último sinal recebido da placa, de qualquer tipo (modo api). */
+  ultimoContato?: Date | null;
+  /** Último número de sequência gravado (modo api). */
+  ultimoSeq?: number | null;
 }
 
 export type EstadoDoPedido = "solicitado" | "recebido" | "aplicado" | "atingido" | "recusado";

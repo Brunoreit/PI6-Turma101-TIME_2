@@ -112,3 +112,13 @@
   justify-content: flex-end;
   gap: 10px;
 }
+
+/* Ação que não é perigosa, como encerrar a participação. */
+.observacao {
+  padding: 10px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}

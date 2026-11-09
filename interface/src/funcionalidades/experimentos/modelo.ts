@@ -34,6 +34,9 @@ export interface CelulaNoExperimento {
   cancelada?: boolean;
   /** Motivo dado ao encerrar ou cancelar a participação. */
   motivo?: string | null;
+  replica?: number | null;
+  /** Célula de onde a cultura veio, quando continua outro cultivo. */
+  continuaDe?: string | null;
   /** Como "30 °C": a condição testada nesta célula. */
   condicao: string;
   /** `null` quando a célula não aparece nos dados gerais. */

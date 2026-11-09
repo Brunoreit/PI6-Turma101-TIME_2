@@ -5,7 +5,7 @@
 // mouse, e os painéis sem dados avisam que a API não os informa.
 
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import iconeAlertaSelo from "@/assets/icones/alerta-selo.svg";
 import iconeCheckSelo from "@/assets/icones/check-selo.svg";
 import iconeChave from "@/assets/icones/chave.svg";
@@ -289,6 +289,8 @@ export function Ajustes() {
   const { id = "" } = useParams();
   const { dados, erro, recarregar } = useCelula(id);
   const gerais = useDados();
+  // Vindo da Nova calibração: a versão salva e quantas leituras mudaram.
+  const avisoDaCalibracao = (useLocation().state as { aviso?: string } | null)?.aviso;
 
   if (!dados) return <CarregandoCelula id={id} aba="Ajustes" erro={erro} />;
 
@@ -307,6 +309,11 @@ export function Ajustes() {
         subtitulo={subtitulo || "Calibração, bombas, período de leitura e manutenção da célula."}
         erro={erro}
       />
+      {avisoDaCalibracao && (
+        <p className={estilos.avisoSalvo} role="status">
+          {avisoDaCalibracao}
+        </p>
+      )}
       {/* key: ao trocar de célula, os campos voltam aos valores dela. */}
       <Identificacao
         key={id}

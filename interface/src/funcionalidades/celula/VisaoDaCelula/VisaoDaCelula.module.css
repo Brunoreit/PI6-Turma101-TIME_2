@@ -744,3 +744,27 @@
   font-size: 13px;
   color: var(--status\/alerta);
 }
+
+/* Atribuir: réplica ao lado da condição e o seletor de "continua de". */
+.entradaCurta {
+  width: 64px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina);
+  font: inherit;
+  font-size: 14px;
+  color: var(--texto\/principal);
+}
+
+.seletorSimples {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina);
+  font: inherit;
+  font-size: 13px;
+  color: var(--texto\/principal);
+}

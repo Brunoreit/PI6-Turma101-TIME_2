@@ -143,6 +143,8 @@ export interface CultivoApi {
   iniciado_em: string;
   encerrado_em: string | null;
   motivo_encerramento: string | null;
+  /** Cultivo de onde a cultura veio (troca de placa ou de célula). */
+  continua_de: number | null;
 }
 
 /** POST /experimentos/{id}/cultivos. Sem temperatura alvo no experimento,
@@ -178,4 +180,14 @@ export interface FichaApi {
   ph_ref_min: number | null;
   ph_ref_max: number | null;
   metadados: Record<string, unknown>;
+}
+
+/** Resposta de POST /celulas/{id}/calibracoes. */
+export interface CalibracaoSalvaApi {
+  id_calibracao: number;
+  versao: number;
+  a: number;
+  b: number;
+  criada_em: string;
+  leituras_reprocessadas: number;
 }

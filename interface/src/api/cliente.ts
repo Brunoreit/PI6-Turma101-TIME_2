@@ -3,7 +3,7 @@
 // desenvolvimento) e pelo nginx (no Docker).
 
 import type {
-  AcessoApi, AlertaApi, CelulaApi, CultivoApi, CultivoIniciadoApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
+  AcessoApi, AlertaApi, CalibracaoSalvaApi, CelulaApi, CultivoApi, CultivoIniciadoApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
   LeituraApi, PedidoSetpointApi, PermissaoApi, PessoaApi, SaudeApi, SessaoApi,
 } from "./tipos";
 
@@ -135,15 +135,26 @@ export function pedirSetpoint(idCelula: string, temperaturaC: number): Promise<P
 }
 
 /** Cadastra uma nova versão da curva de OD. Com `recalcular`, a API refaz a
- *  OD das leituras gravadas: todas, ou só as de `desde` em diante. */
+ *  OD das leituras gravadas: todas, ou só as de `desde` em diante. Os padrões
+ *  lidos, o R² e o organismo ficam guardados com a versão. */
 export function cadastrarCalibracao(
-  idCelula: string, a: number, b: number, recalcular: boolean, desde: Date | null,
-): Promise<unknown> {
+  idCelula: string,
+  a: number,
+  b: number,
+  recalcular: boolean,
+  desde: Date | null,
+  extras: { pontos?: { od_referencia: number; bruto: number }[]; r2?: number | null; organismo?: string | null } = {},
+): Promise<CalibracaoSalvaApi> {
   return buscar(`/celulas/${encodeURIComponent(idCelula)}/calibracoes`, undefined, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ a, b, recalcular, recalcular_desde: desde?.toISOString() ?? null }),
+    body: JSON.stringify({ a, b, recalcular, recalcular_desde: desde?.toISOString() ?? null, ...extras }),
   });
+}
+
+/** Um pedido de setpoint, para acompanhar as etapas logo depois de enviar. */
+export function buscarSetpoint(idPedido: string, sinal?: AbortSignal): Promise<PedidoSetpointApi> {
+  return buscar(`/setpoints/${encodeURIComponent(idPedido)}`, sinal);
 }
 
 export function consultarIntegridade(sinal?: AbortSignal): Promise<IntegridadeApi[]> {
@@ -197,18 +208,29 @@ export function revogarAcesso(id: number, idPessoa: number): Promise<void> {
 // ---------------------------------------------------------------- cultivos
 // Uma célula num experimento durante um período. Responsável ou edição.
 
-export function iniciarCultivo(idExperimento: number, idCelula: string, condicao: string | null): Promise<CultivoIniciadoApi> {
-  return enviar(`/experimentos/${idExperimento}/cultivos`, { id_celula: idCelula, condicao });
+export function iniciarCultivo(
+  idExperimento: number,
+  idCelula: string,
+  campos: { condicao: string | null; replica: number | null; continuaDe: number | null },
+): Promise<CultivoIniciadoApi> {
+  return enviar(`/experimentos/${idExperimento}/cultivos`, {
+    id_celula: idCelula,
+    condicao: campos.condicao,
+    replica: campos.replica,
+    continua_de: campos.continuaDe,
+  });
 }
 
 export function alterarCultivo(
-  id: number, campos: { condicao?: string | null; ph_ref_min?: number | null; ph_ref_max?: number | null },
+  id: number,
+  campos: { condicao?: string | null; replica?: number | null; ph_ref_min?: number | null; ph_ref_max?: number | null },
 ): Promise<CultivoApi> {
   return enviar(`/cultivos/${id}`, campos, "PATCH");
 }
 
-export function encerrarCultivo(id: number): Promise<CultivoApi> {
-  return enviar(`/cultivos/${id}/encerrar`, {});
+/** O motivo é opcional ao encerrar (obrigatório só ao cancelar). */
+export function encerrarCultivo(id: number, motivo: string | null = null): Promise<CultivoApi> {
+  return enviar(`/cultivos/${id}/encerrar`, motivo ? { motivo } : {});
 }
 
 /** Como encerrar, marcando que o cultivo não valeu. Nada é apagado. */

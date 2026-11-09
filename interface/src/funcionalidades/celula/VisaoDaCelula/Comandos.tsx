@@ -1,8 +1,9 @@
 // Painel "Comandos": setpoint de temperatura (o único comando real), o
-// andamento do último pedido e a faixa de pH de referência do cultivo, salva
-// pelo PATCH /cultivos/{id} (só responsável ou edição).
+// andamento do último pedido (acompanhado pelo GET /setpoints/{id} a cada 2 s
+// depois de enviar), a faixa de pH de referência e a condição e réplica do
+// cultivo, salvas pelo PATCH /cultivos/{id} (só responsável ou edição).
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import iconeAgitacao from "@/assets/icones/agitacao.svg";
 import iconeBombas from "@/assets/icones/bombas.svg";
 import iconeCadeado from "@/assets/icones/cadeado.svg";
@@ -12,7 +13,7 @@ import interruptorLigado from "@/assets/icones/interruptor-ligado.svg";
 import { AvisoDeAcesso, useAvisoDeAcesso } from "@/compartilhado/componentes/AvisoDeAcesso";
 import { Botao, SEM_API } from "@/compartilhado/componentes/Botao";
 import * as formatar from "@/compartilhado/formatar";
-import { enviarSetpoint, salvarFaixaDePh } from "@/funcionalidades/celula/fonte";
+import { consultarPedido, enviarSetpoint, salvarCultivo, salvarFaixaDePh } from "@/funcionalidades/celula/fonte";
 import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
 import { useSessao } from "@/sessao/SessaoProvider";
@@ -21,6 +22,7 @@ import {
   TEMPERATURA_MIN_C,
   type DetalheDaCelula,
   type EstadoDoPedido,
+  type PedidoDeSetpoint,
 } from "@/funcionalidades/celula/modelo";
 import { acessoNaCelula, faixaDePh, podeMexer, temperaturaAlvo } from "./calculos";
 import { ConfirmarTemperatura } from "./ConfirmarTemperatura";
@@ -80,6 +82,63 @@ export function Comandos({ dados, aoEnviar }: { dados: DetalheDaCelula; aoEnviar
   const { aviso: avisoDeAcesso, mostrar } = useAvisoDeAcesso();
   const experimento = dados.experimento;
   const podeMudarPh = experimento ? podeMexer(acessoNaCelula(experimento, buscar, usuario?.email)) : false;
+  const [condicao, setCondicao] = useState(experimento?.condicao ?? "");
+  const [replica, setReplica] = useState(experimento?.replica == null ? "" : String(experimento.replica));
+  const [salvandoCultivo, setSalvandoCultivo] = useState(false);
+  const [avisoCultivo, setAvisoCultivo] = useState<{ erro: boolean; texto: string } | null>(null);
+
+  // O pedido recém-enviado, consultado a cada 2 s até ser atingido ou recusado
+  // (no máximo 3 min); depois disso vale a atualização normal de 20 s.
+  const [acompanhado, setAcompanhado] = useState<PedidoDeSetpoint | null>(null);
+  const idAcompanhado = acompanhado?.id;
+  useEffect(() => {
+    if (!idAcompanhado) return;
+    const controle = new AbortController();
+    const limite = Date.now() + 3 * 60_000;
+    const temporizador = setInterval(async () => {
+      try {
+        const pedido = await consultarPedido(idAcompanhado, controle.signal);
+        setAcompanhado(pedido);
+        if (pedido.estado === "atingido" || pedido.estado === "recusado" || Date.now() > limite) clearInterval(temporizador);
+      } catch {
+        clearInterval(temporizador);
+      }
+    }, 2000);
+    return () => {
+      clearInterval(temporizador);
+      controle.abort();
+    };
+  }, [idAcompanhado]);
+  // O acompanhado é o mais novo, a não ser que outro pedido tenha sido feito depois.
+  const pedido =
+    acompanhado && (!dados.pedido || dados.pedido.solicitadoEm.getTime() <= acompanhado.solicitadoEm.getTime())
+      ? acompanhado
+      : dados.pedido;
+
+  const semAcessoAoCultivo = () =>
+    mostrar({
+      titulo: "Você precisa de acesso para mudar o cultivo",
+      mensagem: `Só o responsável pelo ${experimento?.codigo} ou quem tem edição muda a faixa de pH, a condição e a réplica desta célula.`,
+      acao: `Pedir acesso a ${experimento?.responsavel}`,
+    });
+
+  async function salvarCondicao() {
+    if (!experimento || salvandoCultivo) return;
+    const numero = replica.trim() ? Number(replica.trim()) : null;
+    if (numero !== null && !(Number.isInteger(numero) && numero > 0)) {
+      return setAvisoCultivo({ erro: true, texto: "A réplica é um número inteiro maior que zero, ou fica em branco." });
+    }
+    setSalvandoCultivo(true);
+    try {
+      await salvarCultivo(experimento.idCultivo, condicao, numero);
+      setAvisoCultivo({ erro: false, texto: "Condição e réplica salvas." });
+      aoEnviar();
+    } catch (falha) {
+      setAvisoCultivo({ erro: true, texto: mensagemDoErro(falha) });
+    } finally {
+      setSalvandoCultivo(false);
+    }
+  }
 
   async function salvarPh() {
     if (!experimento || salvandoPh) return;
@@ -115,7 +174,7 @@ export function Comandos({ dados, aoEnviar }: { dados: DetalheDaCelula; aoEnviar
   async function confirmar(valor: number) {
     setEnviando(true);
     try {
-      await enviarSetpoint(dados.id, valor);
+      setAcompanhado(await enviarSetpoint(dados.id, valor));
       setAviso({ erro: false, texto: `Pedido de ${formatar.temperatura(valor)} enviado. Acompanhe as etapas abaixo.` });
       aoEnviar();
     } catch (erro) {
@@ -162,7 +221,7 @@ export function Comandos({ dados, aoEnviar }: { dados: DetalheDaCelula; aoEnviar
             {aviso?.texto ?? `Entre ${TEMPERATURA_MIN_C} e ${TEMPERATURA_MAX_C} °C.`}
           </p>
         </form>
-        {dados.pedido ? <UltimoPedido pedido={dados.pedido} /> : <p className={estilos.ajuda}>Nenhum pedido feito para esta célula.</p>}
+        {pedido ? <UltimoPedido pedido={pedido} /> : <p className={estilos.ajuda}>Nenhum pedido feito para esta célula.</p>}
       </div>
 
       <div className={estilos.grupo}>
@@ -174,16 +233,7 @@ export function Comandos({ dados, aoEnviar }: { dados: DetalheDaCelula; aoEnviar
           <Botao
             ocupado={salvandoPh}
             onClick={salvarPh}
-            semAcesso={
-              podeMudarPh
-                ? undefined
-                : () =>
-                    mostrar({
-                      titulo: "Você precisa de acesso para mudar a faixa de pH",
-                      mensagem: `Só o responsável pelo ${experimento?.codigo} ou quem tem edição muda a faixa desta célula.`,
-                      acao: `Pedir acesso a ${experimento?.responsavel}`,
-                    })
-            }
+            semAcesso={podeMudarPh ? undefined : semAcessoAoCultivo}
           >
             Salvar
           </Botao>
@@ -192,6 +242,29 @@ export function Comandos({ dados, aoEnviar }: { dados: DetalheDaCelula; aoEnviar
           {avisoPh?.texto ?? "Usada só para alertas, nesta célula. O pH é medido, não comandado."}
         </p>
       </div>
+
+      {experimento && experimento.acesso !== null && (
+        <div className={estilos.grupo}>
+          <span className={estilos.grupoRotulo} id="condicao-cultivo">Condição e réplica</span>
+          <div className={estilos.linhaEntrada} role="group" aria-labelledby="condicao-cultivo">
+            <input className={estilos.entrada} aria-label="Condição" value={condicao} placeholder="Ex.: 30 °C" onChange={(e) => setCondicao(e.target.value)} />
+            <input
+              className={estilos.entradaCurta}
+              inputMode="numeric"
+              aria-label="Réplica"
+              value={replica}
+              placeholder="nº"
+              onChange={(e) => setReplica(e.target.value)}
+            />
+            <Botao ocupado={salvandoCultivo} onClick={salvarCondicao} semAcesso={podeMudarPh ? undefined : semAcessoAoCultivo}>
+              Salvar
+            </Botao>
+          </div>
+          <p className={avisoCultivo?.erro ? estilos.ajudaErro : estilos.ajuda} role="status">
+            {avisoCultivo?.texto ?? "Agrupa as células do experimento na taxa de crescimento."}
+          </p>
+        </div>
+      )}
 
       <div className={estilos.emBreve}>
         <ComandoEmBreve icone={iconeAgitacao} nome="Agitação" detalhe="Controlada pela placa · em breve" />

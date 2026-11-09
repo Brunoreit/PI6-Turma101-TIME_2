@@ -131,6 +131,12 @@ export function DetalheDoExperimento() {
           </div>
           <p className={estilos.subtitulo}>
             {experimento.tipo} · responsável {responsavel}
+            {experimento.baseadoEm && (
+              <>
+                {" · duplicado do "}
+                <Link to={`/experimentos/${experimento.baseadoEm}`}>{experimento.baseadoEm}</Link>
+              </>
+            )}
             {experimento.descricao && ` · ${experimento.descricao.charAt(0).toLowerCase()}${experimento.descricao.slice(1)}`}
           </p>
         </div>
@@ -260,7 +266,11 @@ export function DetalheDoExperimento() {
                 <span className={estilos.idCelula} role="cell">
                   {c.id}
                 </span>
-                <span role="cell">{c.condicao}</span>
+                <span role="cell">
+                  {c.condicao}
+                  {c.replica != null && ` · réplica ${c.replica}`}
+                  {c.continuaDe && <span className={estilos.motivoCelula}>continua de {c.continuaDe}</span>}
+                </span>
                 <span role="cell">
                   {c.cancelada ? (
                     <span title={c.motivo ? `Motivo: ${c.motivo}` : undefined}>
@@ -268,7 +278,10 @@ export function DetalheDoExperimento() {
                       {c.motivo && <span className={estilos.motivoCelula}>{c.motivo}</span>}
                     </span>
                   ) : c.situacao ? (
-                    <SeloDeStatus situacao={c.situacao} rotulo={c.fim ? "Liberada" : undefined} />
+                    <span title={c.motivo ? `Motivo: ${c.motivo}` : undefined}>
+                      <SeloDeStatus situacao={c.situacao} rotulo={c.fim ? "Liberada" : undefined} />
+                      {c.fim && c.motivo && <span className={estilos.motivoCelula}>{c.motivo}</span>}
+                    </span>
                   ) : (
                     "—"
                   )}

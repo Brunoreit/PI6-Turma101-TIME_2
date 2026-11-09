@@ -317,3 +317,13 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Resultado da nova calibração, ao voltar para Ajustes. */
+.avisoSalvo {
+  padding: 10px 14px;
+  border: 1px solid var(--status\/online);
+  border-radius: 8px;
+  background: var(--status\/online-fundo);
+  font-size: 13px;
+  color: var(--status\/online);
+}

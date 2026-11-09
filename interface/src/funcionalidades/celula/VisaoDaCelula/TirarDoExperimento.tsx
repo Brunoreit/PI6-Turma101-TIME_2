@@ -1,5 +1,5 @@
 // Painel para encerrar ou resetar a participação da célula no experimento.
-// Encerrar chama POST /cultivos/{id}/encerrar; Resetar chama
+// Encerrar chama POST /cultivos/{id}/encerrar, com motivo opcional; Resetar chama
 // POST /cultivos/{id}/cancelar, com o motivo pedido num modal. A API não
 // apaga nada, nem as leituras nem o armazenamento local da placa.
 
@@ -10,7 +10,6 @@ import { Botao } from "@/compartilhado/componentes/Botao";
 import { ModalDeMotivo } from "@/compartilhado/componentes/ModalDeMotivo";
 import { cancelarParticipacao, encerrarParticipacao } from "@/funcionalidades/celula/fonte";
 import type { DetalheDaCelula, ExperimentoDaCelula } from "@/funcionalidades/celula/modelo";
-import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
 import { useSessao } from "@/sessao/SessaoProvider";
 import { acessoNaCelula, podeMexer } from "./calculos";
@@ -30,7 +29,6 @@ export function TirarDoExperimento({ dados, experimento, aoMudar }: Props) {
   const { aviso, mostrar } = useAvisoDeAcesso();
   const [resetando, setResetando] = useState(false);
   const [encerrando, setEncerrando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
   const acesso = acessoNaCelula(experimento, buscar, usuario?.email);
   const pode = podeMexer(acesso);
 
@@ -44,19 +42,6 @@ export function TirarDoExperimento({ dados, experimento, aoMudar }: Props) {
       acao: `Pedir acesso a ${experimento.responsavel}`,
     });
 
-  async function encerrar() {
-    if (!window.confirm(`Tirar a ${dados.id} do ${experimento.codigo}? A célula fica livre a partir de agora.`)) return;
-    setErro(null);
-    setEncerrando(true);
-    try {
-      await encerrarParticipacao(experimento.idCultivo);
-      aoMudar();
-    } catch (falha) {
-      setErro(mensagemDoErro(falha));
-    } finally {
-      setEncerrando(false);
-    }
-  }
 
   return (
     <section className={comum.painel} aria-labelledby="titulo-tirar">
@@ -66,7 +51,7 @@ export function TirarDoExperimento({ dados, experimento, aoMudar }: Props) {
           <p className={comum.painelDescricao}>
             A célula sai do {experimento.codigo} e fica livre. As leituras feitas até agora continuam no experimento.
           </p>
-          <Botao ocupado={encerrando} onClick={encerrar} semAcesso={pode ? undefined : semAcesso("encerrar a participação")}>
+          <Botao onClick={() => setEncerrando(true)} semAcesso={pode ? undefined : semAcesso("encerrar a participação")}>
             Encerrar participação
           </Botao>
         </div>
@@ -79,11 +64,6 @@ export function TirarDoExperimento({ dados, experimento, aoMudar }: Props) {
             Resetar célula
           </Botao>
         </div>
-        {erro && (
-          <p className={estilos.ajudaErro} role="alert">
-            {erro}
-          </p>
-        )}
       </div>
       <div className={estilos.perdaDeConexao}>
         <img src={iconeSemConexao} width={16} height={16} alt="" />
@@ -94,6 +74,28 @@ export function TirarDoExperimento({ dados, experimento, aoMudar }: Props) {
       </div>
 
       <AvisoDeAcesso aviso={aviso} />
+      {encerrando && (
+        <ModalDeMotivo
+          titulo="Encerrar participação"
+          subtitulo={`${dados.id} · ${experimento.codigo} · ${experimento.nome}`}
+          consequencias={
+            <>
+              A {dados.id} sai do {experimento.codigo} agora e fica livre. As leituras feitas até aqui continuam no
+              experimento.
+            </>
+          }
+          placeholder="Ex.: fim da fase de crescimento"
+          acao="Encerrar participação"
+          opcional
+          perigo={false}
+          onFechar={() => setEncerrando(false)}
+          onConfirmar={async (motivo) => {
+            await encerrarParticipacao(experimento.idCultivo, motivo || null);
+            setEncerrando(false);
+            aoMudar();
+          }}
+        />
+      )}
       {resetando && (
         <ModalDeMotivo
           titulo="Resetar célula"
