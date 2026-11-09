@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import iconeOk from "@/assets/icones/check-13-verde.svg";
 import iconeEtapa from "@/assets/icones/etapa-feita.svg";
+import iconeLixeira from "@/assets/icones/lixeira.svg";
 import iconeMais from "@/assets/icones/mais-14-marca.svg";
 import { Botao } from "@/compartilhado/componentes/Botao";
 import { Campo } from "@/compartilhado/componentes/Campo";
@@ -95,6 +96,18 @@ export function NovaCalibracao() {
   function mudar(nome: string, campo: "od" | "bruto", valor: string) {
     setLinhas((ls) => ls.map((l) => (l.nome === nome ? { ...l, [campo]: valor } : l)));
     setEditando(nome);
+    setConferindo(false);
+  }
+
+  /** Tira o padrão da tabela e renumera os seguintes (P1, P2...). O branco não sai. */
+  function remover(nome: string) {
+    setLinhas((ls) => {
+      let numero = 0;
+      return ls
+        .filter((l) => l.nome !== nome)
+        .map((l) => (l.nome === "Branco" ? l : { ...l, nome: `P${++numero}` }));
+    });
+    setEditando(null);
     setConferindo(false);
   }
 
@@ -229,22 +242,35 @@ export function NovaCalibracao() {
                       )}
                     </span>
                   ))}
-                  <span role="cell">
-                    {emEdicao ? (
-                      <button type="button" className={estilos.preenchendo} onClick={() => setEditando(null)} title="Clique para terminar esta linha">
-                        preenchendo
-                      </button>
-                    ) : lido ? (
-                      foraDaFaixa ? (
-                        <span className={estilos.foraDaFaixa}>fora de 0,2 a 0,8</span>
+                  <span role="cell" className={estilos.situacao}>
+                    <span>
+                      {emEdicao ? (
+                        <button type="button" className={estilos.preenchendo} onClick={() => setEditando(null)} title="Clique para terminar esta linha">
+                          preenchendo
+                        </button>
+                      ) : lido ? (
+                        foraDaFaixa ? (
+                          <span className={estilos.foraDaFaixa}>fora de 0,2 a 0,8</span>
+                        ) : (
+                          <span className={estilos.ok}>
+                            <img src={iconeOk} width={13} height={13} alt="" />
+                            ok
+                          </span>
+                        )
                       ) : (
-                        <span className={estilos.ok}>
-                          <img src={iconeOk} width={13} height={13} alt="" />
-                          ok
-                        </span>
-                      )
-                    ) : (
-                      <span className={estilos.aPreencher}>a preencher</span>
+                        <span className={estilos.aPreencher}>a preencher</span>
+                      )}
+                    </span>
+                    {l.nome !== "Branco" && (
+                      <button
+                        type="button"
+                        className={estilos.remover}
+                        aria-label={`Excluir o ${l.nome}`}
+                        title={`Excluir o ${l.nome}`}
+                        onClick={() => remover(l.nome)}
+                      >
+                        <img src={iconeLixeira} width={16} height={16} alt="" />
+                      </button>
                     )}
                   </span>
                 </div>

@@ -376,3 +376,27 @@
   display: flex;
   opacity: 0.45;
 }
+
+/* Situação da linha e o botão de excluir o padrão, à direita. */
+.situacao {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.remover {
+  display: flex;
+  flex-shrink: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.remover:hover {
+  opacity: 1;
+  background: var(--fundo\/sutil);
+}
