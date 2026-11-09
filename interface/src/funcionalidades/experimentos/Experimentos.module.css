@@ -94,13 +94,20 @@
   background: var(--fundo\/pagina);
   border: 1px solid var(--borda\/padrao);
   border-radius: 8px;
-  overflow: hidden;
+  /* Abaixo da largura mínima das colunas, a tabela rola para o lado em vez
+     de cortar a coluna do Duplicar. */
+  overflow-x: auto;
 }
 
+/* As larguras do Figma (300, 140, 128, 176, 178, resto e 70 px) viram
+   proporções, para as colunas encolherem juntas em telas menores. */
 .cabecalhoTabela,
 .linha {
   display: grid;
-  grid-template-columns: 300px 140px 128px 176px 178px minmax(120px, 1fr) 70px;
+  grid-template-columns:
+    minmax(190px, 300fr) minmax(150px, 140fr) minmax(128px, 128fr) minmax(90px, 176fr)
+    minmax(150px, 178fr) minmax(120px, 120fr) 80px;
+  min-width: 910px;
   align-items: center;
 }
 
@@ -149,6 +156,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  max-width: 100%;
+  min-width: 0;
   white-space: nowrap;
 }
 
@@ -160,6 +169,7 @@
 }
 
 .nomeLink {
+  min-width: 0;
   overflow: hidden;
   font-size: 14px;
   font-weight: 600;

@@ -204,7 +204,7 @@ export function Experimentos() {
             <span className={`${estilos.coluna} ${estilos.colunaNome}`} role="cell">
               <span className={estilos.nome}>
                 <span className={estilos.codigo}>{e.codigo}</span>
-                <Link to={`/experimentos/${e.codigo}`} className={estilos.nomeLink} onClick={(ev) => ev.stopPropagation()}>
+                <Link to={`/experimentos/${e.codigo}`} className={estilos.nomeLink} title={e.nome} onClick={(ev) => ev.stopPropagation()}>
                   {e.nome}
                 </Link>
               </span>
