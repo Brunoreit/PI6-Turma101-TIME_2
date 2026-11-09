@@ -52,6 +52,7 @@ createRoot(document.getElementById("raiz")!).render(
             <Route path="experimentos" element={<Experimentos />} />
             <Route path="experimentos/novo" element={<NovoExperimento />} />
             <Route path="experimentos/:codigo" element={<DetalheDoExperimento />} />
+            <Route path="experimentos/:codigo/editar" element={<NovoExperimento />} />
             <Route path="historiador" element={<Historiador />} />
             <Route path="alertas" element={<Alertas />} />
             <Route path="exportar" element={<Exportar />} />

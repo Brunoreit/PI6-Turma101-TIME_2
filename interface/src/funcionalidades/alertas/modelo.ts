@@ -2,7 +2,8 @@
 // processo de regras do backend tem três verificações fixas (sem
 // comunicação, desvio de temperatura e setpoint sem confirmação), sem
 // endpoint para listar ou criar regras. Por isso a lista vem daqui e as
-// mudanças ficam só no navegador.
+// mudanças ficam na memória até recarregar a página. No modo api, a tela mostra
+// as regras fixas do backend, porque a API ainda não tem regras configuráveis.
 
 export type Gravidade = "aviso" | "critica";
 

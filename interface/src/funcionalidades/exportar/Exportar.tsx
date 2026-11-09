@@ -4,7 +4,7 @@
 // (GET /celulas/{id}/leituras.csv). Os outros formatos e agrupamentos ficam
 // como no Figma, mas o botão explica que ainda não estão disponíveis.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import arquivo12 from "@/assets/icones/arquivo-12.svg";
 import arquivo16 from "@/assets/icones/arquivo-16.svg";
@@ -16,14 +16,15 @@ import { Botao } from "@/compartilhado/componentes/Botao";
 import { CaixaDeSelecao } from "@/compartilhado/componentes/CaixaDeSelecao";
 import { Campo } from "@/compartilhado/componentes/Campo";
 import * as formatar from "@/compartilhado/formatar";
+import { celulasIniciais, useCelulas } from "@/dados/useCelulas";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
+import { fechado, ROTULO_DO_STATUS } from "@/funcionalidades/experimentos/modelo";
 import estilos from "./Exportar.module.css";
 
 type Modo = "experimento" | "celula";
 type Agrupamento = "brutos" | "hora" | "dia" | "intervalo";
 type Formato = "xlsx" | "csv";
 
-const TODAS_AS_CELULAS = Array.from({ length: 16 }, (_, i) => `c${String(i + 1).padStart(2, "0")}`);
 const LEITURAS_POR_HORA = 180; // uma a cada 20 s
 const HORA = 3_600_000;
 
@@ -58,7 +59,10 @@ function Opcao({ ativa, onClick, children, mono = false }: { ativa: boolean; onC
 }
 
 export function Exportar() {
-  const { experimentos } = useExperimentos();
+  const { experimentos: lista, buscar, carregarDetalhe } = useExperimentos();
+  // A lista da API não traz as células; o detalhe do experimento escolhido traz.
+  const experimentos = lista.map((e) => buscar(e.codigo) ?? e);
+  const { ids: todasAsCelulas, nome } = useCelulas();
   const [parametros] = useSearchParams();
   const agora = useMemo(() => new Date(), []);
   const [modo, setModo] = useState<Modo>(parametros.get("celulas") ? "celula" : "experimento");
@@ -66,7 +70,13 @@ export function Exportar() {
   const experimento = experimentos.find((e) => e.codigo === codigo);
   const celulasDoExperimento = experimento?.celulas.map((c) => c.id) ?? [];
   const [doExperimento, setDoExperimento] = useState<string[] | "todas">("todas");
-  const [avulsas, setAvulsas] = useState<string[]>(parametros.get("celulas")?.split(",") ?? ["c04", "c08"]);
+  // `null`: ainda não mexeu, vale a escolha inicial (que depende das células carregadas).
+  const [escolhaAvulsa, setAvulsas] = useState<string[] | null>(parametros.get("celulas")?.split(",") ?? null);
+  const avulsas = escolhaAvulsa ?? celulasIniciais(todasAsCelulas);
+  useEffect(() => {
+    if (codigo) carregarDetalhe(codigo).catch(() => {});
+    // carregarDetalhe muda a cada render do provider; o código basta.
+  }, [codigo]);
   const [de, setDe] = useState(() => paraEntrada(new Date(agora.getTime() - 12 * HORA)));
   const [ate, setAte] = useState(() => paraEntrada(agora));
   const [medidas, setMedidas] = useState({ temperatura: true, od: true, odBruta: true, ph: true, taxa: true });
@@ -153,10 +163,19 @@ export function Exportar() {
                     {experimentos.map((e) => (
                       <option key={e.codigo} value={e.codigo}>
                         {e.codigo} · {e.nome}
+                        {fechado(e) ? ` · ${ROTULO_DO_STATUS[e.status]}` : ""}
                       </option>
                     ))}
                   </select>
                 </label>
+                {experimento && fechado(experimento) && (
+                  <p className={estilos.avisoFechado}>
+                    {ROTULO_DO_STATUS[experimento.status]}
+                    {experimento.fim && ` em ${formatar.data(experimento.fim)}`}
+                    {experimento.status === "cancelado" && ` · motivo: ${experimento.motivoCancelamento ?? "não informado"}`}. Os dados
+                    continuam disponíveis para exportar.
+                  </p>
+                )}
                 <div className={estilos.grupo}>
                   <span className={estilos.rotulo}>Células</span>
                   {celulasDoExperimento.length === 0 ? (
@@ -168,7 +187,7 @@ export function Exportar() {
                       </Opcao>
                       {celulasDoExperimento.map((id) => (
                         <Opcao key={id} mono ativa={escolhidas.includes(id)} onClick={() => alternarDoExperimento(id)}>
-                          {id}
+                          {nome(id)}
                         </Opcao>
                       ))}
                     </div>
@@ -190,14 +209,14 @@ export function Exportar() {
                 <div className={estilos.grupo}>
                   <span className={estilos.rotulo}>Células · qualquer célula, com ou sem experimento</span>
                   <div className={estilos.chips}>
-                    {TODAS_AS_CELULAS.map((id) => (
+                    {todasAsCelulas.map((id) => (
                       <Opcao
                         key={id}
                         mono
                         ativa={avulsas.includes(id)}
-                        onClick={() => setAvulsas((a) => (a.includes(id) ? a.filter((c) => c !== id) : [...a, id].sort()))}
+                        onClick={() => setAvulsas(avulsas.includes(id) ? avulsas.filter((c) => c !== id) : [...avulsas, id].sort())}
                       >
-                        {id}
+                        {nome(id)}
                       </Opcao>
                     ))}
                   </div>

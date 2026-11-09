@@ -135,9 +135,20 @@
   outline-offset: 1px;
 }
 
-.erro {
+.erro,
+.dica {
   font-size: 12px;
   color: var(--status\/alerta);
+}
+
+.dica {
+  color: var(--texto\/secundario);
+}
+
+.seletor:disabled,
+.remover:disabled {
+  opacity: 0.5;
+  cursor: wait;
 }
 
 .lista {
@@ -159,8 +170,7 @@
   border-top: 1px solid var(--borda\/padrao);
 }
 
-.avatar,
-.avatarPendente {
+.avatar {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -172,11 +182,6 @@
   color: var(--marca\/texto);
   font-size: 12px;
   font-weight: 600;
-}
-
-.avatarPendente {
-  background: var(--fundo\/sutil);
-  color: var(--texto\/secundario);
 }
 
 .pessoaTextos {

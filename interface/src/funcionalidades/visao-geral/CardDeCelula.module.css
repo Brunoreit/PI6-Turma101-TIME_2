@@ -39,6 +39,13 @@
 }
 
 .id {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--fonte-mono);
   font-size: 15px;
   font-weight: 600;
@@ -122,4 +129,19 @@
 .offline .valor,
 .offline .odValor {
   color: var(--texto\/secundario);
+}
+
+/* Com apelido, o id da placa aparece pequeno ao lado. */
+.idDaPlaca {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--texto\/secundario);
+}
+
+.apelido {
+  font-family: inherit;
+}
+
+.apelido .idDaPlaca {
+  font-family: var(--fonte-mono);
 }

@@ -5,7 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Botao } from "@/compartilhado/componentes/Botao";
 import { Campo } from "@/compartilhado/componentes/Campo";
 import { senhaValida, useSessao } from "@/sessao/SessaoProvider";
-import { AvisoDeErro, CartaoDeConta } from "./CartaoDeConta";
+import { AvisoDeErro, CartaoDeConta, mensagemDoErro } from "./CartaoDeConta";
 import estilos from "./Conta.module.css";
 import { RegrasDaSenha } from "./RegrasDaSenha";
 
@@ -17,15 +17,24 @@ export function Cadastro() {
   const [senha, setSenha] = useState("");
   const [confirmacao, setConfirmacao] = useState("");
   const [erro, setErro] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
   const confirmacaoErrada = confirmacao !== "" && confirmacao !== senha;
 
-  function enviar() {
+  async function enviar() {
+    if (enviando) return;
     if (!nome.trim() || !email.includes("@")) return setErro("Preencha o nome completo e um e-mail válido.");
     if (!senhaValida(senha)) return setErro("A senha precisa ter 8 caracteres ou mais, com letras e números.");
     if (senha !== confirmacao) return setErro("As duas senhas não são iguais. Digite a mesma senha nos dois campos.");
-    const falha = cadastrar({ nome: nome.trim(), email, senha });
-    if (falha) setErro(falha);
-    else navegar("/", { replace: true });
+    // A API confere tudo de novo; o que ela recusar (e-mail já usado, por
+    // exemplo) aparece no aviso com o texto dela.
+    setEnviando(true);
+    try {
+      await cadastrar(nome, email, senha);
+      navegar("/", { replace: true });
+    } catch (falha) {
+      setErro(mensagemDoErro(falha));
+      setEnviando(false);
+    }
   }
 
   return (
@@ -63,8 +72,8 @@ export function Cadastro() {
         erro={confirmacaoErrada}
         ajuda={confirmacaoErrada ? "As senhas não são iguais." : undefined}
       />
-      <Botao tipo="primario" submit cheio>
-        Criar conta
+      <Botao tipo="primario" submit cheio ocupado={enviando}>
+        {enviando ? "Criando conta..." : "Criar conta"}
       </Botao>
     </CartaoDeConta>
   );

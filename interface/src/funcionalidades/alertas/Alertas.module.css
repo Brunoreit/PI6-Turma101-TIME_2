@@ -383,3 +383,10 @@
   font-size: 13px;
   color: var(--texto\/secundario);
 }
+
+/* O que o tipo de alerta quer dizer e quando fecha. */
+.ajudaAlerta {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--texto\/secundario);
+}

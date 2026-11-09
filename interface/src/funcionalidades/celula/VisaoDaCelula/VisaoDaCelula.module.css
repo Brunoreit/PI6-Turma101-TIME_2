@@ -734,3 +734,54 @@
   font-size: 12px;
   color: var(--texto\/secundario);
 }
+
+/* Aviso depois de atribuir: o cultivo começou, mas a temperatura não foi enviada. */
+.avisoCultivo {
+  padding: 10px 14px;
+  border: 1px solid var(--status\/alerta-borda);
+  border-radius: 8px;
+  background: var(--status\/alerta-fundo);
+  font-size: 13px;
+  color: var(--status\/alerta);
+}
+
+/* Atribuir: réplica ao lado da condição e o seletor de "continua de". */
+.entradaCurta {
+  width: 64px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina);
+  font: inherit;
+  font-size: 14px;
+  color: var(--texto\/principal);
+}
+
+.seletorSimples {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina);
+  font: inherit;
+  font-size: 13px;
+  color: var(--texto\/principal);
+}
+
+/* Horário em que o pedido chegou a cada etapa. */
+.etapaHora {
+  margin-left: 4px;
+  font-family: var(--fonte-mono);
+  font-size: 10px;
+  color: var(--texto\/secundario);
+}
+
+.avisoCultivoOk {
+  padding: 10px 14px;
+  border: 1px solid var(--status\/online);
+  border-radius: 8px;
+  background: var(--status\/online-fundo);
+  font-size: 13px;
+  color: var(--status\/online);
+}

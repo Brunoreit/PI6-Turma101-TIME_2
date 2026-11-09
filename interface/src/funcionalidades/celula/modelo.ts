@@ -11,6 +11,16 @@ export const TEMPERATURA_MAX_C = 45;
 export type Periodo = "6h" | "24h" | "7d" | "experimento";
 
 export interface ExperimentoDaCelula {
+  /** Ids da API (modo api). No modo exemplo não existem. */
+  idExperimento?: number;
+  idCultivo?: number;
+  /** Acesso da pessoa logada, pela API. `null`: a pessoa não tem acesso ao
+   *  experimento e só vê que a célula está em uso. No modo exemplo fica vazio. */
+  acesso?: "responsavel" | "modificar" | "leitura" | null;
+  /** Condição deste cultivo, como "30 °C". */
+  condicao?: string | null;
+  /** Número da réplica dentro da condição, quando há. */
+  replica?: number | null;
   codigo: string;
   nome: string;
   modo: string;
@@ -19,7 +29,8 @@ export interface ExperimentoDaCelula {
   dia: number;
   duracaoDias: number;
   alvoC: number | null;
-  /** Faixa de pH de referência. Serve só para os alertas. */
+  /** Faixa de pH de referência do cultivo (começa igual à do experimento).
+   *  Serve só para os alertas. */
   phMin: number | null;
   phMax: number | null;
 }
@@ -31,6 +42,12 @@ export interface Placa {
   sensores: string[];
   onlineDesde: Date | null;
   keepaliveS: number | null;
+  /** Primeira vez que a placa se anunciou ao sistema (modo api). */
+  primeiroAnuncio?: Date | null;
+  /** Último sinal recebido da placa, de qualquer tipo (modo api). */
+  ultimoContato?: Date | null;
+  /** Último número de sequência gravado (modo api). */
+  ultimoSeq?: number | null;
 }
 
 export type EstadoDoPedido = "solicitado" | "recebido" | "aplicado" | "atingido" | "recusado";
@@ -42,6 +59,10 @@ export interface PedidoDeSetpoint {
   motivo: string | null;
   solicitadoPor: string;
   solicitadoEm: Date;
+  /** Horário de cada etapa, quando a API informa. */
+  recebidoEm?: Date | null;
+  aplicadoEm?: Date | null;
+  atingidoEm?: Date | null;
 }
 
 /** Médias de cada intervalo do período, da mais antiga para a mais recente.
@@ -87,6 +108,8 @@ export interface EtapaDoCaminho {
 }
 
 export interface Integridade {
+  /** Primeiro número de sequência gravado (modo api). */
+  primeiroSeq?: number;
   ultimoSeq: number;
   gravadas: number;
   repetidas: number | null;
@@ -104,6 +127,13 @@ export interface Mensagem {
 
 export interface DetalheDaCelula {
   id: string;
+  /** Nome de exibição, editável em Ajustes. Sem apelido, as telas mostram o id. */
+  apelido?: string | null;
+  /** Anotação livre da equipe sobre a célula. */
+  descricao?: string | null;
+  /** A última leitura gravada, com os horários de medida e de chegada e a
+   *  calibração que converteu a OD (modo api). */
+  ultimaLeitura?: { seq: number; medidaEm: Date; recebidaEm: Date; idCalibracao: number | null } | null;
   situacao: SituacaoCelula;
   /** `null`: célula livre. `undefined`: a API ainda não informa. */
   experimento: ExperimentoDaCelula | null | undefined;

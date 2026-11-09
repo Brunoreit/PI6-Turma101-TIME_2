@@ -74,7 +74,9 @@ export function gerarExemplo(agora: Date = new Date()): VisaoGeral {
       {
         id: 1,
         idCelula: "c03",
+        tipo: "desvio_temperatura",
         titulo: "Desvio de temperatura",
+        ajuda: "A temperatura está longe do alvo. Fecha sozinho quando ela voltar para perto do alvo.",
         mensagem: "Temperatura em 33,4 °C, alvo de 30,0 °C.",
         abertoEm: antes(12 * MINUTO),
       },

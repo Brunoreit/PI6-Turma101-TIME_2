@@ -1,9 +1,11 @@
 // Trilha, título e abas comuns às telas da célula (Visão da célula, Ajustes
 // e Diagnóstico). "Ver no historiador" aparece em todas, antes da ação da tela.
+// O título é o apelido da célula; sem apelido, o id.
 
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { Botao } from "@/compartilhado/componentes/Botao";
+import { useCelulas } from "@/dados/useCelulas";
 import estilos from "./Celula.module.css";
 
 const ABAS = [
@@ -24,19 +26,23 @@ interface Props {
 
 export function CabecalhoDaCelula({ id, aba, subtitulo, acao, erro }: Props) {
   const base = `/celulas/${encodeURIComponent(id)}`;
+  const nome = useCelulas().nome(id);
   return (
     <>
       <nav className={estilos.trilha} aria-label="Trilha">
         <Link to="/" className={estilos.trilhaLink}>Visão geral</Link>
         <span aria-hidden>/</span>
-        <Link to={base} className={estilos.trilhaLink}>{id}</Link>
+        <Link to={base} className={estilos.trilhaLink}>{nome}</Link>
         <span aria-hidden>/</span>
         <span aria-current="page">{aba}</span>
       </nav>
 
       <header className={estilos.cabecalho}>
         <div className={estilos.tituloBloco}>
-          <h1 className={estilos.titulo}>{id}</h1>
+          <h1 className={nome !== id ? `${estilos.titulo} ${estilos.tituloApelido}` : estilos.titulo}>
+            {nome}
+            {nome !== id && <span className={estilos.idDaPlaca}>{id}</span>}
+          </h1>
           <p className={estilos.subtitulo}>{subtitulo}</p>
           {erro && <p className={estilos.erro}>Falha na última atualização: {erro}</p>}
         </div>
@@ -44,7 +50,7 @@ export function CabecalhoDaCelula({ id, aba, subtitulo, acao, erro }: Props) {
         {acao}
       </header>
 
-      <nav className={estilos.abas} aria-label={`Telas da célula ${id}`}>
+      <nav className={estilos.abas} aria-label={`Telas da célula ${nome}`}>
         {ABAS.map((item) => (
           <NavLink
             key={item.caminho}

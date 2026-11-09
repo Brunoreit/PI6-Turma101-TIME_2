@@ -1,6 +1,7 @@
 // Telas "Recuperar senha" e "Recuperar senha · e-mail enviado" do Figma
-// (nós 207:1983 e 207:2015). O envio do e-mail depende da API, que ainda
-// não tem esse recurso: a tela só mostra a confirmação.
+// (nós 207:1983 e 207:2015). A API ainda não tem rota para enviar o e-mail
+// de recuperação, então o botão fica indisponível e explica o motivo. A tela
+// de e-mail enviado já está pronta para quando a rota existir.
 
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -11,11 +12,14 @@ import { Campo } from "@/compartilhado/componentes/Campo";
 import { AvisoDeErro, CartaoDeConta } from "./CartaoDeConta";
 import estilos from "./Conta.module.css";
 
+const SEM_RECUPERACAO =
+  "Ainda não disponível: a API não tem a rota para enviar o e-mail de recuperação de senha.";
+
 export function RecuperarSenha() {
   const inicial = (useLocation().state as { email?: string } | null)?.email ?? "";
   const [email, setEmail] = useState(inicial);
   const [enviado, setEnviado] = useState(false);
-  const [erro, setErro] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   if (enviado) {
     return (
@@ -51,10 +55,7 @@ export function RecuperarSenha() {
     <CartaoDeConta
       titulo="Recuperar senha"
       subtitulo="Digite o e-mail da sua conta. Vamos enviar um link para você criar uma senha nova."
-      onSubmit={() => {
-        if (email.includes("@")) setEnviado(true);
-        else setErro(true);
-      }}
+      onSubmit={() => setErro(SEM_RECUPERACAO)}
       rodape={
         <Link to="/entrar" className={`${estilos.link} ${estilos.voltar}`}>
           <img src={iconeVoltar} width={14} height={14} alt="" />
@@ -62,7 +63,7 @@ export function RecuperarSenha() {
         </Link>
       }
     >
-      {erro && <AvisoDeErro>Digite um e-mail válido, como nome@cnpem.br.</AvisoDeErro>}
+      {erro && <AvisoDeErro>{erro}</AvisoDeErro>}
       <Campo
         rotulo="E-mail"
         tipo="email"
@@ -70,9 +71,8 @@ export function RecuperarSenha() {
         onChange={setEmail}
         placeholder="nome@cnpem.br"
         autoComplete="email"
-        erro={erro}
       />
-      <Botao tipo="primario" submit cheio>
+      <Botao tipo="primario" submit cheio indisponivel={SEM_RECUPERACAO}>
         Enviar link
       </Botao>
     </CartaoDeConta>

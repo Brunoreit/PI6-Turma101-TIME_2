@@ -16,13 +16,14 @@ import { Botao } from "@/compartilhado/componentes/Botao";
 import { Campo } from "@/compartilhado/componentes/Campo";
 import * as formatar from "@/compartilhado/formatar";
 import { FONTE_DADOS } from "@/dados/fonte";
+import { celulasIniciais, useCelulas } from "@/dados/useCelulas";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
+import { fechado, ROTULO_DO_STATUS } from "@/funcionalidades/experimentos/modelo";
 import { carregarSeries, estatistica, type Serie, type Variavel } from "./dados";
 import { GraficoDeComparacao, type Contexto } from "./GraficoDeComparacao";
 import estilos from "./Historiador.module.css";
 
 const MAXIMO_DE_CELULAS = 4;
-const TODAS_AS_CELULAS = Array.from({ length: 16 }, (_, i) => `c${String(i + 1).padStart(2, "0")}`);
 const CORES = ["var(--serie\\/1)", "var(--serie\\/2)", "var(--serie\\/3)", "var(--serie\\/4)"];
 const HORA = 3_600_000;
 
@@ -69,13 +70,34 @@ const CLASSE_DO_TIPO: Record<Evento["tipo"], string> = {
   Anotação: estilos.tipoComando,
 };
 
+function dataDoParametro(texto: string | null): Date | null {
+  const data = texto ? new Date(texto) : null;
+  return data && !Number.isNaN(data.getTime()) ? data : null;
+}
+
 export function Historiador() {
-  const { experimentos } = useExperimentos();
+  const { experimentos: lista, buscar, carregarDetalhe } = useExperimentos();
+  // A lista da API não traz as células; o detalhe traz, com o período de cada
+  // uma. As faixas de contexto usam o detalhe.
+  const experimentos = lista.map((e) => buscar(e.codigo) ?? e);
+  const codigos = lista.map((e) => e.codigo).join(",");
+  useEffect(() => {
+    if (FONTE_DADOS !== "api") return;
+    for (const codigo of codigos.split(",").filter(Boolean)) carregarDetalhe(codigo).catch(() => {});
+    // carregarDetalhe muda a cada render do provider; os códigos bastam.
+  }, [codigos]);
   const [parametros, setParametros] = useSearchParams();
-  const celulas = (parametros.get("celulas")?.split(",").filter(Boolean) ?? ["c04", "c08"]).slice(0, MAXIMO_DE_CELULAS);
+  const { ids: todasAsCelulas, nome } = useCelulas();
+  const celulas = (parametros.get("celulas")?.split(",").filter(Boolean) ?? celulasIniciais(todasAsCelulas)).slice(0, MAXIMO_DE_CELULAS);
   const [variaveis, setVariaveis] = useState<Set<Variavel | "setpoint">>(new Set(["temperatura", "od", "ph"]));
-  const [horas, setHoras] = useState(12);
-  const [fim, setFim] = useState(() => new Date());
+  // ?inicio=...&fim=... (datas ISO) abre num período, como o "Ver no
+  // historiador" do experimento. Sem fim, vai até agora.
+  const [fim, setFim] = useState(() => dataDoParametro(parametros.get("fim")) ?? new Date());
+  const [horas, setHoras] = useState(() => {
+    const inicioPedido = dataDoParametro(parametros.get("inicio"));
+    // Um pouco de folga antes do início; no mínimo 6 min.
+    return inicioPedido ? Math.max(0.1, ((fim.getTime() - inicioPedido.getTime()) / HORA) * 1.1) : 12;
+  });
   const [series, setSeries] = useState<Serie[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [escolhendo, setEscolhendo] = useState(false);
@@ -86,7 +108,7 @@ export function Historiador() {
   const chave = celulas.join(",");
 
   const emExperimento = celulas
-    .filter((id) => experimentos.some((e) => e.status !== "encerrado" && e.celulas.some((c) => c.id === id && c.fim === null)))
+    .filter((id) => experimentos.some((e) => !fechado(e) && e.celulas.some((c) => c.id === id && c.fim === null)))
     .join(",");
 
   useEffect(() => {
@@ -119,11 +141,12 @@ export function Historiador() {
       e.celulas.some((c) => c.id === id && c.inicio <= fim && (c.fim === null || c.fim >= inicio)),
     );
     const participacao = experimento?.celulas.find((c) => c.id === id);
-    if (!experimento || !participacao) return { idCelula: id, texto: `${id} · sem experimento`, emExperimento: false };
+    if (!experimento || !participacao) return { idCelula: id, texto: `${nome(id)} · sem experimento`, emExperimento: false };
     const ate = participacao.fim ? formatar.diaMes(participacao.fim) : "agora";
     return {
       idCelula: id,
-      texto: `${id} · ${experimento.codigo} · ${experimento.nome} (${formatar.diaMes(participacao.inicio)} até ${ate})`,
+      texto: `${nome(id)} · ${experimento.codigo} · ${experimento.nome} (${formatar.diaMes(participacao.inicio)} até ${ate})${
+        fechado(experimento) ? ` · experimento ${ROTULO_DO_STATUS[experimento.status].toLowerCase()}` : ""}`,
       emExperimento: true,
     };
   });
@@ -171,8 +194,8 @@ export function Historiador() {
           {celulas.map((id) => (
             <span key={id} className={estilos.celula}>
               <span className={estilos.pontoCor} style={{ background: cores[id] }} />
-              {id}
-              <button type="button" aria-label={`Tirar a ${id}`} onClick={() => mudarCelulas(celulas.filter((c) => c !== id))}>
+              {nome(id)}
+              <button type="button" aria-label={`Tirar a ${nome(id)}`} onClick={() => mudarCelulas(celulas.filter((c) => c !== id))}>
                 <img src={fechar} width={12} height={12} alt="" />
               </button>
             </span>
@@ -192,8 +215,10 @@ export function Historiador() {
                 <option value="" disabled>
                   Escolha a célula
                 </option>
-                {TODAS_AS_CELULAS.filter((c) => !celulas.includes(c)).map((c) => (
-                  <option key={c}>{c}</option>
+                {todasAsCelulas.filter((c) => !celulas.includes(c)).map((c) => (
+                  <option key={c} value={c}>
+                    {nome(c)}
+                  </option>
                 ))}
               </select>
             ) : (
@@ -270,7 +295,7 @@ export function Historiador() {
             {celulas.map((id) => (
               <span key={id}>
                 <span className={estilos.tracoLegenda} style={{ background: cores[id] }} />
-                {id}
+                {nome(id)}
               </span>
             ))}
           </div>
@@ -289,6 +314,7 @@ export function Historiador() {
               contexto={contexto}
               rotulosTempo={rotulosTempo}
               buracos={[...new Set(buracos)]}
+              nome={nome}
             />
           )
         )}
@@ -318,7 +344,7 @@ export function Historiador() {
                   {horas > 24 ? formatar.diaHora(e.t, true) : formatar.hora(e.t)}
                 </span>
                 <span role="cell" className={estilos.celulaEvento} style={{ color: cores[e.idCelula] }}>
-                  {e.idCelula}
+                  {nome(e.idCelula)}
                 </span>
                 <span role="cell">
                   <span className={CLASSE_DO_TIPO[e.tipo]}>{e.tipo}</span>
@@ -354,7 +380,7 @@ export function Historiador() {
                       <tr key={`${v}-${s.idCelula}`} className={i === 0 ? estilos.inicioDoGrupo : undefined}>
                         <td>{i === 0 ? NOMES[v].replace("Densidade óptica", "OD") : ""}</td>
                         <td className={estilos.celulaEvento} style={{ color: cores[s.idCelula] }}>
-                          {s.idCelula}
+                          {nome(s.idCelula)}
                         </td>
                         <td>{e ? f(e.minimo) : "—"}</td>
                         <td>{e ? f(e.media) : "—"}</td>

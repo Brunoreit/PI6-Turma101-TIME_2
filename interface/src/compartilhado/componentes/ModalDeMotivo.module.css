@@ -1,0 +1,124 @@
+/* Modal que pede um motivo, no desenho do modal Confirmar temperatura (Figma, nó 148:1644). */
+.fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 160px 20px 40px;
+  overflow-y: auto;
+  background: rgba(22, 25, 31, 0.32);
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 480px;
+  max-width: 100%;
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--fundo\/pagina);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+.cabecalho {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.textos {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.textos h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.textos p {
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.fechar {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.consequencias {
+  padding: 10px 12px;
+  border: 1px solid var(--status\/alerta-borda);
+  border-radius: 6px;
+  background: var(--status\/alerta-fundo);
+  font-size: 13px;
+  color: var(--status\/alerta);
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.campo label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.campo textarea {
+  width: 100%;
+  min-height: 84px;
+  padding: 9px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/pagina);
+  font: inherit;
+  font-size: 14px;
+  color: var(--texto\/principal);
+  resize: vertical;
+}
+
+.campo textarea:focus {
+  border-color: var(--marca\/principal);
+  outline: 1px solid var(--marca\/principal);
+}
+
+.campo textarea[aria-invalid] {
+  border-color: var(--status\/alerta);
+  outline-color: var(--status\/alerta);
+}
+
+.ajuda,
+.erro {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.erro {
+  color: var(--status\/alerta);
+}
+
+.botoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Ação que não é perigosa, como encerrar a participação. */
+.observacao {
+  padding: 10px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}

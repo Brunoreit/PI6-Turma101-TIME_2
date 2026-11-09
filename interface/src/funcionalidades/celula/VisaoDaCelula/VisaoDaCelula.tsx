@@ -1,7 +1,8 @@
 // Telas "Célula c08 · visão da célula" e "Célula c04 · livre" do Figma (nós
 // 105:1629 e 153:1633). Cada painel fica num arquivo desta pasta; aqui só a
 // montagem da tela. Sem experimento, Atribuir experimento entra no lugar dos
-// Comandos e o Histórico da célula no lugar de Tirar do experimento.
+// Comandos e o Histórico da célula no lugar de Tirar do experimento. No modo
+// api, o experimento vem do cultivo aberto na célula.
 
 import { useState } from "react";
 import { useParams } from "react-router-dom";
@@ -9,6 +10,7 @@ import { Botao } from "@/compartilhado/componentes/Botao";
 import { CabecalhoDaCelula, CarregandoCelula } from "@/funcionalidades/celula/CabecalhoDaCelula";
 import type { Periodo } from "@/funcionalidades/celula/modelo";
 import { useCelula } from "@/funcionalidades/celula/useCelula";
+import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
 import { Alertas } from "./Alertas";
 import { AtribuirExperimento } from "./AtribuirExperimento";
 import { CelulaDeCultivo } from "./CelulaDeCultivo";
@@ -26,6 +28,16 @@ export function VisaoDaCelula() {
   const { id = "" } = useParams();
   const [periodo, setPeriodo] = useState<Periodo>("24h");
   const { dados, erro, recarregar } = useCelula(id, periodo);
+  const experimentos = useExperimentos();
+  /** Depois de atribuir: o cultivo e o pedido de temperatura, ou o que deu errado. */
+  const [aviso, setAviso] = useState<{ erro: boolean; texto: string } | null>(null);
+
+  // Atribuir, encerrar ou cancelar mudam a célula e o status do experimento.
+  function depoisDeMudar(novoAviso: { erro: boolean; texto: string } | null = null) {
+    setAviso(novoAviso);
+    recarregar();
+    experimentos.recarregar();
+  }
 
   if (!dados) return <CarregandoCelula id={id} aba="Visão da célula" erro={erro} />;
 
@@ -40,12 +52,24 @@ export function VisaoDaCelula() {
         erro={erro}
         acao={
           experimento ? (
-            <Botao para={`/experimentos/${encodeURIComponent(experimento.codigo)}`}>Abrir experimento</Botao>
+            experimento.acesso === null ? (
+              <Botao indisponivel={`A célula está no ${experimento.codigo}, de outra pessoa, que não foi compartilhado com você.`}>
+                Abrir experimento
+              </Botao>
+            ) : (
+              <Botao para={`/experimentos/${encodeURIComponent(experimento.codigo)}`}>Abrir experimento</Botao>
+            )
           ) : (
             <Botao para="/experimentos">Ver experimentos</Botao>
           )
         }
       />
+
+      {aviso && (
+        <p className={aviso.erro ? estilos.avisoCultivo : estilos.avisoCultivoOk} role={aviso.erro ? "alert" : "status"}>
+          {aviso.texto}
+        </p>
+      )}
 
       <FaixaDeStatus dados={dados} />
 
@@ -54,7 +78,7 @@ export function VisaoDaCelula() {
         <CelulaDeCultivo dados={dados} />
         {/* key: ao trocar de célula, os campos voltam aos valores dela. */}
         {experimento === null ? (
-          <AtribuirExperimento key={id} dados={dados} />
+          <AtribuirExperimento key={id} dados={dados} aoAtribuir={depoisDeMudar} />
         ) : (
           <Comandos key={id} dados={dados} aoEnviar={recarregar} />
         )}
@@ -66,7 +90,11 @@ export function VisaoDaCelula() {
 
       <div className={experimento !== undefined ? estilos.linhaLeituras : undefined}>
         <Leituras dados={dados} periodo={periodo} aoMudarPeriodo={setPeriodo} />
-        {experimento ? <TirarDoExperimento experimento={experimento} /> : experimento === null && <HistoricoDaCelula dados={dados} />}
+        {experimento ? (
+          <TirarDoExperimento key={experimento.idCultivo ?? experimento.codigo} dados={dados} experimento={experimento} aoMudar={() => depoisDeMudar()} />
+        ) : (
+          experimento === null && <HistoricoDaCelula dados={dados} />
+        )}
       </div>
     </div>
   );

@@ -35,7 +35,7 @@ export const EXPERIMENTOS_EXEMPLO: Experimento[] = [
     convidados: [
       { ...PESSOAS.pedro, acesso: "leitura" },
       { ...PESSOAS.henry, acesso: "modificar" },
-      { ...PESSOAS.gabriel, acesso: "leitura", pendente: true },
+      { ...PESSOAS.gabriel, acesso: "leitura" },
     ],
     inicio: diasAtras(18),
     fim: null,

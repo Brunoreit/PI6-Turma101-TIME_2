@@ -56,7 +56,7 @@ Depois de alguns segundos:
 
 | O quê | Onde |
 |---|---|
-| Interface web | http://localhost:8080 (conta de demonstração: `pedro.ximenes@cnpem.br`, senha `evolver123`) |
+| Interface web | http://localhost:8080 (crie uma conta em "Criar conta"; o login é pela API) |
 | Documentação interativa da API | http://localhost:8000/docs |
 | Estado das células | http://localhost:8000/celulas |
 | Histórico completo e sem repetições? | http://localhost:8000/integridade |
@@ -185,8 +185,7 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 
 ## Próximos passos
 
-- Ligar a interface ao login e às rotas de experimentos, acessos e cultivos. Hoje o login da interface é só de demonstração, com as contas no navegador
 - Fechar o contrato de mensagens com o grupo do hardware (`docs/contrato-mqtt.md`)
 - Login nas rotas antigas e senha no broker
-- Endpoints para as telas que ainda usam dados de exemplo: regras de alerta e exportação agrupada
+- Endpoints de regras de alerta e de exportação agrupada, as duas partes da interface que ainda não têm API
 - Sinal de vida do consumidor, para evitar o alerta falso
