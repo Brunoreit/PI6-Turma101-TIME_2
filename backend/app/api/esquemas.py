@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class NovoSetpoint(BaseModel):
     temperatura_c: float = Field(description="Temperatura alvo em °C")
-    solicitado_por: str = Field(default="anonimo", max_length=80)
 
 
 class PontoCalibracao(BaseModel):

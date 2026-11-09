@@ -3,9 +3,9 @@
 A interface nunca acessa o banco nem o broker direto: tudo passa por aqui,
 para que validação do setpoint e registro de quem pediu fiquem num lugar só.
 
-Login por e-mail e senha (rotas /auth). As rotas que já existiam continuam
-abertas: com token, só passam a gravar quem fez o pedido. As de experimentos,
-acessos e cultivos, e a alteração de célula, exigem login.
+Login por e-mail e senha (rotas /auth). Todas as outras rotas exigem login,
+menos /saude, que o healthcheck do Docker usa. O setpoint e a calibração
+gravam quem fez o pedido.
 
 Executar: uvicorn app.api.main:app --host 0.0.0.0 --port 8000
 Documentação interativa em http://localhost:8000/docs
@@ -119,6 +119,7 @@ def _conferir_temperatura(temperatura_c: float) -> None:
 
 @app.get("/saude")
 def saude():
+    """Aberta, sem login: só diz se o banco e o broker respondem."""
     try:
         with estado["pool"].connection(timeout=2) as conn:
             conn.execute("SELECT 1")
@@ -160,7 +161,7 @@ def eu(pessoa: PessoaLogada):
 
 
 @app.get("/celulas")
-def listar_celulas(conn: Conexao):
+def listar_celulas(conn: Conexao, _pessoa: PessoaLogada):
     return repo.listar_celulas(conn)
 
 
@@ -176,7 +177,7 @@ def alterar_celula(conn: Conexao, _pessoa: PessoaLogada, id_celula: str, corpo: 
 
 
 @app.get("/celulas/{id_celula}/leituras")
-def listar_leituras(conn: Conexao, id_celula: str, desde: datetime | None = None,
+def listar_leituras(conn: Conexao, _pessoa: PessoaLogada, id_celula: str, desde: datetime | None = None,
                     limite: int = Query(1000, ge=1, le=10000)):
     _exigir_celula(conn, id_celula)
     return repo.listar_leituras(conn, id_celula, desde, limite)
@@ -195,7 +196,7 @@ def _celula_csv(valor) -> str:
 
 
 @app.get("/celulas/{id_celula}/leituras.csv")
-def exportar_leituras(conn: Conexao, id_celula: str):
+def exportar_leituras(conn: Conexao, _pessoa: PessoaLogada, id_celula: str):
     _exigir_celula(conn, id_celula)
 
     # O streaming continua depois que a requisição devolve a conexão dela,
@@ -224,17 +225,15 @@ def exportar_leituras(conn: Conexao, id_celula: str):
 
 
 @app.post("/celulas/{id_celula}/setpoint", status_code=202)
-def pedir_setpoint(conn: Conexao, pessoa: PessoaOpcional, id_celula: str, corpo: NovoSetpoint):
+def pedir_setpoint(conn: Conexao, pessoa: PessoaLogada, id_celula: str, corpo: NovoSetpoint):
     _exigir_celula(conn, id_celula)
     _conferir_temperatura(corpo.temperatura_c)
     if not estado["mqtt"].is_connected():
         # Não publica: o paho guardaria a mensagem e a enviaria depois,
         # e um pedido recusado aqui seria aplicado lá na célula.
         raise HTTPException(503, "Broker indisponível. Tente de novo em alguns segundos.")
-    # Com login, quem pediu é a pessoa do token, não o que veio no corpo.
-    solicitado_por = pessoa["nome"] if pessoa else corpo.solicitado_por
-    pedido, _ = _enviar_setpoint(conn, id_celula, corpo.temperatura_c, solicitado_por,
-                                 pessoa["id_pessoa"] if pessoa else None)
+    # Quem pediu é sempre a pessoa do token.
+    pedido, _ = _enviar_setpoint(conn, id_celula, corpo.temperatura_c, pessoa["nome"], pessoa["id_pessoa"])
     return pedido
 
 
@@ -261,13 +260,13 @@ def _enviar_setpoint(conn: psycopg.Connection, id_celula: str, temperatura_c: fl
 
 
 @app.get("/celulas/{id_celula}/setpoints")
-def listar_setpoints(conn: Conexao, id_celula: str):
+def listar_setpoints(conn: Conexao, _pessoa: PessoaLogada, id_celula: str):
     _exigir_celula(conn, id_celula)
     return repo.listar_pedidos(conn, id_celula)
 
 
 @app.get("/setpoints/{id_pedido}")
-def buscar_setpoint(conn: Conexao, id_pedido: str):
+def buscar_setpoint(conn: Conexao, _pessoa: PessoaLogada, id_pedido: str):
     pedido = repo.buscar_pedido(conn, id_pedido)
     if pedido is None:
         raise HTTPException(404, f"Pedido {id_pedido} não encontrado.")
@@ -275,23 +274,23 @@ def buscar_setpoint(conn: Conexao, id_pedido: str):
 
 
 @app.post("/celulas/{id_celula}/calibracoes", status_code=201)
-def cadastrar_calibracao(conn: Conexao, pessoa: PessoaOpcional, id_celula: str, corpo: NovaCalibracao):
+def cadastrar_calibracao(conn: Conexao, pessoa: PessoaLogada, id_celula: str, corpo: NovaCalibracao):
     _exigir_celula(conn, id_celula)
     return repo.nova_calibracao(
         conn, id_celula, corpo.a, corpo.b,
         recalcular=corpo.recalcular, desde=corpo.recalcular_desde,
         pontos=[p.model_dump() for p in corpo.pontos] if corpo.pontos is not None else None,
-        r2=corpo.r2, organismo=corpo.organismo, id_pessoa=pessoa["id_pessoa"] if pessoa else None,
+        r2=corpo.r2, organismo=corpo.organismo, id_pessoa=pessoa["id_pessoa"],
     )
 
 
 @app.get("/alertas")
-def listar_alertas(conn: Conexao, abertos: bool = True):
+def listar_alertas(conn: Conexao, _pessoa: PessoaLogada, abertos: bool = True):
     return repo.listar_alertas(conn, somente_abertos=abertos)
 
 
 @app.get("/integridade")
-def integridade(conn: Conexao):
+def integridade(conn: Conexao, _pessoa: PessoaLogada):
     """Para cada célula, mostra se o histórico está completo e sem repetições."""
     return [
         {**linha, "completo": linha["leituras"] == linha["seq_unicos"] == linha["esperado"]}

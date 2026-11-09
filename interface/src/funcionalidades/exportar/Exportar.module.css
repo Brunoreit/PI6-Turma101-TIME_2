@@ -361,3 +361,8 @@ div.data {
   font-size: 12px;
   color: var(--texto\/secundario);
 }
+
+.erroDoDownload {
+  font-size: 12px;
+  color: var(--status\/alerta);
+}

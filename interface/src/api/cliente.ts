@@ -51,7 +51,8 @@ function lerDetalhe(corpo: unknown): string | null {
   return null;
 }
 
-async function buscar<T>(caminho: string, sinal?: AbortSignal, opcoes: RequestInit = {}): Promise<T> {
+/** Faz a chamada com o token e transforma as respostas de erro em ErroDaApi. */
+async function requisitar(caminho: string, sinal?: AbortSignal, opcoes: RequestInit = {}): Promise<Response> {
   const comToken = token;
   const cabecalhos = new Headers(opcoes.headers);
   if (comToken) cabecalhos.set("Authorization", `Bearer ${comToken}`);
@@ -71,6 +72,11 @@ async function buscar<T>(caminho: string, sinal?: AbortSignal, opcoes: RequestIn
     if (resposta.status === 401 && comToken && comToken === token) aoPerderSessao();
     throw new ErroDaApi(resposta.status, `${caminho}: ${detalhe}`, detalhe);
   }
+  return resposta;
+}
+
+async function buscar<T>(caminho: string, sinal?: AbortSignal, opcoes: RequestInit = {}): Promise<T> {
+  const resposta = await requisitar(caminho, sinal, opcoes);
   // 204 (como o DELETE de acesso) não tem corpo.
   if (resposta.status === 204) return undefined as T;
   return resposta.json() as Promise<T>;
@@ -239,6 +245,12 @@ export function cancelarCultivo(id: number, motivo: string): Promise<CultivoApi>
 }
 
 /** Leituras medidas no período do cultivo, da mais nova para a mais antiga. */
+/** O CSV com todas as leituras da célula. Vem pela chamada com token, e não
+ *  por um link direto, porque a rota exige login. */
+export async function baixarLeiturasCsv(idCelula: string): Promise<Blob> {
+  return (await requisitar(`/celulas/${encodeURIComponent(idCelula)}/leituras.csv`)).blob();
+}
+
 export function listarLeiturasDoCultivo(
   id: number, opcoes: { desde?: Date; limite?: number } = {}, sinal?: AbortSignal,
 ): Promise<LeituraApi[]> {

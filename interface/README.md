@@ -61,7 +61,7 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 | `/experimentos/{código}` | Experimento EXP-01, · só leitura, · compartilhar, · mais ações, · só leitura · mais ações | Compartilhar e Duplicar no cabeçalho; Editar, Encerrar e Cancelar no menu "Mais ações", conforme o acesso. Pela API no modo `api` |
 | `/historiador?celulas=c04,c08` | Historiador | Gráfico das leituras pela API (no modo `api`) |
 | `/alertas` | Alertas · regras | Abertos e Histórico vêm da API (no modo `api`) |
-| `/exportar` | Exportar dados e · por célula e período | CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv` |
+| `/exportar` | Exportar dados e · por célula e período | CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv` (baixado pela chamada com token, porque a rota exige login) |
 
 ### Ainda falta na API
 

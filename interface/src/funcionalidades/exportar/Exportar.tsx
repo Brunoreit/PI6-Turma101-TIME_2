@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { baixarLeiturasCsv } from "@/api/cliente";
 import arquivo12 from "@/assets/icones/arquivo-12.svg";
 import arquivo16 from "@/assets/icones/arquivo-16.svg";
 import baixar from "@/assets/icones/baixar-16.svg";
@@ -18,6 +19,7 @@ import { Campo } from "@/compartilhado/componentes/Campo";
 import * as formatar from "@/compartilhado/formatar";
 import { celulasIniciais, useCelulas } from "@/dados/useCelulas";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
+import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
 import { fechado, ROTULO_DO_STATUS } from "@/funcionalidades/experimentos/modelo";
 import estilos from "./Exportar.module.css";
 
@@ -85,6 +87,8 @@ export function Exportar() {
   const [formato, setFormato] = useState<Formato>("xlsx");
   const [anexos, setAnexos] = useState({ contexto: true, parametros: true, alertas: true, calibracoes: false });
   const [grafico, setGrafico] = useState<"png" | "svg" | "pdf">("svg");
+  const [baixando, setBaixando] = useState(false);
+  const [erroDoDownload, setErroDoDownload] = useState<string | null>(null);
 
   const escolhidas = modo === "experimento" ? (doExperimento === "todas" ? celulasDoExperimento : doExperimento) : avulsas;
 
@@ -114,12 +118,24 @@ export function Exportar() {
     ? undefined
     : "Ainda não disponível: a API só exporta as leituras brutas em CSV. Escolha Dados brutos e CSV.";
 
-  function exportar() {
-    for (const id of escolhidas) {
-      const link = document.createElement("a");
-      link.href = `/api/celulas/${encodeURIComponent(id)}/leituras.csv`;
-      link.download = `${id}.csv`;
-      link.click();
+  // A rota exige login: o arquivo vem pela chamada com token e o navegador
+  // salva o que chegou.
+  async function exportar() {
+    setErroDoDownload(null);
+    setBaixando(true);
+    try {
+      for (const id of escolhidas) {
+        const endereco = URL.createObjectURL(await baixarLeiturasCsv(id));
+        const link = document.createElement("a");
+        link.href = endereco;
+        link.download = `${id}.csv`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(endereco), 1000);
+      }
+    } catch (falha) {
+      setErroDoDownload(mensagemDoErro(falha));
+    } finally {
+      setBaixando(false);
     }
   }
 
@@ -347,9 +363,20 @@ export function Exportar() {
                 ))}
               </div>
             )}
-            <Botao tipo="primario" cheio indisponivel={escolhidas.length === 0 ? "Escolha pelo menos uma célula." : motivo} onClick={exportar}>
-              {formato === "xlsx" ? "Exportar Excel" : "Exportar CSV"}
+            <Botao
+              tipo="primario"
+              cheio
+              ocupado={baixando}
+              indisponivel={escolhidas.length === 0 ? "Escolha pelo menos uma célula." : motivo}
+              onClick={exportar}
+            >
+              {baixando ? "Baixando..." : formato === "xlsx" ? "Exportar Excel" : "Exportar CSV"}
             </Botao>
+            {erroDoDownload && (
+              <p className={estilos.erroDoDownload} role="alert">
+                {erroDoDownload}
+              </p>
+            )}
             <div className={estilos.nota}>
               <img src={iconeInfo} width={14} height={14} alt="" />
               <p>

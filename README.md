@@ -59,25 +59,25 @@ Depois de alguns segundos:
 | Interface web | http://localhost:8080 (crie uma conta em "Criar conta"; o login é pela API) |
 | Interface com os dados reais | `VITE_FONTE_DADOS=api docker compose up --build` (sem a variável, as telas mostram os dados de exemplo do Figma) |
 | Documentação interativa da API | http://localhost:8000/docs |
-| Estado das células | http://localhost:8000/celulas |
-| Histórico completo e sem repetições? | http://localhost:8000/integridade |
+| Estado das células (com login) | `GET http://localhost:8000/celulas` |
+| Histórico completo e sem repetições? (com login) | `GET http://localhost:8000/integridade` |
 | Banco | `postgresql://evolver:evolver@localhost:5432/evolver` |
 | Broker | `localhost:1883` |
 
-Para mudar a temperatura de uma célula:
+### Usando a API
 
-```bash
-curl -X POST localhost:8000/celulas/c01/setpoint \
-     -H "Content-Type: application/json" -d '{"temperatura_c": 37}'
-```
-
-### Experimentos pela API
-
-Pessoas, experimentos, acessos e cultivos exigem login. O token vem do cadastro ou da entrada e vai no cabeçalho `Authorization`:
+Todas as rotas exigem login, menos `/saude`, `/auth/cadastro` e `/auth/entrar`. O token vem do cadastro ou da entrada e vai no cabeçalho `Authorization`:
 
 ```bash
 TOKEN=$(curl -s -X POST localhost:8000/auth/cadastro -H "Content-Type: application/json" \
         -d '{"nome": "Ana", "email": "ana@cnpem.br", "senha": "cultura123"}' | jq -r .token)
+
+# Estado das células
+curl localhost:8000/celulas -H "Authorization: Bearer $TOKEN"
+
+# Muda a temperatura da c01; o pedido fica com o nome de quem está logado
+curl -X POST localhost:8000/celulas/c01/setpoint -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" -d '{"temperatura_c": 37}'
 
 curl -X POST localhost:8000/experimentos -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
      -d '{"nome": "Curva de E. coli", "modo": "curva_crescimento", "temperatura_alvo_c": 30}'
@@ -87,7 +87,7 @@ curl -X POST localhost:8000/experimentos/1/cultivos -H "Authorization: Bearer $T
      -H "Content-Type: application/json" -d '{"id_celula": "c01", "condicao": "30 °C"}'
 ```
 
-A lista completa de rotas está em http://localhost:8000/docs. As rotas que já existiam (células, leituras, setpoint, calibração, alertas, integridade) continuam sem login; com token, registram quem fez o pedido.
+A lista completa de rotas está em http://localhost:8000/docs (o botão "Authorize" recebe o token). Sem token, ou com token inválido, a resposta é 401. O setpoint e a calibração registram quem fez o pedido.
 
 A API precisa de `SEGREDO_SESSAO`, que assina os tokens (no Compose já vem um valor de desenvolvimento; troque fora dele). `SESSAO_HORAS` define a validade do token (padrão 12). As duas estão no `.env.example`.
 
@@ -187,6 +187,6 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 ## Próximos passos
 
 - Fechar o contrato de mensagens com o grupo do hardware (`docs/contrato-mqtt.md`)
-- Login nas rotas antigas e senha no broker
+- Senha no broker, que ainda aceita conexão anônima
 - Endpoints de regras de alerta e de exportação agrupada, as duas partes da interface que ainda não têm API
 - Sinal de vida do consumidor, para evitar o alerta falso
