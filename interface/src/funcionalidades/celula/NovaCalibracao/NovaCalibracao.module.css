@@ -400,3 +400,41 @@
   opacity: 1;
   background: var(--fundo\/sutil);
 }
+
+/* Pergunta "Excluir o P2?" na própria linha, antes de excluir o padrão. */
+.confirmarExclusao {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--status\/alerta);
+}
+
+.confirmarExclusao > span {
+  margin-right: auto;
+}
+
+.botaoExcluir,
+.botaoCancelar {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.botaoExcluir {
+  border: 1px solid var(--status\/alerta);
+  background: var(--status\/alerta);
+  color: var(--fundo\/pagina);
+}
+
+.botaoCancelar {
+  border: 1px solid var(--borda\/padrao);
+  background: var(--fundo\/pagina);
+  color: var(--texto\/principal);
+}

@@ -70,6 +70,8 @@ export function NovaCalibracao() {
   const [salvando, setSalvando] = useState(false);
   const [aviso, setAviso] = useState<{ erro: boolean; texto: string } | null>(null);
   const [organismo, setOrganismo] = useState("");
+  /** Padrão com a pergunta "Excluir?" aberta na linha. */
+  const [excluindo, setExcluindo] = useState<string | null>(null);
 
   const atual = dados?.calibracao?.atual ?? null;
   // A API ainda não informa a versão em uso: sem ela, o número só aparece
@@ -109,6 +111,7 @@ export function NovaCalibracao() {
     });
     setEditando(null);
     setConferindo(false);
+    setExcluindo(null);
   }
 
   async function salvar() {
@@ -243,34 +246,48 @@ export function NovaCalibracao() {
                     </span>
                   ))}
                   <span role="cell" className={estilos.situacao}>
-                    <span>
-                      {emEdicao ? (
-                        <button type="button" className={estilos.preenchendo} onClick={() => setEditando(null)} title="Clique para terminar esta linha">
-                          preenchendo
+                    {excluindo === l.nome ? (
+                      <span className={estilos.confirmarExclusao} role="group" aria-label={`Confirmar a exclusão do ${l.nome}`}>
+                        <span>Excluir o {l.nome}?</span>
+                        <button type="button" className={estilos.botaoExcluir} autoFocus onClick={() => remover(l.nome)}>
+                          Excluir
                         </button>
-                      ) : lido ? (
-                        foraDaFaixa ? (
-                          <span className={estilos.foraDaFaixa}>fora de 0,2 a 0,8</span>
-                        ) : (
-                          <span className={estilos.ok}>
-                            <img src={iconeOk} width={13} height={13} alt="" />
-                            ok
-                          </span>
-                        )
-                      ) : (
-                        <span className={estilos.aPreencher}>a preencher</span>
-                      )}
-                    </span>
-                    {l.nome !== "Branco" && (
-                      <button
-                        type="button"
-                        className={estilos.remover}
-                        aria-label={`Excluir o ${l.nome}`}
-                        title={`Excluir o ${l.nome}`}
-                        onClick={() => remover(l.nome)}
-                      >
-                        <img src={iconeLixeira} width={16} height={16} alt="" />
-                      </button>
+                        <button type="button" className={estilos.botaoCancelar} onClick={() => setExcluindo(null)}>
+                          Cancelar
+                        </button>
+                      </span>
+                    ) : (
+                      <>
+                        <span>
+                          {emEdicao ? (
+                            <button type="button" className={estilos.preenchendo} onClick={() => setEditando(null)} title="Clique para terminar esta linha">
+                              preenchendo
+                            </button>
+                          ) : lido ? (
+                            foraDaFaixa ? (
+                              <span className={estilos.foraDaFaixa}>fora de 0,2 a 0,8</span>
+                            ) : (
+                              <span className={estilos.ok}>
+                                <img src={iconeOk} width={13} height={13} alt="" />
+                                ok
+                              </span>
+                            )
+                          ) : (
+                            <span className={estilos.aPreencher}>a preencher</span>
+                          )}
+                        </span>
+                        {l.nome !== "Branco" && (
+                          <button
+                            type="button"
+                            className={estilos.remover}
+                            aria-label={`Excluir o ${l.nome}`}
+                            title={`Excluir o ${l.nome}`}
+                            onClick={() => setExcluindo(l.nome)}
+                          >
+                            <img src={iconeLixeira} width={16} height={16} alt="" />
+                          </button>
+                        )}
+                      </>
                     )}
                   </span>
                 </div>
