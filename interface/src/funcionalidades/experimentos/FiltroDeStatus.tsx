@@ -2,9 +2,10 @@
 // "Status: Todos" abre a lista com caixas de seleção: Todos, ou um ou mais
 // status. Nada marcado vale como Todos.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import iconeSeta from "@/assets/icones/seta-baixo-16.svg";
 import { CaixaDeSelecao } from "@/compartilhado/componentes/CaixaDeSelecao";
+import { useFecharAoClicarFora } from "@/compartilhado/componentes/MenuSuspenso";
 import { SeloDeStatus } from "@/compartilhado/componentes/SeloDeStatus";
 import estilos from "./Experimentos.module.css";
 import { ROTULO_DO_STATUS, type StatusExperimento } from "./modelo";
@@ -27,18 +28,8 @@ export function FiltroDeStatus({ escolhidos, onChange, contagem }: Props) {
   const caixa = useRef<HTMLDivElement>(null);
   const todos = escolhidos.length === 0;
 
-  // Fecha ao clicar fora ou com Esc.
-  useEffect(() => {
-    if (!aberto) return;
-    const fora = (e: MouseEvent) => caixa.current && !caixa.current.contains(e.target as Node) && setAberto(false);
-    const tecla = (e: KeyboardEvent) => e.key === "Escape" && setAberto(false);
-    document.addEventListener("mousedown", fora);
-    document.addEventListener("keydown", tecla);
-    return () => {
-      document.removeEventListener("mousedown", fora);
-      document.removeEventListener("keydown", tecla);
-    };
-  }, [aberto]);
+  const fechar = useCallback(() => setAberto(false), []);
+  useFecharAoClicarFora(aberto, caixa, fechar);
 
   function alternar(status: StatusExperimento) {
     const novos = escolhidos.includes(status) ? escolhidos.filter((s) => s !== status) : [...escolhidos, status];

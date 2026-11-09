@@ -1,0 +1,103 @@
+.caixa {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Mesmo desenho do Botão secundário, com a seta. */
+.botao {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+  background: var(--fundo\/pagina);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.botao:hover,
+.botao[aria-expanded="true"] {
+  background: var(--fundo\/sutil);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  padding: 6px 0;
+  overflow: hidden;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 10px;
+  background: var(--fundo\/pagina);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 14px;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover,
+.item:focus-visible {
+  background: var(--fundo\/sutil);
+  outline: none;
+}
+
+.item > img {
+  flex-shrink: 0;
+}
+
+.textos {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.titulo {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--texto\/principal);
+  white-space: nowrap;
+}
+
+.ajuda {
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
+.perigo .titulo {
+  color: var(--status\/alerta);
+}
+
+.esmaecido .titulo {
+  color: var(--texto\/secundario);
+}
+
+.divisoria {
+  height: 1px;
+  background: var(--borda\/padrao);
+}
+
+.rodape {
+  padding: 8px 14px 4px;
+  border-top: 1px solid var(--borda\/padrao);
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}

@@ -1,21 +1,30 @@
-// Telas "Experimento EXP-01", "· só leitura" e "· compartilhar" do Figma
-// (nós 14:1164, 79:1185 e 79:1590). O que aparece depende do acesso da
-// pessoa logada: responsável, pode modificar ou só leitura. Editar e
-// Cancelar não estão no Figma; seguem o mesmo desenho dos outros botões.
+// Telas "Experimento EXP-01", "· só leitura", "· compartilhar" e "· mais
+// ações" do Figma (nós 14:1164, 79:1185, 79:1590, 274:2313 e 274:2744). O
+// que aparece depende do acesso da pessoa logada: responsável, pode
+// modificar ou só leitura. Editar, Encerrar e Cancelar ficam no menu "Mais
+// ações"; quem não é o responsável vê os itens esmaecidos, com cadeado.
 
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ErroDaApi } from "@/api/cliente";
 import iconeHistoriador from "@/assets/icones/historiador-14.svg";
+import iconeCancelarCinza from "@/assets/icones/menu-cancelar-cinza.svg";
+import iconeCancelar from "@/assets/icones/menu-cancelar.svg";
+import iconeEditarCinza from "@/assets/icones/menu-editar-cinza.svg";
+import iconeEditar from "@/assets/icones/menu-editar.svg";
+import iconeEncerrarCinza from "@/assets/icones/menu-encerrar-cinza.svg";
+import iconeEncerrar from "@/assets/icones/menu-encerrar.svg";
 import olho from "@/assets/icones/olho-18.svg";
 import { AvisoDeAcesso, useAvisoDeAcesso } from "@/compartilhado/componentes/AvisoDeAcesso";
 import { Botao } from "@/compartilhado/componentes/Botao";
+import { MenuSuspenso, type ItemDoMenu } from "@/compartilhado/componentes/MenuSuspenso";
 import { SeloDeStatus } from "@/compartilhado/componentes/SeloDeStatus";
 import * as formatar from "@/compartilhado/formatar";
 import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
 import { useSessao } from "@/sessao/SessaoProvider";
 import { CancelarExperimento } from "./CancelarExperimento";
 import { Compartilhar } from "./Compartilhar";
+import { EncerrarExperimento } from "./EncerrarExperimento";
 import estilos from "./Experimento.module.css";
 import { SeloDoExperimento } from "./Experimentos";
 import { useExperimentos } from "./ExperimentosProvider";
@@ -47,6 +56,7 @@ export function DetalheDoExperimento() {
   const { aviso, mostrar } = useAvisoDeAcesso();
   const [compartilhando, setCompartilhando] = useState(false);
   const [cancelando, setCancelando] = useState(false);
+  const [encerrando, setEncerrando] = useState(false);
   const [pedidoEnviado, setPedidoEnviado] = useState(false);
   const [carregado, setCarregado] = useState(false);
   const [erroDeCarga, setErroDeCarga] = useState<string | null>(null);
@@ -108,6 +118,66 @@ export function DetalheDoExperimento() {
     }
   }
 
+  // Menu "Mais ações": as mesmas regras dos antigos botões. Editar e Cancelar
+  // só com o experimento aberto; Encerrar só em andamento. A chave é o verbo
+  // usado no Aviso de acesso.
+  const abertas = experimento.celulas.filter((c) => !c.fim).length;
+  const maisAcoes: ItemDoMenu[] = [];
+  if (!encerrado) {
+    maisAcoes.push({
+      chave: "editar",
+      titulo: "Editar",
+      ajuda: experimento.status === "andamento" ? "Em andamento, só a descrição e os metadados mudam." : "Todos os campos podem mudar.",
+      icone: iconeEditar,
+      iconeEsmaecido: iconeEditarCinza,
+      onEscolher: () => navegar(`/experimentos/${experimento.codigo}/editar`),
+    });
+  }
+  if (experimento.status === "andamento") {
+    maisAcoes.push({
+      chave: "encerrar",
+      titulo: "Encerrar experimento",
+      ajuda:
+        abertas === 0
+          ? "Fecha o experimento. Nenhuma célula está em uso."
+          : `Fecha o experimento e libera ${abertas === 1 ? "a célula" : `as ${abertas} células`}.`,
+      icone: iconeEncerrar,
+      iconeEsmaecido: iconeEncerrarCinza,
+      perigo: true,
+      divisoria: true,
+      onEscolher: () => setEncerrando(true),
+    });
+  }
+  if (!encerrado) {
+    maisAcoes.push({
+      chave: "cancelar",
+      titulo: "Cancelar experimento",
+      ajuda: "Marca como não válido. Pede um motivo.",
+      icone: iconeCancelar,
+      iconeEsmaecido: iconeCancelarCinza,
+      perigo: true,
+      divisoria: experimento.status !== "andamento",
+      onEscolher: () => setCancelando(true),
+    });
+  }
+
+  /** 403 dentro de um modal: fecha o modal e mostra o Aviso de acesso. */
+  function noModal(acao: () => Promise<void>, fecharModal: () => void) {
+    return async () => {
+      try {
+        await acao();
+        fecharModal();
+      } catch (falha) {
+        if (falha instanceof ErroDaApi && falha.status === 403) {
+          fecharModal();
+          mostrar({ titulo: "Você não tem acesso a esta ação", mensagem: falha.detalhe, acao: `Pedir acesso a ${responsavel}` });
+          return;
+        }
+        throw falha;
+      }
+    };
+  }
+
   const legendaAcoes = souResponsavel
     ? "Você é o responsável."
     : acesso === "leitura"
@@ -152,29 +222,16 @@ export function DetalheDoExperimento() {
             >
               Duplicar
             </Botao>
-            {!encerrado && (
-              <Botao para={`/experimentos/${experimento.codigo}/editar`} semAcesso={souResponsavel ? undefined : semAcesso("editar")}>
-                Editar
-              </Botao>
-            )}
-            {experimento.status === "andamento" && (
-              <Botao
-                tipo="perigo"
-                ocupado={ocupado}
-                semAcesso={souResponsavel ? undefined : semAcesso("encerrar")}
-                onClick={() => {
-                  if (window.confirm(`Encerrar o ${experimento.codigo}? As células voltam a ficar livres.`)) {
-                    executar(() => encerrar(experimento.codigo));
-                  }
-                }}
-              >
-                Encerrar experimento
-              </Botao>
-            )}
-            {!encerrado && (
-              <Botao tipo="perigo" onClick={() => setCancelando(true)} semAcesso={souResponsavel ? undefined : semAcesso("cancelar")}>
-                Cancelar experimento
-              </Botao>
+            {maisAcoes.length > 0 && (
+              <MenuSuspenso
+                rotulo="Mais ações"
+                itens={maisAcoes}
+                semAcesso={
+                  souResponsavel
+                    ? undefined
+                    : { rodape: `Só o responsável, ${responsavel}, pode usar estas opções.`, aoClicar: (item) => semAcesso(item.chave)() }
+                }
+              />
             )}
           </div>
           <p className={estilos.legendaAcoes}>{legendaAcoes}</p>
@@ -332,19 +389,14 @@ export function DetalheDoExperimento() {
         <CancelarExperimento
           experimento={experimento}
           onFechar={() => setCancelando(false)}
-          onConfirmar={async (motivo) => {
-            try {
-              await cancelar(experimento.codigo, motivo);
-              setCancelando(false);
-            } catch (falha) {
-              if (falha instanceof ErroDaApi && falha.status === 403) {
-                setCancelando(false);
-                mostrar({ titulo: "Você não tem acesso a esta ação", mensagem: falha.detalhe, acao: `Pedir acesso a ${responsavel}` });
-                return;
-              }
-              throw falha;
-            }
-          }}
+          onConfirmar={(motivo) => noModal(() => cancelar(experimento.codigo, motivo), () => setCancelando(false))()}
+        />
+      )}
+      {encerrando && (
+        <EncerrarExperimento
+          experimento={experimento}
+          onFechar={() => setEncerrando(false)}
+          onConfirmar={noModal(() => encerrar(experimento.codigo), () => setEncerrando(false))}
         />
       )}
     </div>

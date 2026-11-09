@@ -1,7 +1,8 @@
 // Modal que pede um motivo antes de uma ação sem volta, como cancelar um
 // experimento ou resetar uma célula (obrigatório), ou encerrar a participação
-// de uma célula (opcional). Não existe no Figma: segue o
-// desenho do modal Confirmar temperatura.
+// de uma célula (opcional). Sem `placeholder`, só confirma, como em encerrar
+// o experimento. Não existe no Figma: segue o desenho do modal Confirmar
+// temperatura.
 
 import { useEffect, useId, useState, type ReactNode } from "react";
 import iconeFechar from "@/assets/icones/fechar-20.svg";
@@ -14,7 +15,8 @@ interface Props {
   subtitulo: string;
   /** O que acontece, antes do campo (em vermelho quando é `perigo`). */
   consequencias: ReactNode;
-  placeholder: string;
+  /** Sem placeholder, o modal não pede motivo: só confirma. */
+  placeholder?: string;
   /** Texto do botão de confirmar, como "Cancelar experimento". */
   acao: string;
   /** Rejeitar mostra a mensagem do erro no modal, que continua aberto. */
@@ -43,7 +45,7 @@ export function ModalDeMotivo({
 
   async function confirmar() {
     if (enviando) return;
-    if (!opcional && !motivo.trim()) return setFaltaMotivo(true);
+    if (placeholder !== undefined && !opcional && !motivo.trim()) return setFaltaMotivo(true);
     setEnviando(true);
     setErro(null);
     try {
@@ -71,22 +73,24 @@ export function ModalDeMotivo({
 
         <p className={perigo ? estilos.consequencias : estilos.observacao}>{consequencias}</p>
 
-        <div className={estilos.campo}>
-          <label htmlFor={`${id}-motivo`}>{opcional ? "Motivo (opcional)" : "Motivo *"}</label>
-          <textarea
-            id={`${id}-motivo`}
-            value={motivo}
-            autoFocus
-            aria-invalid={vazio || undefined}
-            placeholder={placeholder}
-            onChange={(e) => setMotivo(e.target.value)}
-          />
-          {vazio ? (
-            <span className={estilos.erro}>Escreva o motivo.</span>
-          ) : (
-            <span className={estilos.ajuda}>Fica registrado.</span>
-          )}
-        </div>
+        {placeholder !== undefined && (
+          <div className={estilos.campo}>
+            <label htmlFor={`${id}-motivo`}>{opcional ? "Motivo (opcional)" : "Motivo *"}</label>
+            <textarea
+              id={`${id}-motivo`}
+              value={motivo}
+              autoFocus
+              aria-invalid={vazio || undefined}
+              placeholder={placeholder}
+              onChange={(e) => setMotivo(e.target.value)}
+            />
+            {vazio ? (
+              <span className={estilos.erro}>Escreva o motivo.</span>
+            ) : (
+              <span className={estilos.ajuda}>Fica registrado.</span>
+            )}
+          </div>
+        )}
 
         {erro && (
           <p className={estilos.erro} role="alert">
