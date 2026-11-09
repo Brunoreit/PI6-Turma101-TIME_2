@@ -1,4 +1,4 @@
-# Interface web
+# Interface web do T.U.P.A
 
 React com TypeScript e Vite, feita a partir do Figma (arquivo **Telas**).
 Fala só com a API, sempre pelo prefixo `/api`.
@@ -58,7 +58,7 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 | `/experimentos?de=meus&status=andamento,standby` | Experimentos · compartilhados | Lista com filtro Todos, Meus e Compartilhados comigo e, combinado, o filtro por status (não está no Figma: escolha um ou mais entre Em andamento, Stand by, Encerrado e Cancelado, com a contagem de cada); os dois ficam na URL. Duplicar. Pela API no modo `api` (ver Experimentos abaixo) |
 | `/experimentos/novo?base=EXP-01` | Novo experimento · etapas e metadados | Cria o experimento em Stand by. Pela API no modo `api` |
 | `/experimentos/{código}/editar` | Não está no Figma: o mesmo formulário do Novo experimento | Edita conforme o status. Pela API no modo `api` |
-| `/experimentos/{código}` | Experimento EXP-01, · só leitura, · compartilhar | Compartilhar, duplicar, editar, encerrar e cancelar, conforme o acesso. Pela API no modo `api` |
+| `/experimentos/{código}` | Experimento EXP-01, · só leitura, · compartilhar, · mais ações, · só leitura · mais ações | Compartilhar e Duplicar no cabeçalho; Editar, Encerrar e Cancelar no menu "Mais ações", conforme o acesso. Pela API no modo `api` |
 | `/historiador?celulas=c04,c08` | Historiador | Gráfico das leituras pela API (no modo `api`) |
 | `/alertas` | Alertas · regras | Abertos e Histórico vêm da API (no modo `api`) |
 | `/exportar` | Exportar dados e · por célula e período | CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv` |
@@ -205,10 +205,15 @@ O `ExperimentosProvider` segue `VITE_FONTE_DADOS`. No modo `exemplo`, usa
   encerrado na faixa de contexto. Encerrado e cancelado são fechados: nada
   pode ser editado, e nenhum dos dois aparece para atribuir célula nem para
   criar regra.
-- **Encerrar e cancelar.** Encerrar só aparece em andamento (a API recusa
-  encerrar o que não começou). "Cancelar experimento" não está no Figma: é um
-  botão Perigo ao lado de Encerrar, em Stand by ou em andamento, com um modal
-  que pede o motivo (obrigatório). O detalhe mostra o motivo depois.
+- **Menu "Mais ações".** Editar, Encerrar e Cancelar ficam num menu
+  (`compartilhado/componentes/MenuSuspenso.tsx`), para o título caber numa
+  linha. Editar e Cancelar só aparecem com o experimento aberto; Encerrar só
+  em andamento (a API recusa encerrar o que não começou). Sem nenhum item
+  (encerrado ou cancelado), o botão some. Fecha ao clicar fora, com Esc e ao
+  escolher; as setas andam pelos itens e Enter escolhe.
+- **Encerrar e cancelar.** Os dois abrem um modal (não estão no Figma; seguem
+  o desenho do Confirmar temperatura). Encerrar só confirma; Cancelar pede o
+  motivo (obrigatório), e o detalhe mostra o motivo depois.
 - **Editar respeita o status.** Em Stand by, tudo muda. Em andamento, só a
   descrição e os metadados: nome, tipo, duração, faixa de pH e fases ficam
   desabilitados, com a explicação, como o cadeado do Figma. Encerrado ou
@@ -307,6 +312,8 @@ a pessoa logada. No modo `exemplo`, vem de `acessoDe()` em
 `funcionalidades/experimentos/modelo.ts`. Editar, encerrar e cancelar são só
 do responsável. Sem acesso, o botão fica esmaecido com cadeado e, ao clicar,
 aparece o Aviso de acesso por 5 s (`compartilhado/componentes/AvisoDeAcesso.tsx`).
+No menu "Mais ações", quem não é o responsável vê os itens esmaecidos, com
+cadeado, e o rodapé "Só o responsável, {nome}, pode usar estas opções."
 
 ## Estrutura
 
@@ -324,7 +331,7 @@ src/
                         modelo, fonte (API ou exemplo), exemplo, DadosProvider
                         e useCelulas (lista de células e o nome de cada uma, com apelido)
   compartilhado/        formatar.ts e componentes reaproveitáveis: Botao, Campo,
-                        CaixaDeSelecao, AvisoDeAcesso, ModalDeMotivo, GraficoDeLinha,
+                        CaixaDeSelecao, AvisoDeAcesso, ModalDeMotivo, MenuSuspenso, GraficoDeLinha,
                         SeloDeStatus, CurvaDeCalibracao
   funcionalidades/      uma pasta por funcionalidade, com tudo dela junto
     visao-geral/        VisaoGeral, CardDeCelula, HistoricoOd
@@ -333,7 +340,7 @@ src/
                         com as ações de cultivo, exemplo, useCelula)
     conta/              Entrar, Cadastro, RecuperarSenha, NovaSenha e o CartaoDeConta comum
     experimentos/       lista, NovoExperimento (novo e editar), DetalheDoExperimento,
-                        CancelarExperimento, Compartilhar, TaxaDeCrescimento, taxa
+                        CancelarExperimento, EncerrarExperimento, Compartilhar, TaxaDeCrescimento, taxa
                         (cálculo pelas leituras do cultivo), modelo, exemplo, api
                         (tradução da API) e ExperimentosProvider
     historiador/        Historiador, GraficoDeComparacao e dados (séries de leituras)
