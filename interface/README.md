@@ -55,7 +55,7 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 | `/` | Visão geral | Igual antes |
 | `/celulas/{id}` (e `/ajustes`, `/diagnostico`) | Célula c08 e Célula c04 · livre, modal Confirmar temperatura | Setpoint com confirmação. No modo `api`: atribuir, encerrar e resetar a participação e a faixa de pH do cultivo |
 | `/celulas/{id}/ajustes/calibracao` | Célula c08 · nova calibração de OD | Salva a nova curva pelo `POST /celulas/{id}/calibracoes` (no modo `api`) |
-| `/experimentos` | Experimentos · compartilhados | Lista e filtro Todos, Meus e Compartilhados comigo; Duplicar. Pela API no modo `api` (ver Experimentos abaixo) |
+| `/experimentos?de=meus&status=andamento,standby` | Experimentos · compartilhados | Lista com filtro Todos, Meus e Compartilhados comigo e, combinado, o filtro por status (não está no Figma: escolha um ou mais entre Em andamento, Stand by, Encerrado e Cancelado, com a contagem de cada); os dois ficam na URL. Duplicar. Pela API no modo `api` (ver Experimentos abaixo) |
 | `/experimentos/novo?base=EXP-01` | Novo experimento · etapas e metadados | Cria o experimento em Stand by. Pela API no modo `api` |
 | `/experimentos/{código}/editar` | Não está no Figma: o mesmo formulário do Novo experimento | Edita conforme o status. Pela API no modo `api` |
 | `/experimentos/{código}` | Experimento EXP-01, · só leitura, · compartilhar | Compartilhar, duplicar, editar, encerrar e cancelar, conforme o acesso. Pela API no modo `api` |

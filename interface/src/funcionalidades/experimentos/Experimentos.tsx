@@ -3,7 +3,7 @@
 // seus dos compartilhados, e o responsável ganha o selo de permissão.
 
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import iconeInfo from "@/assets/icones/info-16.svg";
 import lapis from "@/assets/icones/lapis-11.svg";
 import iconeMais from "@/assets/icones/mais-16.svg";
@@ -12,9 +12,10 @@ import { SeloDeStatus } from "@/compartilhado/componentes/SeloDeStatus";
 import * as formatar from "@/compartilhado/formatar";
 import { useSessao } from "@/sessao/SessaoProvider";
 import { useExperimentos } from "./ExperimentosProvider";
+import { FiltroDeStatus, STATUS_DO_FILTRO } from "./FiltroDeStatus";
 import estilos from "./Experimentos.module.css";
 import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
-import { acessoNoExperimento, diaAtual, fechado, progresso, ROTULO_DO_STATUS, type Experimento } from "./modelo";
+import { acessoNoExperimento, diaAtual, fechado, progresso, ROTULO_DO_STATUS, type Experimento, type StatusExperimento } from "./modelo";
 
 type Filtro = "todos" | "meus" | "compartilhados";
 
@@ -106,7 +107,21 @@ export function Experimentos() {
   const { experimentos, carregando, erro, duplicar } = useExperimentos();
   const { usuario } = useSessao();
   const navegar = useNavigate();
-  const [filtro, setFiltro] = useState<Filtro>("todos");
+  // Os filtros ficam na URL (?de=meus&status=andamento,standby): voltar para a
+  // lista ou compartilhar o link mantém o que estava escolhido.
+  const [parametros, setParametros] = useSearchParams();
+  const de = parametros.get("de");
+  const filtro: Filtro = de === "meus" || de === "compartilhados" ? de : "todos";
+  const status = (parametros.get("status")?.split(",") ?? []).filter((s): s is StatusExperimento =>
+    STATUS_DO_FILTRO.includes(s as StatusExperimento),
+  );
+
+  function mudarFiltros(novoFiltro: Filtro, novosStatus: StatusExperimento[]) {
+    const proximos: Record<string, string> = {};
+    if (novoFiltro !== "todos") proximos.de = novoFiltro;
+    if (novosStatus.length) proximos.status = novosStatus.join(",");
+    setParametros(proximos, { replace: true });
+  }
   const [erroDaAcao, setErroDaAcao] = useState<string | null>(null);
 
   async function duplicarE(codigo: string) {
@@ -121,7 +136,11 @@ export function Experimentos() {
 
   const meus = experimentos.filter((e) => acessoNoExperimento(e, usuario?.email) === "responsavel");
   const compartilhados = experimentos.filter((e) => !meus.includes(e));
-  const visiveis = filtro === "meus" ? meus : filtro === "compartilhados" ? compartilhados : experimentos;
+  const doDono = filtro === "meus" ? meus : filtro === "compartilhados" ? compartilhados : experimentos;
+  const contagem = Object.fromEntries(
+    STATUS_DO_FILTRO.map((s) => [s, doDono.filter((e) => e.status === s).length]),
+  ) as Record<StatusExperimento, number>;
+  const visiveis = status.length ? doDono.filter((e) => status.includes(e.status)) : doDono;
 
   const opcoes: { valor: Filtro; rotulo: string }[] = [
     { valor: "todos", rotulo: `Todos ${experimentos.length}` },
@@ -136,6 +155,7 @@ export function Experimentos() {
           <h1 className={estilos.titulo}>Experimentos</h1>
           <p className={estilos.subtitulo}>
             {experimentos.length} experimentos · {meus.length} seus e {compartilhados.length} compartilhados com você
+            {visiveis.length !== experimentos.length && ` · mostrando ${visiveis.length}`}
           </p>
         </div>
         <div className={estilos.acoes}>
@@ -146,12 +166,13 @@ export function Experimentos() {
                 type="button"
                 className={filtro === opcao.valor ? estilos.filtroAtivo : estilos.filtroItem}
                 aria-pressed={filtro === opcao.valor}
-                onClick={() => setFiltro(opcao.valor)}
+                onClick={() => mudarFiltros(opcao.valor, status)}
               >
                 {opcao.rotulo}
               </button>
             ))}
           </div>
+          <FiltroDeStatus escolhidos={status} contagem={contagem} onChange={(novos) => mudarFiltros(filtro, novos)} />
           <Link to="/experimentos/novo" className={estilos.botaoNovo}>
             <img src={iconeMais} width={16} height={16} alt="" />
             Novo experimento
@@ -223,7 +244,16 @@ export function Experimentos() {
           </div>
         ))}
         {carregando && <p className={estilos.vazio}>Carregando os experimentos...</p>}
-        {!carregando && visiveis.length === 0 && <p className={estilos.vazio}>Nenhum experimento neste filtro.</p>}
+        {!carregando && visiveis.length === 0 && (
+          <p className={estilos.vazio}>
+            Nenhum experimento neste filtro.{" "}
+            {(status.length > 0 || filtro !== "todos") && (
+              <button type="button" className={estilos.limparStatus} onClick={() => mudarFiltros("todos", [])}>
+                Mostrar todos
+              </button>
+            )}
+          </p>
+        )}
       </div>
 
       <div className={estilos.nota}>
