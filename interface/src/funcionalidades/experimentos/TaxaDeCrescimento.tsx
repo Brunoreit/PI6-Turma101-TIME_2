@@ -11,6 +11,9 @@ import type { Condicao } from "./modelo";
 const ESCALA = 0.8;
 const MARCAS = [0, 0.2, 0.4, 0.6, 0.8];
 
+/** Posição no eixo, de 0 a 1. Taxa negativa (cultura morrendo) fica no zero. */
+const posicao = (taxa: number) => Math.min(Math.max(taxa / ESCALA, 0), 1);
+
 function media(condicao: Condicao): number {
   return condicao.taxas.reduce((soma, t) => soma + t.taxa, 0) / condicao.taxas.length;
 }
@@ -50,13 +53,13 @@ export function TaxaDeCrescimento({ condicoes }: { condicoes: Condicao[] }) {
                 >
                   <span
                     className={valor === maior ? estilos.barraMaior : estilos.barra}
-                    style={{ width: `${Math.min(valor / ESCALA, 1) * 100}%` }}
+                    style={{ width: `${posicao(valor) * 100}%` }}
                   />
                   {condicao.taxas.map((t) => (
                     <span
                       key={t.idCelula}
                       className={estilos.pontoTaxa}
-                      style={{ left: `${Math.min(t.taxa / ESCALA, 1) * 100}%` }}
+                      style={{ left: `${posicao(t.taxa) * 100}%` }}
                     />
                   ))}
                   {apontada === condicao.rotulo && (
@@ -66,7 +69,7 @@ export function TaxaDeCrescimento({ condicoes }: { condicoes: Condicao[] }) {
                         { rotulo: "Média", valor: taxa(valor), forte: true },
                         ...condicao.taxas.map((t) => ({ rotulo: t.idCelula, valor: taxa(t.taxa) })),
                       ]}
-                      x={Math.min(valor / ESCALA, 1)}
+                      x={posicao(valor)}
                       topo={-8}
                     />
                   )}

@@ -70,13 +70,33 @@ const CLASSE_DO_TIPO: Record<Evento["tipo"], string> = {
   Anotação: estilos.tipoComando,
 };
 
+function dataDoParametro(texto: string | null): Date | null {
+  const data = texto ? new Date(texto) : null;
+  return data && !Number.isNaN(data.getTime()) ? data : null;
+}
+
 export function Historiador() {
-  const { experimentos } = useExperimentos();
+  const { experimentos: lista, buscar, carregarDetalhe } = useExperimentos();
+  // A lista da API não traz as células; o detalhe traz, com o período de cada
+  // uma. As faixas de contexto usam o detalhe.
+  const experimentos = lista.map((e) => buscar(e.codigo) ?? e);
+  const codigos = lista.map((e) => e.codigo).join(",");
+  useEffect(() => {
+    if (FONTE_DADOS !== "api") return;
+    for (const codigo of codigos.split(",").filter(Boolean)) carregarDetalhe(codigo).catch(() => {});
+    // carregarDetalhe muda a cada render do provider; os códigos bastam.
+  }, [codigos]);
   const [parametros, setParametros] = useSearchParams();
   const celulas = (parametros.get("celulas")?.split(",").filter(Boolean) ?? ["c04", "c08"]).slice(0, MAXIMO_DE_CELULAS);
   const [variaveis, setVariaveis] = useState<Set<Variavel | "setpoint">>(new Set(["temperatura", "od", "ph"]));
-  const [horas, setHoras] = useState(12);
-  const [fim, setFim] = useState(() => new Date());
+  // ?inicio=...&fim=... (datas ISO) abre num período, como o "Ver no
+  // historiador" do experimento. Sem fim, vai até agora.
+  const [fim, setFim] = useState(() => dataDoParametro(parametros.get("fim")) ?? new Date());
+  const [horas, setHoras] = useState(() => {
+    const inicioPedido = dataDoParametro(parametros.get("inicio"));
+    // Um pouco de folga antes do início; no mínimo 6 min.
+    return inicioPedido ? Math.max(0.1, ((fim.getTime() - inicioPedido.getTime()) / HORA) * 1.1) : 12;
+  });
   const [series, setSeries] = useState<Serie[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [escolhendo, setEscolhendo] = useState(false);

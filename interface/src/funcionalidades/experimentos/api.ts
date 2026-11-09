@@ -24,7 +24,7 @@ const STATUS: Record<StatusExperimentoApi, StatusExperimento> = {
   cancelado: "cancelado",
 };
 
-const TIPO: Record<ModoApi, TipoDeCrescimento> = {
+export const TIPO: Record<ModoApi, TipoDeCrescimento> = {
   curva_crescimento: "Curva de crescimento",
   turbidostato: "Turbidostato",
   quimiostato: "Quimiostato",
@@ -79,6 +79,8 @@ function celulaDe(cultivo: CultivoApi, celulas: CelulaResumo[]): CelulaNoExperim
   const aberta = cultivo.encerrado_em === null;
   return {
     id: cultivo.id_celula,
+    idCultivo: cultivo.id_cultivo,
+    cancelada: cultivo.status === "cancelado",
     condicao: cultivo.condicao ?? "—",
     situacao: aberta ? (atual?.situacao ?? null) : "offline",
     temperaturaC: aberta ? (atual?.temperaturaC ?? null) : null,
@@ -130,7 +132,7 @@ export function experimentoDoDetalhe(api: DetalheDoExperimentoApi, usuario: Usua
     ...base(api, api.responsavel_nome),
     acesso: meu ? "responsavel" : convite?.permissao === "edicao" ? "modificar" : "leitura",
     convidados: api.acessos.map(convidadoDe),
-    celulas: api.cultivos.filter((c) => c.status !== "cancelado").map((c) => celulaDe(c, celulas)),
+    celulas: api.cultivos.map((c) => celulaDe(c, celulas)),
   };
 }
 

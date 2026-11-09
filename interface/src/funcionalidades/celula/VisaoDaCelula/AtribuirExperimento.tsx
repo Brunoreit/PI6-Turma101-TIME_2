@@ -1,25 +1,57 @@
 // Painel "Atribuir experimento" da tela "Célula c04 · livre" do Figma (nó
-// 153:1633). Ocupa o lugar dos Comandos quando a célula está livre. A API
-// ainda não tem o endpoint de atribuição, então o botão explica o motivo.
+// 153:1633). Ocupa o lugar dos Comandos quando a célula está livre.
+// "Atribuir e iniciar" abre o cultivo pelo POST /experimentos/{id}/cultivos.
+// Só aparecem os experimentos abertos em que a pessoa é responsável ou tem
+// edição, porque só elas podem atribuir.
 
 import { useState } from "react";
 import iconeCheck from "@/assets/icones/check-14-verde.svg";
 import { Botao } from "@/compartilhado/componentes/Botao";
 import * as formatar from "@/compartilhado/formatar";
-import type { DetalheDaCelula } from "@/funcionalidades/celula/modelo";
+import { atribuirCelula } from "@/funcionalidades/celula/fonte";
+import { TEMPERATURA_MAX_C, TEMPERATURA_MIN_C, type DetalheDaCelula } from "@/funcionalidades/celula/modelo";
+import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
-import { fechado } from "@/funcionalidades/experimentos/modelo";
+import { acessoNoExperimento, fechado, type Experimento } from "@/funcionalidades/experimentos/modelo";
+import { useSessao } from "@/sessao/SessaoProvider";
 import comum from "@/funcionalidades/celula/Celula.module.css";
 import estilos from "./VisaoDaCelula.module.css";
 
-export function AtribuirExperimento({ dados }: { dados: DetalheDaCelula }) {
+/** Temperatura alvo do cadastro: a da primeira fase, ou nenhuma. */
+const alvoDe = (e: Experimento | undefined) => e?.fases[0]?.temperaturaC ?? null;
+
+export function AtribuirExperimento({ dados, aoAtribuir }: { dados: DetalheDaCelula; aoAtribuir: (aviso: string | null) => void }) {
   const { experimentos } = useExperimentos();
-  // Só aparecem experimentos em andamento ou em Stand by.
-  const abertos = experimentos.filter((e) => !fechado(e));
+  const { usuario } = useSessao();
+  // Em andamento ou em Stand by, e com acesso para atribuir.
+  const abertos = experimentos.filter((e) => {
+    const acesso = acessoNoExperimento(e, usuario?.email);
+    return !fechado(e) && (acesso === "responsavel" || acesso === "modificar");
+  });
   const [codigo, setCodigo] = useState(abertos.find((e) => e.status === "standby")?.codigo ?? abertos[0]?.codigo ?? "");
-  const escolhido = abertos.find((e) => e.codigo === codigo);
-  const alvoDoCadastro = escolhido?.fases[0]?.temperaturaC ?? 30;
-  const [temperatura, setTemperatura] = useState(formatar.decimal(alvoDoCadastro, 1));
+  const escolhido = abertos.find((e) => e.codigo === codigo) ?? abertos[0];
+  const alvoDoCadastro = alvoDe(escolhido);
+  const [temperatura, setTemperatura] = useState(alvoDoCadastro === null ? "" : formatar.decimal(alvoDoCadastro, 1));
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  async function atribuir() {
+    if (!escolhido || enviando) return;
+    const texto = temperatura.trim();
+    const valor = Number(texto.replace(",", "."));
+    if (texto && (!Number.isFinite(valor) || valor < TEMPERATURA_MIN_C || valor > TEMPERATURA_MAX_C)) {
+      return setErro(`Digite uma temperatura entre ${TEMPERATURA_MIN_C} e ${TEMPERATURA_MAX_C} °C, ou deixe em branco.`);
+    }
+    setErro(null);
+    setEnviando(true);
+    try {
+      const aviso = await atribuirCelula(dados.id, { id: escolhido.id, alvoC: alvoDoCadastro }, texto ? valor : null);
+      aoAtribuir(aviso);
+    } catch (falha) {
+      setErro(mensagemDoErro(falha));
+      setEnviando(false);
+    }
+  }
 
   const checagens = [
     "Frasco com meio instalado",
@@ -52,8 +84,8 @@ export function AtribuirExperimento({ dados }: { dados: DetalheDaCelula }) {
             value={codigo}
             onChange={(e) => {
               setCodigo(e.target.value);
-              const novo = abertos.find((x) => x.codigo === e.target.value);
-              setTemperatura(formatar.decimal(novo?.fases[0]?.temperaturaC ?? 30, 1));
+              const alvo = alvoDe(abertos.find((x) => x.codigo === e.target.value));
+              setTemperatura(alvo === null ? "" : formatar.decimal(alvo, 1));
             }}
           >
             {abertos.map((e) => (
@@ -63,7 +95,11 @@ export function AtribuirExperimento({ dados }: { dados: DetalheDaCelula }) {
             ))}
           </select>
         </div>
-        <p className={estilos.ajuda}>Só aparecem experimentos em andamento ou em Stand by.</p>
+        <p className={estilos.ajuda}>
+          {abertos.length === 0
+            ? "Nenhum experimento em andamento ou em Stand by em que você seja responsável ou tenha edição."
+            : "Só aparecem experimentos em andamento ou em Stand by em que você é responsável ou tem edição."}
+        </p>
       </div>
 
       <div className={estilos.grupo}>
@@ -78,10 +114,14 @@ export function AtribuirExperimento({ dados }: { dados: DetalheDaCelula }) {
           />
           <span className={estilos.entradaUnidade}>°C</span>
         </div>
-        <p className={estilos.ajuda}>O cadastro sugere {formatar.temperatura(alvoDoCadastro)}.</p>
+        <p className={estilos.ajuda}>
+          {alvoDoCadastro === null
+            ? "O experimento não tem temperatura alvo. Em branco, a célula fica na temperatura atual."
+            : `O cadastro sugere ${formatar.temperatura(alvoDoCadastro)}.`}
+        </p>
       </div>
 
-      {escolhido && (
+      {escolhido && Number.isFinite(escolhido.phMin) && Number.isFinite(escolhido.phMax) && (
         <div className={estilos.linhaFaixa}>
           <span>Faixa de pH de referência</span>
           <strong>
@@ -102,12 +142,24 @@ export function AtribuirExperimento({ dados }: { dados: DetalheDaCelula }) {
         </ul>
       </div>
 
-      <Botao tipo="primario" cheio indisponivel="Ainda não disponível: a API não tem o endpoint para atribuir a célula a um experimento.">
-        Atribuir e iniciar
+      <Botao
+        tipo="primario"
+        cheio
+        ocupado={enviando}
+        onClick={atribuir}
+        indisponivel={escolhido ? undefined : "Nenhum experimento disponível para atribuir. Crie um ou peça acesso de edição."}
+      >
+        {enviando ? "Atribuindo..." : "Atribuir e iniciar"}
       </Botao>
-      {escolhido && (
+      {erro && (
+        <p className={estilos.ajudaErro} role="alert">
+          {erro}
+        </p>
+      )}
+      {escolhido && !erro && (
         <p className={estilos.ajuda}>
-          A {dados.id} entra no {escolhido.codigo} agora e recebe {temperatura || "?"} °C.
+          A {dados.id} entra no {escolhido.codigo} agora
+          {temperatura.trim() ? ` e recebe ${temperatura.trim()} °C` : ""}.
           {escolhido.status === "standby"
             ? ` O ${escolhido.codigo} sai de Stand by e só as leituras a partir daqui entram nele.`
             : " Só as leituras a partir daqui entram nele."}

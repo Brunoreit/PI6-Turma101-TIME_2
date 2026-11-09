@@ -20,9 +20,22 @@ import estilos from "./Experimento.module.css";
 import { SeloDoExperimento } from "./Experimentos";
 import { useExperimentos } from "./ExperimentosProvider";
 import { acessoNoExperimento, diaAtual, fechado, progresso, terminoPrevisto } from "./modelo";
+import { useCondicoes } from "./taxa";
 import { TaxaDeCrescimento } from "./TaxaDeCrescimento";
 
 const NAO_ENCONTRADO = "Experimento não encontrado ou sem acesso. Volte para a lista e escolha outro.";
+
+/** O historiador com as células e o período que cobre todas elas: do
+ *  primeiro início ao último fim (ou agora, se alguma continua). */
+function linkDoHistoriador(celulas: { id: string; inicio: Date; fim: Date | null }[]): string {
+  const ids = [...new Set(celulas.map((c) => c.id))].slice(0, 4).join(",");
+  const inicio = new Date(Math.min(...celulas.map((c) => c.inicio.getTime())));
+  const parametros = new URLSearchParams({ celulas: ids, inicio: inicio.toISOString() });
+  if (celulas.every((c) => c.fim)) {
+    parametros.set("fim", new Date(Math.max(...celulas.map((c) => c.fim!.getTime()))).toISOString());
+  }
+  return `/historiador?${parametros}`;
+}
 
 const ou = (valor: number | null, formato: (v: number) => string) => (valor === null ? "—" : formato(valor));
 
@@ -50,6 +63,7 @@ export function DetalheDoExperimento() {
   }, [codigo]);
 
   const experimento = carregado ? buscar(codigo) : undefined;
+  const condicoes = useCondicoes(experimento);
 
   if (!experimento) {
     return (
@@ -217,7 +231,7 @@ export function DetalheDoExperimento() {
         </span>
       </div>
 
-      <TaxaDeCrescimento condicoes={experimento.condicoes} />
+      <TaxaDeCrescimento condicoes={condicoes} />
 
       <section className={estilos.painel}>
         <div className={estilos.painelTitulo}>
@@ -247,7 +261,15 @@ export function DetalheDoExperimento() {
                   {c.id}
                 </span>
                 <span role="cell">{c.condicao}</span>
-                <span role="cell">{c.situacao ? <SeloDeStatus situacao={c.situacao} rotulo={c.fim ? "Liberada" : undefined} /> : "—"}</span>
+                <span role="cell">
+                  {c.cancelada ? (
+                    <SeloDeStatus situacao="cancelado" rotulo="Cancelada" />
+                  ) : c.situacao ? (
+                    <SeloDeStatus situacao={c.situacao} rotulo={c.fim ? "Liberada" : undefined} />
+                  ) : (
+                    "—"
+                  )}
+                </span>
                 <span role="cell">{ou(c.temperaturaC, formatar.temperatura)}</span>
                 <span role="cell">{ou(c.od, (v) => formatar.decimal(v, 3))}</span>
                 <span role="cell">{ou(c.ph, (v) => formatar.decimal(v, 2))}</span>
@@ -266,7 +288,7 @@ export function DetalheDoExperimento() {
         )}
         {experimento.celulas.length > 0 && (
           <div className={estilos.historiador}>
-            <Link to={`/historiador?celulas=${[...new Set(experimento.celulas.map((c) => c.id))].join(",")}`} className={estilos.historiadorLink}>
+            <Link to={linkDoHistoriador(experimento.celulas)} className={estilos.historiadorLink}>
               <img src={iconeHistoriador} width={14} height={14} alt="" />
               Ver estas {experimento.celulas.length} células no historiador, cada uma no seu período
             </Link>

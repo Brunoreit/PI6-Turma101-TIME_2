@@ -734,3 +734,13 @@
   font-size: 12px;
   color: var(--texto\/secundario);
 }
+
+/* Aviso depois de atribuir: o cultivo começou, mas a temperatura não foi enviada. */
+.avisoCultivo {
+  padding: 10px 14px;
+  border: 1px solid var(--status\/alerta-borda);
+  border-radius: 8px;
+  background: var(--status\/alerta-fundo);
+  font-size: 13px;
+  color: var(--status\/alerta);
+}

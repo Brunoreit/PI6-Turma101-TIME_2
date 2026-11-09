@@ -55,6 +55,7 @@ export function CartaoDeConta({ titulo, subtitulo, icone, rodape, onSubmit, chil
  *  aviso de que a API não respondeu. */
 export function mensagemDoErro(erro: unknown): string {
   if (erro instanceof ErroDaApi) return erro.detalhe;
+  if (erro instanceof Error && erro.message) return erro.message;
   return "Algo deu errado ao falar com a API. Tente de novo em alguns segundos.";
 }
 

@@ -28,6 +28,10 @@ export interface Convidado extends Pessoa {
 
 export interface CelulaNoExperimento {
   id: string;
+  /** Id do cultivo na API, para buscar as leituras dele. */
+  idCultivo?: number;
+  /** Participação cancelada ("Resetar célula"): não vale para a taxa. */
+  cancelada?: boolean;
   /** Como "30 °C": a condição testada nesta célula. */
   condicao: string;
   /** `null` quando a célula não aparece nos dados gerais. */

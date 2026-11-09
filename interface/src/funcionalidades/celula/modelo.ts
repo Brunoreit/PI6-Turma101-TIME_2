@@ -11,6 +11,14 @@ export const TEMPERATURA_MAX_C = 45;
 export type Periodo = "6h" | "24h" | "7d" | "experimento";
 
 export interface ExperimentoDaCelula {
+  /** Ids da API (modo api). No modo exemplo não existem. */
+  idExperimento?: number;
+  idCultivo?: number;
+  /** Acesso da pessoa logada, pela API. `null`: a pessoa não tem acesso ao
+   *  experimento e só vê que a célula está em uso. No modo exemplo fica vazio. */
+  acesso?: "responsavel" | "modificar" | "leitura" | null;
+  /** Condição deste cultivo, como "30 °C". */
+  condicao?: string | null;
   codigo: string;
   nome: string;
   modo: string;
@@ -19,7 +27,8 @@ export interface ExperimentoDaCelula {
   dia: number;
   duracaoDias: number;
   alvoC: number | null;
-  /** Faixa de pH de referência. Serve só para os alertas. */
+  /** Faixa de pH de referência do cultivo (começa igual à do experimento).
+   *  Serve só para os alertas. */
   phMin: number | null;
   phMax: number | null;
 }

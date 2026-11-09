@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { INTERVALO_DE_ATUALIZACAO_MS } from "@/dados/DadosProvider";
+import { useSessao } from "@/sessao/SessaoProvider";
 import { carregarCelula } from "./fonte";
 import type { DetalheDaCelula, Periodo } from "./modelo";
 
@@ -16,6 +17,7 @@ interface EstadoDaCelula {
 
 export function useCelula(id: string, periodo: Periodo = "24h"): EstadoDaCelula {
   const [estado, setEstado] = useState<Omit<EstadoDaCelula, "recarregar">>({ dados: null, erro: null });
+  const idPessoa = useSessao().usuario?.id ?? null;
   const atualizar = useRef<() => void>(() => {});
 
   // Outra célula: começa do zero, para não mostrar os dados da anterior.
@@ -28,7 +30,7 @@ export function useCelula(id: string, periodo: Periodo = "24h"): EstadoDaCelula 
       controle.abort();
       controle = new AbortController();
       try {
-        const dados = await carregarCelula(id, periodo, controle.signal);
+        const dados = await carregarCelula(id, periodo, idPessoa, controle.signal);
         setEstado({ dados, erro: null });
       } catch (erro) {
         if (controle.signal.aborted) return;
@@ -44,7 +46,7 @@ export function useCelula(id: string, periodo: Periodo = "24h"): EstadoDaCelula 
       clearInterval(temporizador);
       controle.abort();
     };
-  }, [id, periodo]);
+  }, [id, periodo, idPessoa]);
 
   const recarregar = useCallback(() => atualizar.current(), []);
   return { ...estado, recarregar };

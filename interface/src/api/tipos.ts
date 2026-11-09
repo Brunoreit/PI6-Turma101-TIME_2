@@ -15,6 +15,17 @@ export interface CelulaApi {
   od: number | null;
   ph: number | null;
   alertas_abertos: number;
+  descricao: string | null;
+  apelido: string | null;
+  modelo: string | null;
+  firmware: string | null;
+  /** O cultivo aberto na célula, ou null quando ela está livre. */
+  cultivo_atual: {
+    id_cultivo: number;
+    id_experimento: number;
+    condicao: string | null;
+    iniciado_em: string;
+  } | null;
 }
 
 export type TipoAlerta = "sem_comunicacao" | "setpoint_sem_confirmacao" | "desvio_temperatura";
@@ -121,8 +132,19 @@ export interface CultivoApi {
   condicao: string | null;
   replica: number | null;
   status: "em_andamento" | "encerrado" | "cancelado";
+  ph_ref_min: number | null;
+  ph_ref_max: number | null;
   iniciado_em: string;
   encerrado_em: string | null;
+  motivo_encerramento: string | null;
+}
+
+/** POST /experimentos/{id}/cultivos. Sem temperatura alvo no experimento,
+ *  os dois campos do setpoint vêm nulos. */
+export interface CultivoIniciadoApi extends CultivoApi {
+  pedido_setpoint: PedidoSetpointApi | null;
+  /** false: o cultivo começou, mas o broker não confirmou o envio da temperatura. */
+  setpoint_confirmado: boolean | null;
 }
 
 export interface AcessoApi {

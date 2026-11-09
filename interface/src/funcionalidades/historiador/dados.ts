@@ -81,7 +81,7 @@ export async function carregarSeries(
   if (FONTE_DADOS === "exemplo") return celulas.map((id) => serieDeExemplo(id, inicio, fim, emExperimento.has(id)));
   return Promise.all(
     celulas.map(async (idCelula) => {
-      const leituras = await listarLeituras(idCelula, { desde: inicio, limite: 20000 }, sinal);
+      const leituras = await listarLeituras(idCelula, { desde: inicio, limite: 10000 }, sinal);
       const pontos = agrupar(
         leituras.map((l) => ({ t: new Date(l.ts_origem), temperatura: l.temperatura_c, od: l.od, ph: l.ph })),
         inicio,

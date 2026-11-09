@@ -1,5 +1,6 @@
-// Painel "Comandos": setpoint de temperatura (o único comando real) e o
-// andamento do último pedido.
+// Painel "Comandos": setpoint de temperatura (o único comando real), o
+// andamento do último pedido e a faixa de pH de referência do cultivo, salva
+// pelo PATCH /cultivos/{id} (só responsável ou edição).
 
 import { useState, type FormEvent } from "react";
 import iconeAgitacao from "@/assets/icones/agitacao.svg";
@@ -8,16 +9,20 @@ import iconeCadeado from "@/assets/icones/cadeado.svg";
 import iconeChama from "@/assets/icones/chama.svg";
 import iconeCheckEtapa from "@/assets/icones/check-etapa.svg";
 import interruptorLigado from "@/assets/icones/interruptor-ligado.svg";
+import { AvisoDeAcesso, useAvisoDeAcesso } from "@/compartilhado/componentes/AvisoDeAcesso";
 import { Botao, SEM_API } from "@/compartilhado/componentes/Botao";
 import * as formatar from "@/compartilhado/formatar";
-import { enviarSetpoint } from "@/funcionalidades/celula/fonte";
+import { enviarSetpoint, salvarFaixaDePh } from "@/funcionalidades/celula/fonte";
+import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
+import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
+import { useSessao } from "@/sessao/SessaoProvider";
 import {
   TEMPERATURA_MAX_C,
   TEMPERATURA_MIN_C,
   type DetalheDaCelula,
   type EstadoDoPedido,
 } from "@/funcionalidades/celula/modelo";
-import { faixaDePh, temperaturaAlvo } from "./calculos";
+import { acessoNaCelula, faixaDePh, podeMexer, temperaturaAlvo } from "./calculos";
 import { ConfirmarTemperatura } from "./ConfirmarTemperatura";
 import comum from "@/funcionalidades/celula/Celula.module.css";
 import estilos from "./VisaoDaCelula.module.css";
@@ -68,6 +73,32 @@ export function Comandos({ dados, aoEnviar }: { dados: DetalheDaCelula; aoEnviar
   const [aviso, setAviso] = useState<{ erro: boolean; texto: string } | null>(null);
 
   const [confirmando, setConfirmando] = useState<number | null>(null);
+  const [salvandoPh, setSalvandoPh] = useState(false);
+  const [avisoPh, setAvisoPh] = useState<{ erro: boolean; texto: string } | null>(null);
+  const { buscar } = useExperimentos();
+  const { usuario } = useSessao();
+  const { aviso: avisoDeAcesso, mostrar } = useAvisoDeAcesso();
+  const experimento = dados.experimento;
+  const podeMudarPh = experimento ? podeMexer(acessoNaCelula(experimento, buscar, usuario?.email)) : false;
+
+  async function salvarPh() {
+    if (!experimento || salvandoPh) return;
+    const minimo = Number(phMin.trim().replace(",", "."));
+    const maximo = Number(phMax.trim().replace(",", "."));
+    if (!phMin.trim() || !phMax.trim() || !Number.isFinite(minimo) || !Number.isFinite(maximo) || minimo >= maximo) {
+      return setAvisoPh({ erro: true, texto: "Digite os dois valores, com o mínimo menor que o máximo." });
+    }
+    setSalvandoPh(true);
+    try {
+      await salvarFaixaDePh(experimento.idCultivo, minimo, maximo);
+      setAvisoPh({ erro: false, texto: `Faixa salva: ${formatar.decimal(minimo, 1)} a ${formatar.decimal(maximo, 1)}. Vale para os alertas desta célula.` });
+      aoEnviar();
+    } catch (falha) {
+      setAvisoPh({ erro: true, texto: mensagemDoErro(falha) });
+    } finally {
+      setSalvandoPh(false);
+    }
+  }
 
   // Aplicar valida e abre a confirmação; o pedido só sai ao confirmar.
   function aplicar(evento: FormEvent) {
@@ -140,9 +171,26 @@ export function Comandos({ dados, aoEnviar }: { dados: DetalheDaCelula; aoEnviar
           <input className={estilos.entrada} inputMode="decimal" aria-label="pH mínimo" value={phMin} onChange={(e) => setPhMin(e.target.value)} />
           <span className={estilos.entradaUnidade}>a</span>
           <input className={estilos.entrada} inputMode="decimal" aria-label="pH máximo" value={phMax} onChange={(e) => setPhMax(e.target.value)} />
-          <Botao indisponivel={SEM_API}>Salvar</Botao>
+          <Botao
+            ocupado={salvandoPh}
+            onClick={salvarPh}
+            semAcesso={
+              podeMudarPh
+                ? undefined
+                : () =>
+                    mostrar({
+                      titulo: "Você precisa de acesso para mudar a faixa de pH",
+                      mensagem: `Só o responsável pelo ${experimento?.codigo} ou quem tem edição muda a faixa desta célula.`,
+                      acao: `Pedir acesso a ${experimento?.responsavel}`,
+                    })
+            }
+          >
+            Salvar
+          </Botao>
         </div>
-        <p className={estilos.ajuda}>Usada só para alertas. O pH é medido, não comandado.</p>
+        <p className={avisoPh?.erro ? estilos.ajudaErro : estilos.ajuda} role="status">
+          {avisoPh?.texto ?? "Usada só para alertas, nesta célula. O pH é medido, não comandado."}
+        </p>
       </div>
 
       <div className={estilos.emBreve}>
@@ -150,6 +198,7 @@ export function Comandos({ dados, aoEnviar }: { dados: DetalheDaCelula; aoEnviar
         <ComandoEmBreve icone={iconeBombas} nome="Bombas de diluição" detalhe="Depende do hardware · em breve" />
       </div>
 
+      <AvisoDeAcesso aviso={avisoDeAcesso} />
       {confirmando !== null && (
         <ConfirmarTemperatura
           dados={dados}

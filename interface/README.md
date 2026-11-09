@@ -33,11 +33,12 @@ No Docker, defina a variável no `.env` e rode `docker compose up --build`.
 
 As telas da célula (`/celulas/{id}`, `/ajustes` e `/diagnostico`) seguem a
 mesma variável. No modo `exemplo`, qualquer célula mostra os dados da c08 do
-Figma. No modo `api`, o que a API ainda não tem (experimento, placa,
-calibração em uso, bombas, manutenção, mensagens recebidas) aparece como "—"
-ou com aviso. Os botões dessas ações ficam como no Figma, mas não fazem nada e
-explicam o motivo ao passar o mouse. O único comando que funciona é o
-setpoint de temperatura, pelo `POST /celulas/{id}/setpoint`.
+Figma. No modo `api`, o experimento da célula vem do cultivo aberto nela
+(ver Cultivos abaixo), e o que a API ainda não tem (MAC, calibração em uso,
+bombas, manutenção, mensagens recebidas) aparece como "—" ou com aviso. Os
+botões dessas ações ficam como no Figma, mas não fazem nada e explicam o
+motivo ao passar o mouse. O único comando para a placa é o setpoint de
+temperatura, pelo `POST /celulas/{id}/setpoint`.
 Os dados são atualizados a cada 20 s (`src/dados/DadosProvider.tsx`).
 Células sem experimento nos dados de exemplo (a c04) mostram a tela
 "Célula c04 · livre", com Atribuir experimento no lugar dos Comandos.
@@ -48,7 +49,7 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 |---|---|---|
 | `/entrar`, `/cadastro`, `/recuperar-senha`, `/nova-senha?email=` | Login, Login · erro, Cadastro, Recuperar senha, e-mail enviado, Nova senha | Login e cadastro pela API, sempre (ver Login abaixo). Recuperar e trocar a senha ainda não |
 | `/` | Visão geral | Igual antes |
-| `/celulas/{id}` (e `/ajustes`, `/diagnostico`) | Célula c08 e Célula c04 · livre, modal Confirmar temperatura | Setpoint de temperatura, agora com confirmação |
+| `/celulas/{id}` (e `/ajustes`, `/diagnostico`) | Célula c08 e Célula c04 · livre, modal Confirmar temperatura | Setpoint com confirmação. No modo `api`: atribuir, encerrar e resetar a participação e a faixa de pH do cultivo |
 | `/celulas/{id}/ajustes/calibracao` | Célula c08 · nova calibração de OD | Salva a nova curva pelo `POST /celulas/{id}/calibracoes` (no modo `api`) |
 | `/experimentos` | Experimentos · compartilhados | Lista e filtro Todos, Meus e Compartilhados comigo; Duplicar. Pela API no modo `api` (ver Experimentos abaixo) |
 | `/experimentos/novo?base=EXP-01` | Novo experimento · etapas e metadados | Cria o experimento em Stand by. Pela API no modo `api` |
@@ -58,8 +59,7 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 | `/alertas` | Alertas · regras | Abertos e Histórico vêm da API (no modo `api`) |
 | `/exportar` | Exportar dados e · por célula e período | CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv` |
 
-A API não tem regras de alerta configuráveis nem exportação agrupada, e a
-interface ainda não usa as rotas de cultivos. No
+A API não tem regras de alerta configuráveis nem exportação agrupada. No
 modo `exemplo`, as mudanças (novo experimento, compartilhar, encerrar,
 cancelar, nova regra) ficam na memória até recarregar a página. Os botões
 que dependem do que falta ficam como no Figma e explicam o motivo ao passar
@@ -140,7 +140,50 @@ O `ExperimentosProvider` segue `VITE_FONTE_DADOS`. No modo `exemplo`, usa
   temperatura, OD e pH com os dados gerais das células.
 - **Erros.** 404 mostra "Experimento não encontrado ou sem acesso"; 403 abre
   o Aviso de acesso; os outros mostram o `detail` da API.
-- **Ainda não ligado:** iniciar ou encerrar cultivos de células.
+
+### Cultivos
+
+Um cultivo é uma célula dentro de um experimento durante um período. No modo
+`api`:
+
+| Ação na tela | Rota da API |
+|---|---|
+| Experimento da célula (faixa de status, "Abrir experimento", alvo e pH) | `cultivo_atual` de `GET /celulas` e `GET /experimentos/{id}` |
+| Atribuir e iniciar (célula livre) | `POST /experimentos/{id}/cultivos {id_celula, condicao}` e, se a temperatura mudou, `POST /celulas/{id}/setpoint` |
+| Salvar a faixa de pH (Comandos) | `PATCH /cultivos/{id} {ph_ref_min, ph_ref_max}` |
+| Encerrar participação | `POST /cultivos/{id}/encerrar` |
+| Resetar célula | `POST /cultivos/{id}/cancelar {motivo}`, com o motivo pedido num modal |
+| Taxa de crescimento do detalhe do experimento | `GET /cultivos/{id}/leituras` |
+
+- **Atribuir.** A lista mostra só os experimentos em Stand by ou em andamento
+  em que a pessoa é responsável ou tem edição. A temperatura começa com a do
+  cadastro (a da primeira fase). Se o experimento tem temperatura alvo, a
+  API já manda o setpoint ao abrir o cultivo; se a pessoa mudou a
+  temperatura desta célula, a tela manda um segundo pedido com o valor novo.
+  A condição do cultivo é a temperatura escolhida, como "32,0 °C".
+- **Erros ao atribuir.** 503: "A célula não foi atribuída porque o broker está
+  fora do ar. Tente de novo em instantes." 409: a mensagem da API (célula já
+  em outro cultivo, ou experimento fechado). Se o cultivo começou mas a
+  temperatura não foi enviada (`setpoint_confirmado: false`, ou o segundo
+  pedido falhou), aparece um aviso no topo da tela da célula.
+- **Resetar não apaga nada.** A API não apaga o armazenamento local da placa
+  nem as leituras: o cultivo fica marcado como cancelado. Por isso a frase
+  "apaga o armazenamento local da placa" do Figma saiu. A frase do Figma
+  sobre retirar a célula sozinha depois de 24 h sem comunicação também saiu:
+  perder a conexão nunca encerra um cultivo.
+- **Permissões.** Só o responsável ou quem tem edição atribui, encerra,
+  reseta e muda o pH. Quem só lê vê os botões esmaecidos com o Aviso de
+  acesso. Célula num experimento não compartilhado com a pessoa aparece como
+  "experimento de outra pessoa", sem link.
+- **Detalhe do experimento.** A tabela de células vem dos cultivos, com início
+  e fim; cultivo cancelado aparece com o selo "Cancelada". A taxa de
+  crescimento é a inclinação de ln(OD) nas leituras dos últimos 7 dias de
+  cada cultivo (cancelados não entram), dividida por ln 2, em divisões por
+  hora, com a média por condição. "Ver no historiador" abre o historiador com
+  as células e o período que cobre todas elas (`?celulas=...&inicio=...&fim=...`),
+  e a faixa de contexto mostra o período de cada uma.
+- No modo `exemplo`, os botões de cultivo explicam que não há para onde
+  enviar.
 
 ### Compartilhar
 
@@ -185,20 +228,23 @@ src/
   sessao/               SessaoProvider: conta logada, entrar, cadastrar e sair, pela API
   api/                  cliente tipado, com o token em Authorization: /auth/cadastro,
                         /auth/entrar, /auth/eu, /celulas, /alertas, /celulas/{id}/leituras,
-                        /saude, /celulas/{id}/setpoint(s), /calibracoes, /integridade
+                        /saude, /celulas/{id}/setpoint(s), /calibracoes, /integridade,
+                        /experimentos (e acessos) e /cultivos
   dados/                dados gerais, atualizados a cada 20 s e usados por todas as telas:
                         modelo, fonte (API ou exemplo), exemplo e DadosProvider
   compartilhado/        formatar.ts e componentes reaproveitáveis: Botao, Campo,
-                        CaixaDeSelecao, AvisoDeAcesso, GraficoDeLinha, SeloDeStatus,
-                        CurvaDeCalibracao
+                        CaixaDeSelecao, AvisoDeAcesso, ModalDeMotivo, GraficoDeLinha,
+                        SeloDeStatus, CurvaDeCalibracao
   funcionalidades/      uma pasta por funcionalidade, com tudo dela junto
     visao-geral/        VisaoGeral, CardDeCelula, HistoricoOd
-    celula/             VisaoDaCelula/, NovaCalibracao/, Ajustes, Diagnostico e os dados próprios da
-                        célula (modelo, fonte, exemplo, useCelula)
+    celula/             VisaoDaCelula/ (com Atribuir e Tirar do experimento), NovaCalibracao/,
+                        Ajustes, Diagnostico e os dados próprios da célula (modelo, fonte
+                        com as ações de cultivo, exemplo, useCelula)
     conta/              Entrar, Cadastro, RecuperarSenha, NovaSenha e o CartaoDeConta comum
     experimentos/       lista, NovoExperimento (novo e editar), DetalheDoExperimento,
-                        CancelarExperimento, Compartilhar, TaxaDeCrescimento, modelo,
-                        exemplo, api (tradução da API) e ExperimentosProvider
+                        CancelarExperimento, Compartilhar, TaxaDeCrescimento, taxa
+                        (cálculo pelas leituras do cultivo), modelo, exemplo, api
+                        (tradução da API) e ExperimentosProvider
     historiador/        Historiador, GraficoDeComparacao e dados (séries de leituras)
     alertas/            Alertas, NovaRegra e modelo (regras de exemplo)
     exportar/           Exportar

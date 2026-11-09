@@ -185,7 +185,7 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 
 ## Próximos passos
 
-- Ligar a interface às rotas de cultivos (login, experimentos e compartilhamento já estão ligados)
+- Ligar a interface aos tipos de alerta novos e ao apelido da célula (login, experimentos, compartilhamento e cultivos já estão ligados)
 - Fechar o contrato de mensagens com o grupo do hardware (`docs/contrato-mqtt.md`)
 - Login nas rotas antigas e senha no broker
 - Endpoints para as telas que ainda usam dados de exemplo: regras de alerta e exportação agrupada

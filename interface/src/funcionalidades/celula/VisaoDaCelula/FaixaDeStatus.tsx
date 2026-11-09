@@ -28,9 +28,13 @@ export function FaixaDeStatus({ dados }: { dados: DetalheDaCelula }) {
   if (experimento === null) {
     nome = "Sem experimento";
     detalhe = "A célula está medindo, mas as leituras não entram em nenhum experimento.";
+  } else if (experimento?.acesso === null) {
+    nome = `${experimento.codigo} · experimento de outra pessoa`;
+    detalhe = `Em uso desde ${formatar.data(experimento.naCelulaDesde)}, num experimento que não foi compartilhado com você.`;
   } else if (experimento) {
     nome = `${experimento.codigo} · ${experimento.nome}`;
-    detalhe = `${experimento.modo} · na célula desde ${formatar.data(experimento.naCelulaDesde)} · responsável ${experimento.responsavel}`;
+    detalhe = `${experimento.modo} · na célula desde ${formatar.data(experimento.naCelulaDesde)} · responsável ${experimento.responsavel}${
+      experimento.condicao ? ` · condição ${experimento.condicao}` : ""}`;
   }
 
   return (
@@ -46,7 +50,10 @@ export function FaixaDeStatus({ dados }: { dados: DetalheDaCelula }) {
         </div>
         <p className={estilos.experimentoDetalhe}>{detalhe}</p>
       </div>
-      <Caixa rotulo="Dia do experimento" valor={experimento ? `${experimento.dia} de ${experimento.duracaoDias}` : "—"} />
+      <Caixa
+        rotulo="Dia do experimento"
+        valor={experimento?.dia ? (experimento.duracaoDias ? `${experimento.dia} de ${experimento.duracaoDias}` : `${experimento.dia}`) : "—"}
+      />
       <Caixa rotulo="Temperatura alvo" valor={traco(alvo, formatar.temperatura)} />
       <Caixa
         rotulo="Última leitura"

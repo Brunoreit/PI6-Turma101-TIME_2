@@ -26,6 +26,10 @@ interface Contexto {
   /** Busca o detalhe (células e acessos). Rejeita com ErroDaApi; 404 quando
    *  o experimento não existe ou a pessoa não tem acesso. */
   carregarDetalhe: (codigo: string) => Promise<void>;
+  /** Busca de novo a lista e os detalhes já abertos, depois de uma mudança
+   *  feita fora daqui (como atribuir uma célula, que tira o experimento de
+   *  Stand by). */
+  recarregar: () => Promise<void>;
   /** As ações devolvem o código do experimento novo, como "EXP-05". */
   criar: (ficha: Ficha, baseadoEm?: string) => Promise<string>;
   duplicar: (codigo: string) => Promise<string>;
@@ -112,6 +116,9 @@ function useDaApi(): Contexto {
       return detalhe ? experimentoDoDetalhe(detalhe, usuario, celulas) : lista?.find((e) => e.codigo === codigo);
     },
     carregarDetalhe,
+    async recarregar() {
+      await Promise.all([recarregarLista(), ...Object.keys(detalhes).map((codigo) => carregarDetalhe(codigo).catch(() => {}))]);
+    },
     async criar(ficha) {
       const novo = await api.criarExperimento(fichaParaApi(ficha));
       await recarregarLista();
@@ -194,6 +201,7 @@ function useDoExemplo(): Contexto {
     async carregarDetalhe(codigo) {
       if (!buscar(codigo)) throw new ErroDaApi(404, NAO_ENCONTRADO);
     },
+    async recarregar() {},
     async criar(ficha, baseadoEm) {
       const codigo = proximoCodigo();
       const novo: Experimento = {

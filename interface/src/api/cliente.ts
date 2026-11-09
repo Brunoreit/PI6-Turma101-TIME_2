@@ -3,7 +3,7 @@
 // desenvolvimento) e pelo nginx (no Docker).
 
 import type {
-  AcessoApi, AlertaApi, CelulaApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
+  AcessoApi, AlertaApi, CelulaApi, CultivoApi, CultivoIniciadoApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
   LeituraApi, PedidoSetpointApi, PermissaoApi, PessoaApi, SaudeApi, SessaoApi,
 } from "./tipos";
 
@@ -192,4 +192,37 @@ export function concederAcesso(id: number, email: string, permissao: PermissaoAp
 
 export function revogarAcesso(id: number, idPessoa: number): Promise<void> {
   return buscar(`/experimentos/${id}/acessos/${idPessoa}`, undefined, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------- cultivos
+// Uma célula num experimento durante um período. Responsável ou edição.
+
+export function iniciarCultivo(idExperimento: number, idCelula: string, condicao: string | null): Promise<CultivoIniciadoApi> {
+  return enviar(`/experimentos/${idExperimento}/cultivos`, { id_celula: idCelula, condicao });
+}
+
+export function alterarCultivo(
+  id: number, campos: { condicao?: string | null; ph_ref_min?: number | null; ph_ref_max?: number | null },
+): Promise<CultivoApi> {
+  return enviar(`/cultivos/${id}`, campos, "PATCH");
+}
+
+export function encerrarCultivo(id: number): Promise<CultivoApi> {
+  return enviar(`/cultivos/${id}/encerrar`, {});
+}
+
+/** Como encerrar, marcando que o cultivo não valeu. Nada é apagado. */
+export function cancelarCultivo(id: number, motivo: string): Promise<CultivoApi> {
+  return enviar(`/cultivos/${id}/cancelar`, { motivo });
+}
+
+/** Leituras medidas no período do cultivo, da mais nova para a mais antiga. */
+export function listarLeiturasDoCultivo(
+  id: number, opcoes: { desde?: Date; limite?: number } = {}, sinal?: AbortSignal,
+): Promise<LeituraApi[]> {
+  const parametros = new URLSearchParams();
+  if (opcoes.desde) parametros.set("desde", opcoes.desde.toISOString());
+  if (opcoes.limite) parametros.set("limite", String(opcoes.limite));
+  const consulta = parametros.size ? `?${parametros}` : "";
+  return buscar(`/cultivos/${id}/leituras${consulta}`, sinal);
 }
