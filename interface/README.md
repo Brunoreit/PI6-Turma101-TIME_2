@@ -22,7 +22,7 @@ Há duas fontes:
 | `VITE_FONTE_DADOS` | O que mostra |
 |---|---|
 | `exemplo` (padrão) | Dados iguais aos do Figma, em `src/dados/exemplo.ts` e nos `exemplo.ts` de cada tela. As mudanças ficam na memória até recarregar a página |
-| `api` | Tudo pela API: células, alertas, experimentos, acessos e cultivos. O que a API não informa (estado do consumidor e das regras, setpoints aguardando, MAC, calibração em uso, bombas, manutenção) aparece como "sem dados" ou "—" |
+| `api` | Tudo pela API: células, alertas, experimentos, acessos e cultivos. O que a API não informa (estado do consumidor e das regras, setpoints aguardando, MAC, bombas, manutenção) aparece como "sem dados" ou "—" |
 
 O login é sempre pela API, nos dois modos. No modo `api`, nenhuma tela usa
 dados de exemplo: a lista de células do Historiador e do Exportar vem de
@@ -38,7 +38,8 @@ No Docker, defina a variável no `.env` e rode `docker compose up --build`.
 As telas da célula (`/celulas/{id}`, `/ajustes` e `/diagnostico`) seguem a
 mesma variável. No modo `exemplo`, qualquer célula mostra os dados da c08 do
 Figma. No modo `api`, o experimento da célula vem do cultivo aberto nela
-(ver Cultivos abaixo), e o que a API ainda não tem (MAC, calibração em uso,
+(ver Cultivos abaixo), a calibração vem de `GET /celulas/{id}/calibracoes`, e o
+que a API ainda não tem (MAC,
 bombas, manutenção, mensagens recebidas) aparece como "—" ou com aviso. Os
 botões dessas ações ficam como no Figma, mas não fazem nada e explicam o
 motivo ao passar o mouse. O único comando para a placa é o setpoint de
@@ -54,7 +55,7 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 | `/entrar`, `/cadastro`, `/recuperar-senha`, `/nova-senha?email=` | Login, Login · erro, Cadastro, Recuperar senha, e-mail enviado, Nova senha | Login e cadastro pela API, sempre (ver Login abaixo). Recuperar e trocar a senha ainda não |
 | `/` | Visão geral | Igual antes |
 | `/celulas/{id}` (e `/ajustes`, `/diagnostico`) | Célula c08 e Célula c04 · livre, modal Confirmar temperatura | Setpoint com confirmação. No modo `api`: atribuir, encerrar e resetar a participação e a faixa de pH do cultivo |
-| `/celulas/{id}/ajustes/calibracao` | Célula c08 · nova calibração de OD | Salva a nova curva pelo `POST /celulas/{id}/calibracoes` (no modo `api`) |
+| `/celulas/{id}/ajustes/calibracao` | Célula c08 · nova calibração de OD, · estabilizando, · padrão gravado e · excluir padrão | Leitura ao vivo pelo `GET /celulas/{id}/od-ao-vivo` e salva pelos pontos no `POST /celulas/{id}/calibracoes` (no modo `api`). Ver Nova calibração de OD abaixo |
 | `/experimentos?de=meus&status=andamento,standby` | Experimentos · compartilhados | Lista com filtro Todos, Meus e Compartilhados comigo e, combinado, o filtro por status (não está no Figma: escolha um ou mais entre Em andamento, Stand by, Encerrado e Cancelado, com a contagem de cada); os dois ficam na URL. Duplicar. Pela API no modo `api` (ver Experimentos abaixo) |
 | `/experimentos/novo?base=EXP-01` | Novo experimento · etapas e metadados | Cria o experimento em Stand by. Pela API no modo `api` |
 | `/experimentos/{código}/editar` | Não está no Figma: o mesmo formulário do Novo experimento | Edita conforme o status. Pela API no modo `api` |
@@ -72,9 +73,7 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
   Só sai o CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv`.
 - **Recuperar e trocar senha**, **convite para quem não tem conta** e **fechar
   o alerta `colisao_seq`**.
-- **Dados da placa e da calibração:** não há `GET` de calibrações (a versão
-  em uso, a curva e o histórico de versões aparecem como "—"), nem MAC,
-  período de leitura, bombas e modo manutenção.
+- **Dados da placa:** MAC, período de leitura, bombas e modo manutenção.
 - **Estado do consumidor e das regras** na barra lateral.
 
 No modo `exemplo`, as mudanças (novo experimento, compartilhar, encerrar,
@@ -129,7 +128,8 @@ Todo campo que a API devolve aparece em alguma tela no modo `api`:
 | `alertas_abertos` da célula | Card da Visão geral ("2 alertas") |
 | `ts_recebido` e `id_calibracao` da leitura | Diagnóstico, painel Sensores (medida, recebida, atraso e calibração) |
 | `primeiro_seq` da integridade | Diagnóstico, Integridade do histórico |
-| Resposta da nova calibração (`id_calibracao`, `criada_em`, `sensor`, `r2`, `pontos`, `organismo`, `id_pessoa`) | Aviso em Ajustes ao voltar da calibração |
+| Resposta da nova calibração (`id_calibracao`, `criada_em`, `sensor`, `r2`, `pontos`, `organismo`, `id_pessoa`, `ajuste`) | Aviso em Ajustes ao voltar da calibração |
+| `GET /celulas/{id}/calibracoes` (`versao`, `a`, `b`, `ativa`, `criada_em`, `pontos`, `r2`, `organismo`, `calibrado_por`) | Ajustes: versão em uso, curva e versões anteriores; Visão da célula: Informações da placa e Histórico |
 
 Outros dados ligados nesta parte:
 
@@ -139,13 +139,57 @@ Outros dados ligados nesta parte:
 - **Setpoints aguardando** (Visão geral): o último pedido de cada célula
   (`GET /celulas/{id}/setpoints`) que ainda está solicitado, recebido ou
   aplicado.
-- **Nova calibração:** vão junto os padrões usados na reta (branco e
-  padrões), o R² e o organismo (campo opcional). Ao voltar para Ajustes,
-  aparece a versão gravada e quantas leituras tiveram a OD recalculada. A
-  API não informa a versão em uso, então antes de salvar a tela diz "versão
-  nova".
+- **Nova calibração:** ver a seção Nova calibração de OD, abaixo.
 - **Diagnóstico:** primeiro anúncio, último contato e último `seq` gravado da
   placa, de `GET /celulas`.
+
+### Nova calibração de OD
+
+Telas do Figma "Célula c08 · nova calibração de OD", "· estabilizando",
+"· padrão gravado" e "· excluir padrão", em
+`src/funcionalidades/celula/NovaCalibracao/`.
+
+- **Sensor ao vivo** (`LeituraAoVivo.tsx`, `aoVivo.ts`): com a tela aberta,
+  `GET /celulas/{id}/od-ao-vivo` a cada 5 s; para ao sair. Mostra o valor
+  bruto, o `seq`, há quanto tempo chegou, quando deve chegar a próxima (pelo
+  intervalo médio entre leituras), o gráfico das últimas 8 leituras e o selo
+  Estável ou Estabilizando. A leitura é estável quando as últimas N leituras
+  (`CALIBRACAO_N_LEITURAS`, 6) variam menos que `CALIBRACAO_VARIACAO_MAX` (1%)
+  entre o mínimo e o máximo.
+- **Gravar em:** escolhe o branco ou um padrão; a linha fica destacada na
+  tabela. "Gravar <média> no Px" só libera com a leitura estável e guarda a
+  média, `seq_inicio`, `seq_fim`, `n_leituras` e o desvio da janela. Depois
+  mostra a confirmação e passa para o próximo ponto vazio; o botão espera a
+  janela ter só leituras novas ("Esperando o P4") antes de gravar de novo.
+- **Digitar:** para quem mediu por fora. Abre o campo do bruto e grava com
+  origem `digitado`.
+- **Tabela:** o branco aparece como "linha base", sem OD de referência. Cada
+  padrão mostra o bruto gravado, o valor sem o branco, a origem ("6 leituras
+  · ±2" ou "digitado") e a hora. A lixeira tira o padrão, com confirmação na
+  própria linha.
+- **Curva** (`GraficoDaCurva.tsx`, `regressao.ts`): eixo x é o bruto menos o
+  branco, e o branco não é ponto. O padrão sendo lido aparece vazado com o
+  valor ao vivo. A fórmula é "od = a · (bruto − branco) + b", com o R². É só
+  uma prévia, com as mesmas regras do servidor: ao salvar vale o que o
+  servidor devolve.
+- **Conferir e salvar:** libera com o branco e pelo menos 3 padrões, de
+  qualquer OD (a faixa de 0,2 a 0,8 saiu). Manda os pontos para o `POST
+  /celulas/{id}/calibracoes`, sem a, b e R²; o servidor recalcula a média dos
+  pontos lidos pelas leituras do banco e ajusta a reta.
+- **Em andamento:** a calibração fica no `localStorage`, na chave
+  `calibracao-em-andamento-<id_celula>`, até salvar ou cancelar. Ao abrir a
+  tela com pontos guardados, eles voltam com o aviso "Calibração em andamento
+  desde 09:41" e a opção de descartar. Sem `localStorage` (aba anônima), a tela
+  funciona, só não guarda.
+- **Modo exemplo:** a leitura ao vivo é simulada, uma a cada 3 s, que sobe até
+  o padrão do frasco e estabiliza em uns 30 s. Trocar a linha em "Gravar em"
+  troca o frasco. Salvar não grava nada.
+
+Em **Ajustes**, a versão em uso e as anteriores vêm de
+`GET /celulas/{id}/calibracoes`. Nas versões novas a fórmula aparece com o
+branco (tirado dos `pontos`, com b = b do banco + a · branco); nas antigas,
+sem ponto "branco", continua "od = a · bruto + b". O gráfico não destaca mais
+faixa nenhuma.
 
 ### Apelido da célula
 
@@ -325,7 +369,7 @@ src/
   sessao/               SessaoProvider: conta logada, entrar, cadastrar e sair, pela API
   api/                  cliente tipado, com o token em Authorization: /auth/cadastro,
                         /auth/entrar, /auth/eu, /celulas, /alertas, /celulas/{id}/leituras,
-                        /saude, /celulas/{id}/setpoint(s), /calibracoes, /integridade,
+                        /saude, /celulas/{id}/setpoint(s), /calibracoes, /od-ao-vivo, /integridade,
                         /experimentos (e acessos) e /cultivos
   dados/                dados gerais, atualizados a cada 20 s e usados por todas as telas:
                         modelo, fonte (API ou exemplo), exemplo, DadosProvider

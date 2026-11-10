@@ -125,6 +125,223 @@
   color: var(--texto\/secundario);
 }
 
+/* ---------- calibração em andamento, de volta do navegador */
+
+.emAndamento {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--marca\/principal);
+  border-radius: 8px;
+  background: var(--marca\/fundo);
+  font-size: 13px;
+  color: var(--marca\/texto);
+}
+
+.emAndamento p {
+  flex: 1 1 0;
+}
+
+/* ---------- sensor de OD ao vivo (Figma, nó 283:2337) */
+
+.aoVivo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+  background: var(--fundo\/sutil);
+}
+
+.aoVivoTopo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.aoVivoTopo strong {
+  flex: 1 1 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.gravadoAgora {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--status\/online-fundo);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--status\/online);
+}
+
+.aoVivoValores {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.valorAgora {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+.valorAgora strong {
+  font-family: var(--fonte-mono);
+  font-size: 30px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.valorAgoraSeq {
+  font-family: var(--fonte-mono);
+  font-size: 12px;
+}
+
+.miniGrafico {
+  flex-shrink: 0;
+  width: 210px;
+  height: 56px;
+}
+
+.faixaEstavel {
+  fill: var(--status\/online-fundo);
+}
+
+.miniLinha {
+  fill: none;
+  stroke: var(--marca\/principal);
+  stroke-width: 1.5;
+}
+
+.miniPonto,
+.miniPontoAntigo {
+  fill: var(--marca\/principal);
+}
+
+.miniPontoAntigo {
+  fill: var(--borda\/padrao);
+}
+
+.estabilidade {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.seloEstavel,
+.seloEstabilizando {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.seloEstavel {
+  background: var(--status\/online-fundo);
+  color: var(--status\/online);
+}
+
+.seloEstabilizando {
+  background: var(--marca\/fundo);
+  color: var(--marca\/texto);
+}
+
+.esperando {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--texto\/principal);
+}
+
+.divisoria {
+  height: 1px;
+  background: var(--borda\/padrao);
+}
+
+.gravar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.gravar > span:first-child {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+  background: var(--fundo\/pagina);
+}
+
+.chip,
+.chipAtivo,
+.chipGravado {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border: 1.5px solid transparent;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--texto\/principal);
+  cursor: pointer;
+}
+
+.chip:hover,
+.chipGravado:hover {
+  background: var(--fundo\/sutil);
+}
+
+.chipGravado {
+  color: var(--texto\/secundario);
+}
+
+.chipAtivo {
+  border-color: var(--marca\/principal);
+  background: var(--marca\/fundo);
+  font-weight: 600;
+  color: var(--marca\/texto);
+}
+
+.espaco {
+  flex: 1 1 0;
+}
+
+.rodapeAoVivo {
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
 /* ---------- tabela de padrões */
 
 .tabela {
@@ -214,12 +431,6 @@
   cursor: pointer;
 }
 
-.foraDaFaixa {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--status\/alerta);
-}
-
 .aPreencher {
   font-size: 12px;
   color: var(--texto\/secundario);
@@ -237,6 +448,63 @@
   font-weight: 600;
   color: var(--marca\/texto);
   cursor: pointer;
+}
+
+/* Coluna "Bruto gravado": valor e, embaixo, sem o branco e a origem. */
+.brutoCelula {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11px;
+  color: var(--texto\/secundario);
+  white-space: nowrap;
+}
+
+.brutoValor {
+  font-family: var(--fonte-mono);
+  font-size: 13px;
+  color: var(--texto\/principal);
+}
+
+.aoVivoNaLinha {
+  color: var(--marca\/texto);
+}
+
+.linhaBase {
+  font-size: 12px;
+  color: var(--texto\/secundario);
+}
+
+.situacaoTextos {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lendo {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--marca\/texto);
+}
+
+.digitar {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--marca\/texto);
+  cursor: pointer;
+}
+
+.digitar:hover {
+  text-decoration: underline;
+}
+
+.semLixeira {
+  width: 20px;
+  flex-shrink: 0;
 }
 
 /* ---------- curva */
@@ -347,6 +615,11 @@
   font-size: 12px;
 }
 
+.legenda {
+  font-size: 11px;
+  color: var(--texto\/secundario);
+}
+
 .conferir {
   padding: 10px 12px;
   border: 1px solid var(--marca\/principal);
@@ -418,7 +691,8 @@
 }
 
 .botaoExcluir,
-.botaoCancelar {
+.botaoCancelar,
+.botaoGravar {
   padding: 4px 10px;
   border-radius: 6px;
   font: inherit;
@@ -431,6 +705,17 @@
   border: 1px solid var(--status\/alerta);
   background: var(--status\/alerta);
   color: var(--fundo\/pagina);
+}
+
+.botaoGravar {
+  border: 1px solid var(--marca\/principal);
+  background: var(--marca\/principal);
+  color: var(--texto\/principal);
+}
+
+.botaoGravar:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .botaoCancelar {

@@ -186,7 +186,42 @@ export interface FichaApi {
   metadados: Record<string, unknown>;
 }
 
-/** Resposta de POST /celulas/{id}/calibracoes. */
+/** Um ponto da calibração. As versões antigas só têm `od_referencia` e
+ *  `bruto`; as novas têm o branco (rotulo "branco", od_referencia null) e a
+ *  origem de cada ponto. Com origem "leitura", seq_inicio, seq_fim e
+ *  n_leituras apontam para as leituras que formaram a média. */
+export interface PontoCalibracaoApi {
+  od_referencia: number | null;
+  bruto: number;
+  rotulo?: string;
+  origem?: "leitura" | "digitado";
+  seq_inicio?: number;
+  seq_fim?: number;
+  n_leituras?: number;
+  desvio?: number;
+  gravado_em?: string;
+}
+
+/** Uma versão da curva, em GET /celulas/{id}/calibracoes. Nas versões com
+ *  branco, `b` já tem o branco embutido: od = a · bruto + b. */
+export interface CalibracaoApi {
+  id_calibracao: number;
+  versao: number;
+  a: number;
+  b: number;
+  ativa: boolean;
+  criada_em: string;
+  sensor: string | null;
+  pontos: PontoCalibracaoApi[] | null;
+  r2: number | null;
+  organismo: string | null;
+  id_pessoa: number | null;
+  /** null na versão padrão do sistema. */
+  calibrado_por: string | null;
+}
+
+/** Resposta de POST /celulas/{id}/calibracoes. `ajuste` só vem no cadastro
+ *  por pontos: a reta com o branco à parte, od = a · (bruto − branco) + b. */
 export interface CalibracaoSalvaApi {
   id_calibracao: number;
   versao: number;
@@ -194,9 +229,33 @@ export interface CalibracaoSalvaApi {
   b: number;
   criada_em: string;
   sensor: string | null;
-  pontos: { od_referencia: number; bruto: number }[] | null;
+  pontos: PontoCalibracaoApi[] | null;
   r2: number | null;
   organismo: string | null;
   id_pessoa: number | null;
   leituras_reprocessadas: number;
+  ajuste?: { branco: number; a: number; b: number; r2: number; padroes: number };
+}
+
+/** GET /celulas/{id}/od-ao-vivo. */
+export interface OdAoVivoApi {
+  id_celula: string;
+  ultima: { seq: number; ts_origem: string; od_bruto: number } | null;
+  /** Até 8 leituras (ou N, se for maior), da mais antiga para a mais nova. */
+  recentes: { seq: number; ts_origem: string; od_bruto: number }[];
+  variacao_max: number;
+  janela: {
+    n_esperado: number;
+    n_leituras: number;
+    faltam: number;
+    seq_inicio: number | null;
+    seq_fim: number | null;
+    media: number | null;
+    minimo: number | null;
+    maximo: number | null;
+    variacao: number | null;
+    desvio: number | null;
+    estavel: boolean;
+    intervalo_medio_s: number | null;
+  };
 }

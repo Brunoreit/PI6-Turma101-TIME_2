@@ -3,7 +3,7 @@
 // desenvolvimento) e pelo nginx (no Docker).
 
 import type {
-  AcessoApi, AlertaApi, CalibracaoSalvaApi, CelulaApi, CultivoApi, CultivoIniciadoApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
+  AcessoApi, AlertaApi, CalibracaoApi, CalibracaoSalvaApi, CelulaApi, OdAoVivoApi, PontoCalibracaoApi, CultivoApi, CultivoIniciadoApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
   LeituraApi, PedidoSetpointApi, PermissaoApi, PessoaApi, SaudeApi, SessaoApi,
 } from "./tipos";
 
@@ -140,22 +140,32 @@ export function pedirSetpoint(idCelula: string, temperaturaC: number): Promise<P
   });
 }
 
-/** Cadastra uma nova versão da curva de OD. Com `recalcular`, a API refaz a
- *  OD das leituras gravadas: todas, ou só as de `desde` em diante. Os padrões
- *  lidos, o R² e o organismo ficam guardados com a versão. */
+/** Cadastra uma nova versão da curva de OD pelos pontos (o branco e pelo
+ *  menos 3 padrões). A API confere as leituras dos pontos lidos ao vivo,
+ *  ajusta a reta e devolve a, b e R². Com `recalcular`, refaz a OD das
+ *  leituras gravadas: todas, ou só as de `desde` em diante. */
 export function cadastrarCalibracao(
   idCelula: string,
-  a: number,
-  b: number,
+  pontos: PontoCalibracaoApi[],
   recalcular: boolean,
   desde: Date | null,
-  extras: { pontos?: { od_referencia: number; bruto: number }[]; r2?: number | null; organismo?: string | null } = {},
+  organismo: string | null,
 ): Promise<CalibracaoSalvaApi> {
   return buscar(`/celulas/${encodeURIComponent(idCelula)}/calibracoes`, undefined, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ a, b, recalcular, recalcular_desde: desde?.toISOString() ?? null, ...extras }),
+    body: JSON.stringify({ pontos, recalcular, recalcular_desde: desde?.toISOString() ?? null, organismo }),
   });
+}
+
+/** Versões da curva de OD da célula, da mais nova para a mais antiga. */
+export function listarCalibracoes(idCelula: string, sinal?: AbortSignal): Promise<CalibracaoApi[]> {
+  return buscar(`/celulas/${encodeURIComponent(idCelula)}/calibracoes`, sinal);
+}
+
+/** Sensor de OD agora: a última leitura e a janela usada para gravar um padrão. */
+export function consultarOdAoVivo(idCelula: string, sinal?: AbortSignal): Promise<OdAoVivoApi> {
+  return buscar(`/celulas/${encodeURIComponent(idCelula)}/od-ao-vivo`, sinal);
 }
 
 /** Um pedido de setpoint, para acompanhar as etapas logo depois de enviar. */

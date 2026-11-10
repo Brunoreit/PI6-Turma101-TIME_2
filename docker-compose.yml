@@ -88,6 +88,9 @@ services:
       # Assina os tokens de login. Este padrão serve só para desenvolvimento.
       SEGREDO_SESSAO: ${SEGREDO_SESSAO:-desenvolvimento-troque-em-producao}
       SESSAO_HORAS: ${SESSAO_HORAS:-12}
+      # Leitura ao vivo da nova calibração de OD.
+      CALIBRACAO_N_LEITURAS: ${CALIBRACAO_N_LEITURAS:-6}
+      CALIBRACAO_VARIACAO_MAX: ${CALIBRACAO_VARIACAO_MAX:-0.01}
     command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports: ["${PORTA_API:-8000}:8000"]
     healthcheck:

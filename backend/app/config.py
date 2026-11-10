@@ -27,6 +27,12 @@ class Config:
     tolerancia_atingido_c: float = _float("TOLERANCIA_ATINGIDO_C", 0.5)
     desvio_max_c: float = _float("DESVIO_MAX_C", 2.0)
 
+    # Nova calibração de OD pela leitura ao vivo (só a API usa). O bruto de
+    # um padrão é a média das últimas N leituras, gravada só com a leitura
+    # estável: (máximo - mínimo) / média menor que a variação máxima.
+    calibracao_n_leituras: int = int(os.environ.get("CALIBRACAO_N_LEITURAS", 6))
+    calibracao_variacao_max: float = _float("CALIBRACAO_VARIACAO_MAX", 0.01)
+
     # Sessão da API. Sem SEGREDO_SESSAO a API não sobe; consumidor e regras
     # não usam e não precisam dele.
     segredo_sessao: str = os.environ.get("SEGREDO_SESSAO", "")

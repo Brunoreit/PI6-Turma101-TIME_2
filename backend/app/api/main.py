@@ -14,6 +14,7 @@ Documentação interativa em http://localhost:8000/docs
 import csv
 import io
 import logging
+import math
 import secrets
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
@@ -28,8 +29,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.api import autenticacao
 from app.api.esquemas import (AlteracaoCelula, AlteracaoCultivo, AlteracaoExperimento, Cadastro, Entrada,
                               Motivo, MotivoOpcional, NovaCalibracao, NovoAcesso, NovoCultivo,
-                              NovoExperimento, NovoSetpoint)
+                              NovoExperimento, NovoSetpoint, PontoCalibracao)
 from app.banco import repositorios as repo
+from app.calibracao import ajuste
 from app.banco.conexao import criar_pool
 from app.config import config
 from contrato import PedidoSetpoint, topicos
@@ -273,15 +275,145 @@ def buscar_setpoint(conn: Conexao, _pessoa: PessoaLogada, id_pedido: str):
     return pedido
 
 
+@app.get("/celulas/{id_celula}/od-ao-vivo")
+def od_ao_vivo(conn: Conexao, _pessoa: PessoaLogada, id_celula: str):
+    """Sensor de OD agora, para a nova calibração. `janela` resume as últimas
+    CALIBRACAO_N_LEITURAS leituras; o bruto de um padrão gravado ao vivo é a
+    média delas, e só pode ser gravado com `estavel`. `recentes` traz até 8
+    leituras (ou N, se for maior) para o gráfico."""
+    _exigir_celula(conn, id_celula)
+    n = config.calibracao_n_leituras
+    recentes = repo.ultimas_leituras_od(conn, id_celula, max(n, 8))
+    janela = recentes[-n:]
+    resumo = ajuste.resumir([l["od_bruto"] for l in janela]) if janela else None
+    intervalo = None
+    if len(janela) >= 2:
+        intervalo = (janela[-1]["ts_origem"] - janela[0]["ts_origem"]).total_seconds() / (len(janela) - 1)
+    return {
+        "id_celula": id_celula,
+        "ultima": recentes[-1] if recentes else None,
+        "recentes": recentes,
+        "variacao_max": config.calibracao_variacao_max,
+        "janela": {
+            "n_esperado": n,
+            "n_leituras": len(janela),
+            "faltam": n - len(janela),
+            "seq_inicio": janela[0]["seq"] if janela else None,
+            "seq_fim": janela[-1]["seq"] if janela else None,
+            "media": resumo.media if resumo else None,
+            "minimo": resumo.minimo if resumo else None,
+            "maximo": resumo.maximo if resumo else None,
+            # Média zero dá variação infinita, que o JSON não representa.
+            "variacao": resumo.variacao if resumo and math.isfinite(resumo.variacao) else None,
+            "desvio": resumo.desvio if resumo else None,
+            "estavel": ajuste.estavel(resumo, n, config.calibracao_variacao_max),
+            "intervalo_medio_s": intervalo,
+        },
+    }
+
+
+@app.get("/celulas/{id_celula}/calibracoes")
+def listar_calibracoes(conn: Conexao, _pessoa: PessoaLogada, id_celula: str):
+    """Versões da curva de OD, da mais nova para a mais antiga. Nas versões
+    com branco, `b` já tem o branco embutido (b − a·branco); o branco está
+    em `pontos`, no ponto de rótulo "branco"."""
+    _exigir_celula(conn, id_celula)
+    return repo.listar_calibracoes(conn, id_celula)
+
+
+def _porcento(fracao: float) -> str:
+    """0.0153 vira "1,5%"; 0.01 vira "1%"."""
+    return f"{fracao * 100:.1f}".replace(".0", "").replace(".", ",") + "%"
+
+
+def _calibracao_por_pontos(conn: psycopg.Connection, id_celula: str,
+                           pontos: list[PontoCalibracao]) -> tuple[ajuste.AjusteComBranco, list[dict]]:
+    """Confere os pontos, recalcula pelas leituras os que vieram ao vivo e
+    ajusta a reta só com os padrões. Qualquer problema dá 422 dizendo o quê."""
+    sem_rotulo = [i + 1 for i, p in enumerate(pontos) if p.rotulo is None]
+    if sem_rotulo:
+        raise HTTPException(422, f"Os pontos {', '.join(map(str, sem_rotulo))} estão sem rotulo. "
+                                 'Use "branco" para o branco e um nome para cada padrão, como "P1".')
+    sem_origem = [p.rotulo for p in pontos if p.origem is None]
+    if sem_origem:
+        raise HTTPException(422, f"Falta a origem (leitura ou digitado) em: {', '.join(sem_origem)}.")
+    rotulos = [p.rotulo.casefold() for p in pontos]
+    repetidos = sorted({p.rotulo for p in pontos if rotulos.count(p.rotulo.casefold()) > 1})
+    if repetidos:
+        raise HTTPException(422, f"Há mais de um ponto com o rótulo {', '.join(repetidos)}. Cada ponto precisa de um rótulo só dele.")
+    brancos = [p for p in pontos if p.rotulo.casefold() == "branco"]
+    padroes = [p for p in pontos if p.rotulo.casefold() != "branco"]
+    if not brancos:
+        raise HTTPException(422, 'Falta o branco. Grave a leitura do frasco só com meio de cultura num ponto de rótulo "branco".')
+    sem_referencia = [p.rotulo for p in padroes if p.od_referencia is None]
+    if sem_referencia:
+        raise HTTPException(422, f"Falta a OD de referência em: {', '.join(sem_referencia)}. "
+                                 "Informe a OD medida no espectrofotômetro de cada padrão.")
+    if len(padroes) < ajuste.MINIMO_DE_PADROES:
+        faltam = ajuste.MINIMO_DE_PADROES - len(padroes)
+        raise HTTPException(422, f"A calibração precisa do branco e de pelo menos {ajuste.MINIMO_DE_PADROES} padrões. "
+                                 f"{'Falta 1 padrão' if faltam == 1 else f'Faltam {faltam} padrões'}.")
+
+    agora = datetime.now(timezone.utc)
+    gravados = []
+    for p in [brancos[0], *padroes]:
+        ponto = {"rotulo": "branco" if p is brancos[0] else p.rotulo,
+                 "od_referencia": None if p is brancos[0] else p.od_referencia,
+                 "bruto": p.bruto, "origem": p.origem}
+        if p.origem == "leitura":
+            # Vale o que está no banco, não a média que veio do navegador.
+            valores = repo.od_bruto_no_intervalo(conn, id_celula, p.seq_inicio, p.seq_fim)
+            if len(valores) != p.n_leituras:
+                raise HTTPException(
+                    422, f"O {ponto['rotulo']} aponta para as leituras seq {p.seq_inicio} a {p.seq_fim}, mas a "
+                         f"{id_celula} tem {len(valores)} leituras de OD nesse intervalo, não {p.n_leituras}. "
+                         "Grave o ponto de novo pela leitura ao vivo ou digite o valor.")
+            resumo = ajuste.resumir(valores)
+            if not resumo.variacao < config.calibracao_variacao_max:
+                # As mesmas leituras dão a mesma variação: o que a tela viu
+                # como estável continua estável aqui.
+                raise HTTPException(
+                    422, f"As leituras seq {p.seq_inicio} a {p.seq_fim} do {ponto['rotulo']} variam "
+                         f"{_porcento(resumo.variacao)} entre o mínimo e o máximo, mais que o limite de "
+                         f"{_porcento(config.calibracao_variacao_max)}. Espere a leitura estabilizar e grave de novo, "
+                         "ou digite o valor.")
+            ponto.update(bruto=round(resumo.media, 2), seq_inicio=p.seq_inicio, seq_fim=p.seq_fim,
+                         n_leituras=p.n_leituras, desvio=round(resumo.desvio, 2))
+        elif p.desvio is not None:
+            ponto["desvio"] = p.desvio
+        ponto["gravado_em"] = (p.gravado_em or agora).isoformat()
+        gravados.append(ponto)
+
+    branco = gravados[0]["bruto"]
+    try:
+        resultado = ajuste.ajustar_com_branco(branco, [(g["bruto"], g["od_referencia"]) for g in gravados[1:]])
+    except ajuste.CalibracaoInvalida as erro:
+        raise HTTPException(422, str(erro)) from None
+    return resultado, gravados
+
+
 @app.post("/celulas/{id_celula}/calibracoes", status_code=201)
 def cadastrar_calibracao(conn: Conexao, pessoa: PessoaLogada, id_celula: str, corpo: NovaCalibracao):
+    """Com a e b prontos, grava a curva como veio. Sem, calcula pelos pontos
+    (ver NovaCalibracao) e devolve também `ajuste`, a reta com o branco à
+    parte: od = a·(bruto − branco) + b."""
     _exigir_celula(conn, id_celula)
-    return repo.nova_calibracao(
-        conn, id_celula, corpo.a, corpo.b,
+    if not corpo.por_pontos:
+        return repo.nova_calibracao(
+            conn, id_celula, corpo.a, corpo.b,
+            recalcular=corpo.recalcular, desde=corpo.recalcular_desde,
+            pontos=[p.model_dump(mode="json", exclude_unset=True) for p in corpo.pontos]
+            if corpo.pontos is not None else None,
+            r2=corpo.r2, organismo=corpo.organismo, id_pessoa=pessoa["id_pessoa"],
+        )
+    resultado, pontos = _calibracao_por_pontos(conn, id_celula, corpo.pontos)
+    salva = repo.nova_calibracao(
+        conn, id_celula, resultado.a, resultado.b_banco,
         recalcular=corpo.recalcular, desde=corpo.recalcular_desde,
-        pontos=[p.model_dump() for p in corpo.pontos] if corpo.pontos is not None else None,
-        r2=corpo.r2, organismo=corpo.organismo, id_pessoa=pessoa["id_pessoa"],
+        pontos=pontos, r2=resultado.r2, organismo=corpo.organismo, id_pessoa=pessoa["id_pessoa"],
     )
+    return {**salva, "ajuste": {"branco": resultado.branco, "a": resultado.a, "b": resultado.b,
+                                "r2": resultado.r2, "padroes": len(pontos) - 1}}
 
 
 @app.get("/alertas")

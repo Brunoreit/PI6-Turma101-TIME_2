@@ -9,6 +9,7 @@ import { FONTE_DADOS } from "@/dados/fonte";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
 import comum from "@/funcionalidades/celula/Celula.module.css";
 import estilos from "./VisaoDaCelula.module.css";
+import { formulaDaVersao } from "@/funcionalidades/celula/calibracao";
 
 interface Item {
   titulo: string;
@@ -48,7 +49,7 @@ export function HistoricoDaCelula({ dados }: { dados: DetalheDaCelula }) {
       ? [
           {
             titulo: `Calibração de OD versão ${dados.calibracao.atual.versao}`,
-            detalhe: `${formatar.data(dados.calibracao.atual.criadaEm)} · od = ${formatar.decimal(dados.calibracao.atual.a, 4)} · bruto ${dados.calibracao.atual.b < 0 ? "−" : "+"} ${formatar.decimal(Math.abs(dados.calibracao.atual.b), 3)}`,
+            detalhe: `${formatar.data(dados.calibracao.atual.criadaEm)} · ${formulaDaVersao(dados.calibracao.atual)}`,
             em: dados.calibracao.atual.criadaEm,
           },
         ]

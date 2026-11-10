@@ -1,7 +1,8 @@
 // Dados das telas de uma célula. Segue VITE_FONTE_DADOS, como a visão geral
 // (ver fonte.ts). No modo api, o experimento vem do cultivo aberto na célula
-// (cultivo_atual de GET /celulas) e o que a API ainda não informa (MAC,
-// calibração, bombas, manutenção, mensagens recebidas) fica `null`.
+// (cultivo_atual de GET /celulas), a calibração de GET /celulas/{id}/calibracoes
+// e o que a API ainda não informa (MAC, bombas, manutenção, mensagens
+// recebidas) fica `null`.
 
 import {
   alterarCelula,
@@ -16,12 +17,14 @@ import {
   consultarIntegridade,
   consultarSaude,
   listarAlertas,
+  listarCalibracoes,
   listarCelulas,
   listarLeituras,
   listarSetpoints,
   pedirSetpoint,
 } from "@/api/cliente";
-import type { CelulaApi, LeituraApi, PedidoSetpointApi } from "@/api/tipos";
+import type { CelulaApi, LeituraApi, PedidoSetpointApi, PontoCalibracaoApi } from "@/api/tipos";
+import { calibracaoDaApi } from "./calibracao";
 import { TIPO } from "@/funcionalidades/experimentos/api";
 import { gerarExemploDaCelula } from "./exemplo";
 import { alertaDaApi, FONTE_DADOS } from "@/dados/fonte";
@@ -222,47 +225,47 @@ export async function consultarPedido(idPedido: string, sinal?: AbortSignal): Pr
   return pedidoDaApi(await buscarSetpoint(idPedido, sinal));
 }
 
-/** Salva a nova versão da curva de OD, com os padrões lidos, o R² e o
- *  organismo. Devolve a versão gravada e quantas leituras foram recalculadas.
+/** Salva a nova versão da curva de OD pelos pontos: o branco e os padrões.
+ *  A API confere as leituras dos pontos gravados ao vivo, ajusta a reta e
+ *  devolve a, b e R²; o que a tela mostrou antes era só uma prévia.
  *  No modo exemplo não há para onde enviar. */
 export async function salvarCalibracao(
   id: string,
-  a: number,
-  b: number,
+  pontos: PontoCalibracaoApi[],
   recalcular: boolean,
   desde: Date | null,
-  extras: { pontos: { od: number; bruto: number }[]; r2: number | null; organismo: string },
+  organismo: string,
 ): Promise<{
   versao: number;
   idCalibracao: number;
   reprocessadas: number;
   criadaEm: Date;
   sensor: string | null;
+  /** Reta com o branco à parte: od = a · (bruto − branco) + b. */
   a: number;
   b: number;
+  branco: number;
   r2: number | null;
-  pontos: number;
+  padroes: number;
   organismo: string | null;
   porVoce: boolean;
 }> {
   if (FONTE_DADOS === "exemplo") {
     throw new Error("Modo exemplo: a calibração não foi salva. Rode com VITE_FONTE_DADOS=api para gravar a nova versão.");
   }
-  const salva = await cadastrarCalibracao(id, a, b, recalcular, desde, {
-    pontos: extras.pontos.map((p) => ({ od_referencia: p.od, bruto: p.bruto })),
-    r2: extras.r2,
-    organismo: extras.organismo.trim() || null,
-  });
+  const salva = await cadastrarCalibracao(id, pontos, recalcular, desde, organismo.trim() || null);
+  const branco = salva.ajuste?.branco ?? 0;
   return {
     versao: salva.versao,
     idCalibracao: salva.id_calibracao,
     reprocessadas: salva.leituras_reprocessadas,
     criadaEm: new Date(salva.criada_em),
     sensor: salva.sensor,
-    a: salva.a,
-    b: salva.b,
+    a: salva.ajuste?.a ?? salva.a,
+    b: salva.ajuste?.b ?? salva.b + salva.a * branco,
+    branco,
     r2: salva.r2,
-    pontos: salva.pontos?.length ?? 0,
+    padroes: salva.ajuste?.padroes ?? Math.max(0, (salva.pontos?.length ?? 1) - 1),
     organismo: salva.organismo,
     porVoce: salva.id_pessoa !== null,
   };
@@ -281,7 +284,7 @@ async function carregarDaApi(id: string, periodo: Periodo, idPessoa: number | nu
   }
   const inicio = new Date(agora.getTime() - quantidade * duracaoMs);
 
-  const [experimento, alertas, saude, pedidos, integridades, leituras] = await Promise.all([
+  const [experimento, alertas, saude, pedidos, integridades, leituras, calibracoes] = await Promise.all([
     cultivo ? experimentoDoCultivo(cultivo, idPessoa, agora, sinal) : null,
     listarAlertas(sinal),
     consultarSaude(sinal).catch(() => null),
@@ -290,6 +293,7 @@ async function carregarDaApi(id: string, periodo: Periodo, idPessoa: number | nu
     // A API devolve no máximo 10.000 leituras, as mais recentes: em 7 dias
     // com uma a cada 20 s, o começo do período fica sem pontos.
     listarLeituras(id, { desde: inicio, limite: 10000 }, sinal),
+    listarCalibracoes(id, sinal),
   ]);
 
   const daCelula = alertas.filter((a) => a.id_celula === id);
@@ -381,7 +385,7 @@ async function carregarDaApi(id: string, periodo: Periodo, idPessoa: number | nu
     pedido: ultimo ? pedidoDaApi(ultimo) : null,
     alertas: daCelula.map(alertaDaApi),
     series: mediasPorIntervalo(leituras, inicio, duracaoMs, quantidade),
-    calibracao: null,
+    calibracao: calibracaoDaApi(calibracoes),
     bombas: null,
     checagemBombasDias: null,
     periodoLeituraS: null,

@@ -12,13 +12,56 @@ class NovoSetpoint(BaseModel):
 
 
 class PontoCalibracao(BaseModel):
-    od_referencia: float = Field(description="OD do branco ou do padrão, medida no espectrofotômetro")
-    bruto: float = Field(description="Valor bruto lido pelo sensor da célula para esse padrão")
+    """Um ponto da calibração. No formato antigo só `od_referencia` e `bruto`;
+    os outros campos são do cadastro por pontos e ficam todos opcionais."""
+
+    od_referencia: float | None = Field(
+        default=None, description="OD do padrão, medida no espectrofotômetro. null no branco")
+    bruto: float = Field(description="Valor bruto lido pelo sensor da célula para esse ponto. "
+                                     "Com origem leitura, o servidor recalcula pela média das leituras")
+    rotulo: str | None = Field(default=None, description='"branco" ou o nome do padrão ("P1", "P2"...)')
+    origem: Literal["leitura", "digitado"] | None = Field(
+        default=None, description="leitura: média das leituras seq_inicio a seq_fim; digitado: medido por fora")
+    seq_inicio: int | None = Field(default=None, ge=0, description="Primeira leitura da média (origem leitura)")
+    seq_fim: int | None = Field(default=None, ge=0, description="Última leitura da média (origem leitura)")
+    n_leituras: int | None = Field(default=None, gt=0, le=10_000,
+                                   description="Quantas leituras formam a média (origem leitura)")
+    desvio: float | None = Field(default=None, description="Desvio padrão das leituras. O servidor recalcula")
+    gravado_em: datetime | None = Field(default=None, description="Quando o ponto foi gravado na tela")
+
+    @field_validator("rotulo")
+    @classmethod
+    def _rotulo(cls, rotulo: str | None) -> str | None:
+        return _texto_obrigatorio(rotulo, "O rótulo do ponto não pode ficar em branco.")
+
+    @model_validator(mode="after")
+    def _origem(self):
+        nome = self.rotulo or "ponto"
+        intervalo = (self.seq_inicio, self.seq_fim, self.n_leituras)
+        if self.origem == "leitura":
+            if None in intervalo:
+                raise ValueError(f"O {nome} veio da leitura ao vivo e precisa de seq_inicio, seq_fim e n_leituras.")
+            if self.seq_inicio > self.seq_fim:
+                raise ValueError(f"No {nome}, seq_inicio precisa ser menor ou igual a seq_fim.")
+        elif any(v is not None for v in intervalo):
+            raise ValueError(f"seq_inicio, seq_fim e n_leituras só valem com origem leitura. "
+                             f"Tire esses campos do {nome} ou use origem leitura.")
+        return self
 
 
 class NovaCalibracao(BaseModel):
-    a: float = Field(description="Coeficiente angular: od = a * od_bruto + b")
-    b: float = Field(description="Coeficiente linear")
+    """Dois jeitos de cadastrar:
+
+    - **a e b prontos** (formato antigo): a curva é gravada como veio; `pontos`
+      e `r2`, se vierem, só são guardados.
+    - **por pontos**, sem a, b e r2: um ponto `branco` e pelo menos 3 padrões.
+      O servidor confere as leituras, ajusta a reta só com os padrões, com
+      x = bruto − branco, e grava a, b − a·branco e o R².
+    """
+
+    a: float | None = Field(default=None, description="Coeficiente angular: od = a * od_bruto + b. "
+                                                       "De fora no cadastro por pontos")
+    b: float | None = Field(default=None, description="Coeficiente linear. De fora no cadastro por pontos")
     recalcular: bool = Field(
         default=True,
         description="Recalcula a OD das leituras já gravadas. Se falso, só as próximas leituras usam a nova versão.",
@@ -28,10 +71,28 @@ class NovaCalibracao(BaseModel):
         description="Com recalcular, só as leituras a partir deste instante. Vazio recalcula o histórico todo.",
     )
     pontos: list[PontoCalibracao] | None = Field(
-        default=None, description="Branco e padrões usados no ajuste. Só guardados, não mudam a conta.",
+        default=None, max_length=100,
+        description="Branco e padrões. Com a e b, só guardados. Sem, o servidor calcula a reta com eles.",
     )
-    r2: float | None = Field(default=None, description="Qualidade do ajuste, calculada por quem cadastra")
+    r2: float | None = Field(default=None, description="Qualidade do ajuste. Com a e b, calculada por quem "
+                                                       "cadastra; no cadastro por pontos, pelo servidor")
     organismo: str | None = Field(default=None, description="Cultura usada para fazer a curva")
+
+    @property
+    def por_pontos(self) -> bool:
+        return self.a is None
+
+    @model_validator(mode="after")
+    def _um_dos_jeitos(self):
+        if (self.a is None) != (self.b is None):
+            raise ValueError("Envie a e b juntos, ou nenhum dos dois para o servidor calcular a reta pelos pontos.")
+        if self.a is None:
+            if not self.pontos:
+                raise ValueError("Envie a e b prontos, ou os pontos (o branco e pelo menos 3 padrões) "
+                                 "para o servidor calcular a reta.")
+            if self.r2 is not None:
+                raise ValueError("No cadastro por pontos o servidor calcula o R². Tire o r2 do corpo.")
+        return self
 
 
 def _normalizar_email(email: str) -> str:

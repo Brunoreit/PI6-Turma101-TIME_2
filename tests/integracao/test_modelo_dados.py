@@ -957,6 +957,257 @@ def test_calibracao_guarda_pontos_r2_e_organismo(cenario, leo):
         assert resposta.status_code == 422, resposta.text
 
 
+# ------------------------------------------------------------------ API: calibração ao vivo, com branco
+
+N_LEITURAS = 6  # CALIBRACAO_N_LEITURAS padrão
+
+
+def _gravar_od(conn, id_celula: str, inicio: int, valores: list[float], t0: datetime = T0) -> tuple[int, int]:
+    """Grava leituras com esses od_bruto, uma a cada 20 s, a partir do seq
+    `inicio`. Devolve o primeiro e o último seq."""
+    for i, valor in enumerate(valores):
+        repo.gravar_leitura(conn, id_celula, inicio + i, t0 + timedelta(seconds=20 * (inicio + i)),
+                            30.0, valor, None, 7.0, None)
+    return inicio, inicio + len(valores) - 1
+
+
+def _ao_vivo(conta: "Conta", id_celula: str) -> dict:
+    resposta = conta.chamar("GET", f"/celulas/{id_celula}/od-ao-vivo")
+    assert resposta.status_code == 200, resposta.text
+    return resposta.json()
+
+
+def _lido(rotulo: str, od: float | None, inicio: int, fim: int, bruto: float = 0.0) -> dict:
+    return {"rotulo": rotulo, "od_referencia": od, "bruto": bruto, "origem": "leitura",
+            "seq_inicio": inicio, "seq_fim": fim, "n_leituras": fim - inicio + 1}
+
+
+def _digitado(rotulo: str, od: float | None, bruto: float) -> dict:
+    return {"rotulo": rotulo, "od_referencia": od, "bruto": bruto, "origem": "digitado"}
+
+
+def test_od_ao_vivo_com_o_simulador(ambiente, banco, leo):
+    """c01 é a célula simulada do ambiente, que manda uma leitura por segundo."""
+    fim = time.time() + 30
+    while len(repo.ultimas_leituras_od(banco, "c01", N_LEITURAS)) < N_LEITURAS:
+        assert time.time() < fim, "o simulador não mandou 6 leituras em 30 s"
+        time.sleep(0.5)
+    vivo = _ao_vivo(leo, "c01")
+    janela = vivo["janela"]
+    assert janela["n_leituras"] == N_LEITURAS and janela["faltam"] == 0
+    valores = repo.od_bruto_no_intervalo(banco, "c01", janela["seq_inicio"], janela["seq_fim"])
+    assert len(valores) == N_LEITURAS
+    assert janela["media"] == pytest.approx(sum(valores) / N_LEITURAS)
+    assert (janela["minimo"], janela["maximo"]) == (min(valores), max(valores))
+    variacao = (max(valores) - min(valores)) / (sum(valores) / N_LEITURAS)
+    assert janela["variacao"] == pytest.approx(variacao)
+    assert janela["estavel"] is (variacao < 0.01)
+    assert vivo["variacao_max"] == 0.01
+    assert vivo["ultima"]["seq"] >= janela["seq_fim"]
+    assert set(vivo["ultima"]) == {"seq", "ts_origem", "od_bruto"}
+    # INTERVALO_S do ambiente de teste é 1 s.
+    assert 0.5 < janela["intervalo_medio_s"] < 3
+
+
+def test_od_ao_vivo_estavel_e_estabilizando(celula, banco, leo):
+    vazio = _ao_vivo(leo, celula)
+    assert vazio["ultima"] is None and vazio["recentes"] == []
+    assert vazio["janela"]["estavel"] is False and vazio["janela"]["faltam"] == N_LEITURAS
+
+    _gravar_od(banco, celula, 0, [1000.0, 1040.0, 1060.0])
+    poucas = _ao_vivo(leo, celula)["janela"]
+    assert (poucas["n_leituras"], poucas["faltam"], poucas["estavel"]) == (3, 3, False)
+
+    # Subindo: 1000 a 1071 varia mais de 1%.
+    _gravar_od(banco, celula, 3, [1065.0, 1070.0, 1071.0])
+    subindo = _ao_vivo(leo, celula)["janela"]
+    assert (subindo["n_leituras"], subindo["faltam"], subindo["estavel"]) == (N_LEITURAS, 0, False)
+    assert subindo["intervalo_medio_s"] == pytest.approx(20)
+
+    # Seis leituras entre 1.097 e 1.106: estável, média 1.102.
+    inicio, fim = _gravar_od(banco, celula, 6, [1097.0, 1100.0, 1102.0, 1104.0, 1106.0, 1103.0])
+    vivo = _ao_vivo(leo, celula)
+    estavel = vivo["janela"]
+    assert estavel["estavel"] is True
+    assert (estavel["seq_inicio"], estavel["seq_fim"]) == (inicio, fim)
+    assert estavel["media"] == pytest.approx(1102.0)
+    assert (estavel["minimo"], estavel["maximo"]) == (1097.0, 1106.0)
+    assert estavel["variacao"] == pytest.approx(9 / 1102)
+    assert vivo["ultima"]["seq"] == fim
+    assert [l["seq"] for l in vivo["recentes"]] == list(range(fim - 7, fim + 1))
+
+
+def test_od_ao_vivo_e_calibracoes_de_celula_inexistente_dao_404(leo):
+    for caminho in ("/celulas/nao-existe/od-ao-vivo", "/celulas/nao-existe/calibracoes"):
+        assert leo.chamar("GET", caminho).status_code == 404
+
+
+def test_calibracao_por_pontos_lidos_e_digitados(celula, banco, leo):
+    """Exemplo do orientador: branco 98, padrões (520; 0,2), (812; 0,35) e
+    (1102; 0,5). Branco e P1 lidos ao vivo, P2 e P3 digitados."""
+    branco = _gravar_od(banco, celula, 0, [97.6, 98.0, 98.4, 98.0, 97.6, 98.4])
+    p1 = _gravar_od(banco, celula, 6, [519.0, 520.0, 521.0, 520.0, 518.0, 522.0])
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {
+        "recalcular": False, "organismo": "E. coli K-12",
+        "pontos": [_lido("branco", None, *branco), _lido("P1", 0.2, *p1),
+                   _digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)]})
+    assert resposta.status_code == 201, resposta.text
+    corpo = resposta.json()
+    assert round(corpo["ajuste"]["a"], 6) == 0.000515
+    assert round(corpo["ajuste"]["b"], 3) == -0.018
+    assert round(corpo["r2"], 3) == 1.0
+    assert (corpo["ajuste"]["branco"], corpo["ajuste"]["padroes"]) == (98.0, 3)
+    # O banco guarda o branco embutido no b.
+    assert corpo["a"] == pytest.approx(corpo["ajuste"]["a"])
+    assert corpo["b"] == pytest.approx(corpo["ajuste"]["b"] - corpo["ajuste"]["a"] * 98.0)
+
+    pontos = banco.execute("SELECT pontos FROM calibracao WHERE id_calibracao = %s",
+                           (corpo["id_calibracao"],)).fetchone()["pontos"]
+    assert [p["rotulo"] for p in pontos] == ["branco", "P1", "P2", "P3"]
+    assert pontos[0]["od_referencia"] is None
+    assert {k: pontos[0][k] for k in ("bruto", "origem", "seq_inicio", "seq_fim", "n_leituras")} == {
+        "bruto": 98.0, "origem": "leitura", "seq_inicio": 0, "seq_fim": 5, "n_leituras": 6}
+    assert pontos[0]["desvio"] == pytest.approx(0.36, abs=0.01)
+    assert pontos[1]["bruto"] == 520.0
+    assert {k: pontos[2][k] for k in ("bruto", "origem", "od_referencia")} == {
+        "bruto": 812.0, "origem": "digitado", "od_referencia": 0.35}
+    assert not {"seq_inicio", "seq_fim", "n_leituras"} & set(pontos[2])
+    assert all("gravado_em" in p for p in pontos)
+
+
+def test_calibracao_por_pontos_aceita_padroes_fora_de_0_2_a_0_8(celula, leo):
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {
+        "recalcular": False,
+        "pontos": [_digitado("branco", None, 100.0), _digitado("P1", 0.05, 200.0),
+                   _digitado("P2", 1.0, 2100.0), _digitado("P3", 2.0, 4100.0)]})
+    assert resposta.status_code == 201, resposta.text
+    assert resposta.json()["ajuste"]["a"] == pytest.approx(0.0005)
+    assert resposta.json()["r2"] == pytest.approx(1.0)
+
+
+def test_servidor_recalcula_a_media_pelo_intervalo_de_seq(celula, banco, leo):
+    branco = _gravar_od(banco, celula, 0, [98.0] * 6)
+    p1 = _gravar_od(banco, celula, 6, [520.0] * 6)
+    # O navegador manda médias e desvio errados; valem as leituras do banco.
+    pontos = [_lido("branco", None, *branco, bruto=5000.0), {**_lido("P1", 0.2, *p1, bruto=1.0), "desvio": 99.0},
+              _digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)]
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"recalcular": False, "pontos": pontos})
+    assert resposta.status_code == 201, resposta.text
+    gravados = resposta.json()["pontos"]
+    assert (gravados[0]["bruto"], gravados[1]["bruto"], gravados[1]["desvio"]) == (98.0, 520.0, 0.0)
+    assert round(resposta.json()["ajuste"]["a"], 6) == 0.000515
+
+
+def test_intervalo_de_seq_invalido_da_422(cenario, banco, leo):
+    minha, outra = cenario.celulas[0], cenario.celulas[1]
+    branco = _gravar_od(banco, minha, 0, [98.0] * 6)
+    da_outra = _gravar_od(banco, outra, 100, [520.0] * 6)
+    versoes = lambda: len(repo.listar_calibracoes(banco, minha))
+    antes = versoes()
+    padroes = [_digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)]
+    for p1 in (_lido("P1", 0.2, *da_outra),                        # leituras de outra célula
+               {**_lido("P1", 0.2, *branco), "n_leituras": 7},      # conta que não fecha
+               _lido("P1", 0.2, 500, 505)):                         # seq que não existe
+        resposta = leo.chamar("POST", f"/celulas/{minha}/calibracoes",
+                              {"recalcular": False, "pontos": [_lido("branco", None, *branco), p1, *padroes]})
+        assert resposta.status_code == 422, resposta.text
+        assert "P1" in _detalhe(resposta) and minha in _detalhe(resposta)
+    assert versoes() == antes
+
+
+def test_ponto_lido_com_leitura_instavel_da_422(celula, banco, leo):
+    branco = _gravar_od(banco, celula, 0, [98.0] * 6)
+    subindo = _gravar_od(banco, celula, 6, [1000.0, 1040.0, 1060.0, 1065.0, 1070.0, 1071.0])
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"recalcular": False, "pontos": [
+        _lido("branco", None, *branco), _lido("P1", 0.2, *subindo),
+        _digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)]})
+    assert resposta.status_code == 422, resposta.text
+    assert "P1" in _detalhe(resposta) and "estabilizar" in _detalhe(resposta)
+
+
+@pytest.mark.parametrize("pontos, trecho", [
+    ([_digitado("P1", 0.2, 520.0), _digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)], "Falta o branco"),
+    ([_digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P2", 0.35, 812.0)], "Falta 1 padrão"),
+    ([_digitado("branco", None, 98.0)], "Faltam 3 padrões"),
+    ([_digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P2", None, 812.0),
+      _digitado("P3", 0.5, 1102.0)], "Falta a OD de referência em: P2"),
+    ([_digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P1", 0.35, 812.0),
+      _digitado("P3", 0.5, 1102.0)], "rótulo P1"),
+    ([_digitado("branco", None, 98.0), {"rotulo": "P1", "od_referencia": 0.2, "bruto": 520.0},
+      _digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)], "Falta a origem"),
+])
+def test_falta_de_branco_ou_de_padroes_da_422(celula, leo, pontos, trecho):
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"recalcular": False, "pontos": pontos})
+    assert resposta.status_code == 422, resposta.text
+    assert trecho in _detalhe(resposta)
+
+
+@pytest.mark.parametrize("corpo", [
+    {"pontos": [_digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P2", 0.35, 812.0),
+                _digitado("P3", 0.5, 1102.0)], "r2": 0.9},            # r2 é do servidor
+    {"a": 0.001},                                                       # a sem b
+    {},                                                                 # nem a e b, nem pontos
+    {"pontos": [{**_digitado("P1", 0.2, 520.0), "seq_inicio": 1}]},     # digitado com seq
+    {"pontos": [{**_lido("P1", 0.2, 3, 1)}]},                           # seq_inicio > seq_fim
+])
+def test_corpo_de_calibracao_invalido_da_422(celula, leo, corpo):
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", corpo)
+    assert resposta.status_code == 422, resposta.text
+
+
+def test_od_recalculada_desconta_o_branco_e_od_bruto_nao_muda(celula, banco, leo):
+    _gravar_od(banco, celula, 0, [98.0, 520.0, 812.0, 1102.0, 1500.0])
+    brutos = lambda: [l["od_bruto"] for l in repo.listar_leituras(banco, celula)]
+    antes = brutos()
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"pontos": [
+        _digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P2", 0.35, 812.0),
+        _digitado("P3", 0.5, 1102.0)]})
+    assert resposta.status_code == 201, resposta.text
+    ajuste = resposta.json()["ajuste"]
+    assert resposta.json()["leituras_reprocessadas"] == 5
+    leituras = repo.listar_leituras(banco, celula)
+    assert brutos() == antes
+    for leitura in leituras:
+        esperada = round(ajuste["a"] * (leitura["od_bruto"] - 98.0) + ajuste["b"], 4)
+        assert leitura["od"] == pytest.approx(esperada, abs=1e-4)
+        assert leitura["id_calibracao"] == resposta.json()["id_calibracao"]
+    assert leituras[0]["od"] == pytest.approx(ajuste["b"], abs=1e-4)   # o branco dá a OD do b
+
+    # A leitura que chega depois converte pela mesma curva, no consumidor.
+    from app.calibracao.conversao import converter
+    curva = repo.curva_ativa(banco, celula)
+    assert converter(98.0, curva) == pytest.approx(ajuste["b"], abs=1e-4)
+
+
+def test_calibracao_no_formato_antigo_continua_funcionando(celula, leo):
+    pontos = [{"od_referencia": 0.0, "bruto": 100.0}, {"od_referencia": 1.0, "bruto": 2100.0}]
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes",
+                          {"a": 0.0005, "b": -0.05, "recalcular": False, "pontos": pontos, "r2": 0.998})
+    assert resposta.status_code == 201, resposta.text
+    corpo = resposta.json()
+    assert (corpo["a"], corpo["b"], corpo["r2"], corpo["pontos"]) == (0.0005, -0.05, 0.998, pontos)
+    assert "ajuste" not in corpo
+
+
+def test_get_calibracoes_lista_as_versoes(celula, leo):
+    leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"a": 0.0005, "b": -0.05, "recalcular": False})
+    nova = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"recalcular": False, "organismo": "E. coli", "pontos": [
+        _digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P2", 0.35, 812.0),
+        _digitado("P3", 0.5, 1102.0)]}).json()
+
+    resposta = leo.chamar("GET", f"/celulas/{celula}/calibracoes")
+    assert resposta.status_code == 200, resposta.text
+    versoes = resposta.json()
+    assert [v["versao"] for v in versoes] == [3, 2, 1]
+    assert [v["ativa"] for v in versoes] == [True, False, False]
+    assert {"versao", "a", "b", "ativa", "criada_em", "pontos", "r2", "organismo", "calibrado_por"} <= set(versoes[0])
+    assert (versoes[0]["id_calibracao"], versoes[0]["organismo"], versoes[0]["calibrado_por"]) == (
+        nova["id_calibracao"], "E. coli", "Leo")
+    assert versoes[0]["pontos"][0]["rotulo"] == "branco"
+    # A versão 1 é a padrão do sistema, criada com a célula, sem pessoa.
+    assert (versoes[2]["calibrado_por"], versoes[2]["pontos"]) == (None, None)
+
+
 # ------------------------------------------------------------------ API: autenticação
 
 SENHA = "cultura123"

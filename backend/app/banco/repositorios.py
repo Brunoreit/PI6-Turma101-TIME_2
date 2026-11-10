@@ -198,6 +198,51 @@ def curva_ativa(conn: psycopg.Connection, id_celula: str) -> Curva | None:
     return Curva(**linha) if linha else None
 
 
+def ultimas_leituras_od(conn: psycopg.Connection, id_celula: str, quantidade: int) -> list[dict]:
+    """As últimas `quantidade` leituras com OD bruta da célula, em ordem de
+    seq (seq, ts_origem, od_bruto). Leituras sem od_bruto ficam de fora."""
+    return conn.execute(
+        """
+        SELECT seq, ts_origem, od_bruto
+          FROM leitura
+         WHERE id_celula = %s AND od_bruto IS NOT NULL
+         ORDER BY seq DESC
+         LIMIT %s
+        """,
+        (id_celula, quantidade),
+    ).fetchall()[::-1]
+
+
+def od_bruto_no_intervalo(conn: psycopg.Connection, id_celula: str, seq_inicio: int, seq_fim: int) -> list[float]:
+    """Os od_bruto da célula com seq entre `seq_inicio` e `seq_fim`, inclusive.
+    Usado para conferir e recalcular a média de um padrão lido ao vivo."""
+    linhas = conn.execute(
+        """
+        SELECT od_bruto FROM leitura
+         WHERE id_celula = %s AND seq BETWEEN %s AND %s AND od_bruto IS NOT NULL
+         ORDER BY seq
+        """,
+        (id_celula, seq_inicio, seq_fim),
+    ).fetchall()
+    return [linha["od_bruto"] for linha in linhas]
+
+
+def listar_calibracoes(conn: psycopg.Connection, id_celula: str) -> list[dict]:
+    """Todas as versões da curva da célula, da mais nova para a mais antiga,
+    com o nome de quem calibrou (None na versão padrão do sistema)."""
+    return conn.execute(
+        """
+        SELECT c.id_calibracao, c.versao, c.a, c.b, c.ativa, c.criada_em, c.sensor,
+               c.pontos, c.r2, c.organismo, c.id_pessoa, p.nome AS calibrado_por
+          FROM calibracao c
+          LEFT JOIN pessoa p ON p.id_pessoa = c.id_pessoa
+         WHERE c.id_celula = %s
+         ORDER BY c.versao DESC
+        """,
+        (id_celula,),
+    ).fetchall()
+
+
 def nova_calibracao(
     conn: psycopg.Connection, id_celula: str, a: float, b: float,
     recalcular: bool = True, desde: datetime | None = None,
@@ -207,7 +252,9 @@ def nova_calibracao(
     """Cadastra uma nova versão da curva. Com `recalcular`, refaz a OD das
     leituras já gravadas a partir do valor bruto, que nunca é alterado: todas,
     ou só as de `desde` em diante. Sem, só as próximas leituras usam a versão.
-    `pontos`, `r2`, `organismo` e `id_pessoa` só são guardados, não mudam a conta."""
+    `pontos`, `r2`, `organismo` e `id_pessoa` só são guardados, não mudam a conta.
+    Numa calibração com branco, `b` já vem com o branco embutido
+    (b − a·branco), então a conta aqui é sempre a·od_bruto + b."""
     with conn.transaction():
         conn.execute("UPDATE calibracao SET ativa = false WHERE id_celula = %s AND ativa", (id_celula,))
         nova = conn.execute(

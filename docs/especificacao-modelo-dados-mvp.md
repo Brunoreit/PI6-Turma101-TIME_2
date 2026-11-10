@@ -1165,3 +1165,35 @@ Revê a P-2 ("rotas existentes continuam sem login"), depois que a interface pas
 | CSV na interface | `GET /celulas/{id}/leituras.csv` exige login, então a interface baixa o arquivo pela chamada com token, e não por um link direto |
 | Teste | `test_todas_as_rotas_exigem_login_menos_saude_e_auth` percorre o `/openapi.json`: uma rota nova sem login faz o teste falhar |
 | Fora desta mudança | Senha no broker (`allow_anonymous true`) e a troca do `SEGREDO_SESSAO` e da senha do banco fora do desenvolvimento |
+
+### Calibração de OD ao vivo, com branco (10/11/2026)
+
+Regras do orientador para a nova calibração de OD, que passa a ler o sensor ao vivo. **O esquema do banco não mudou**: nenhuma tabela nem coluna nova. Tudo cabe em `leitura` (`od_bruto` e `seq` de cada medida) e em `calibracao` (`a`, `b`, `pontos`, `r2`, `organismo`).
+
+| Ponto | Decisão |
+|---|---|
+| Branco | Não é ponto da reta. Só zera a linha base e tira o efeito do meio de cultura. A reta é ajustada só com os padrões, com x = bruto do padrão − bruto do branco |
+| Padrões | Qualquer OD; a faixa de 0,2 a 0,8 saiu (ela só existia na interface). Para salvar: o branco e pelo menos 3 padrões, todos com `od_referencia` |
+| Ajuste | Mínimos quadrados só com os padrões: a = Sxy/Sxx, b = ȳ − a·x̄, R² = 1 − Σ(y − (a·x + b))² / Σ(y − ȳ)². Padrões com o mesmo bruto ou a mesma OD dão 422. Contas em `backend/app/calibracao/ajuste.py`; a interface repete em `regressao.ts` só como prévia |
+| **Branco embutido no b** | od = a·(bruto − branco) + b é o mesmo que od = a·bruto + (b − a·branco). A `calibracao` recebe `a` e `b_banco = b − a·branco`. O consumidor, `converter` e o recálculo de `nova_calibracao` continuam iguais, e o `od_bruto` das leituras nunca muda |
+| Média calculada no servidor | O bruto de um ponto com `origem: "leitura"` é a média das leituras `seq_inicio` a `seq_fim` da célula. O servidor confere que o intervalo tem `n_leituras` medidas de OD daquela célula (senão 422) e recalcula média e desvio pelo banco; o `bruto` e o `desvio` vindos do navegador são ignorados. Média e desvio são gravados com 2 casas, e a reta é ajustada com o valor gravado |
+| Estabilidade | Um padrão só pode ser gravado ao vivo com a janela das últimas N leituras estável: (máximo − mínimo) / média < limite. N = `CALIBRACAO_N_LEITURAS` (6), limite = `CALIBRACAO_VARIACAO_MAX` (0,01). A interface libera o botão pelo `estavel` de `GET /celulas/{id}/od-ao-vivo`, e o POST confere de novo com as mesmas leituras: intervalo instável dá 422. Quem não quer esperar digita o valor |
+| Desvio | Desvio padrão amostral das leituras da janela (0 com uma leitura) |
+| Formato antigo | `POST /celulas/{id}/calibracoes` com `a` e `b` prontos continua como antes; `pontos` e `r2` só são guardados, como vieram. Sem `a` e `b`, é o cadastro por pontos; `r2` no corpo dá 422 (quem calcula é o servidor). `a` sem `b` dá 422 |
+| Resposta do cadastro por pontos | A de sempre (com `b` = `b_banco`) mais `ajuste: {branco, a, b, r2, padroes}`, com o `b` da fórmula com o branco |
+| Rotas novas | `GET /celulas/{id}/od-ao-vivo` (última leitura, até 8 recentes e a janela: `seq_inicio`, `seq_fim`, `media`, `minimo`, `maximo`, `variacao`, `desvio`, `estavel`, `intervalo_medio_s` pelos `ts_origem` e `faltam`) e `GET /celulas/{id}/calibracoes` (versões com `calibrado_por`). As duas exigem login |
+
+Formato do JSONB `pontos`, só nas versões novas. As antigas continuam como estão, com `{od_referencia, bruto}`.
+
+```json
+[
+  {"rotulo": "branco", "od_referencia": null, "bruto": 98, "origem": "leitura",
+   "seq_inicio": 56201, "seq_fim": 56206, "n_leituras": 6, "desvio": 1.2,
+   "gravado_em": "2026-11-10T09:41:00-03:00"},
+  {"rotulo": "P1", "od_referencia": 0.2, "bruto": 520, "origem": "leitura", "...": "..."},
+  {"rotulo": "P2", "od_referencia": 0.35, "bruto": 812, "origem": "digitado",
+   "gravado_em": "..."}
+]
+```
+
+Com `origem: "leitura"`, `seq_inicio`, `seq_fim` e `n_leituras` são obrigatórios e apontam para as leituras que formaram a média. Com `"digitado"`, ficam de fora (mandá-los dá 422). O branco é o ponto de rótulo `"branco"` (o primeiro da lista); quem lê uma versão tira o branco de lá e mostra b = b_banco + a·branco. Versão sem ponto `"branco"` é do formato antigo e aparece como `od = a · bruto + b`.

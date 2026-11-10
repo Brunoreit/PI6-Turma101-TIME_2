@@ -21,10 +21,6 @@
   overflow: visible;
 }
 
-.faixa {
-  fill: var(--marca\/fundo);
-}
-
 .grade,
 .diagonal {
   vector-effect: non-scaling-stroke;
