@@ -794,6 +794,33 @@ def regra_ph(banco):
     return lambda: ph_fora_da_faixa(banco, config)
 
 
+def test_setpoint_sem_confirmacao_fecha_quando_um_pedido_mais_novo_e_confirmado(banco, celula):
+    """A célula ignorou o pedido de 36 °C e confirmou o de 37 °C depois. O
+    pedido de 36 continua solicitado, mas o alerta tem de fechar."""
+    from app.config import config
+    from app.regras.verificacoes import setpoint_sem_confirmacao
+
+    def aberto() -> bool:
+        return banco.execute(
+            "SELECT 1 FROM alerta WHERE id_celula = %s AND tipo = 'setpoint_sem_confirmacao' AND fechado_em IS NULL",
+            (celula,),
+        ).fetchone() is not None
+
+    ignorado = f"sp-{uuid.uuid4().hex[:8]}"
+    repo.criar_pedido(banco, ignorado, celula, 36.0, "Ana")
+    banco.execute("UPDATE pedido_setpoint SET solicitado_em = now() - interval '1 hour' WHERE id_pedido = %s",
+                  (ignorado,))
+    setpoint_sem_confirmacao(banco, config)
+    assert aberto()
+
+    confirmado = f"sp-{uuid.uuid4().hex[:8]}"
+    repo.criar_pedido(banco, confirmado, celula, 37.0, "Ana")
+    repo.avancar_pedido(banco, confirmado, "aplicado")
+    setpoint_sem_confirmacao(banco, config)
+    assert not aberto()
+    assert repo.buscar_pedido(banco, ignorado)["estado"] == "solicitado"
+
+
 def _medir(conn, id_celula: str, seq: int, ph: float | None, ts: datetime | None = None) -> None:
     repo.gravar_leitura(conn, id_celula, seq, ts or datetime.now(timezone.utc), 30.0, 1000.0, 0.45, ph, None)
 

@@ -52,6 +52,7 @@ backend/app/
   regras/            verificações de alerta (verificacoes.py)
   api/               main.py (rotas), esquemas.py (entrada), autenticacao.py (senha e token)
 simulador/           célula falsa: modelo físico, buffer SQLite, sinais de falha (python -m simulador.celula)
+                     perfis.py (as 16 células), cli.py (força o sensor), semente.py (carga de demonstração)
 interface/           React + TypeScript + Vite, uma pasta por tela em src/funcionalidades/ (ver interface/README.md)
 tests/unidade/       rápidos, sem infraestrutura
 tests/integracao/    test_ponta_a_ponta.py (roteiro com MQTT) e test_modelo_dados.py (esquema, repositórios, consumidor, regra de pH e API), modo compose ou local
@@ -73,7 +74,11 @@ AMBIENTE=local pytest tests/integracao -v    # sem Docker, exige PostgreSQL 16 c
 MANTER_AMBIENTE=1 ...                         # não apaga ambiente e logs ao final
 docker compose kill -s SIGUSR1 celula-c02    # simula queda de rede da célula
 docker compose kill -s SIGUSR2 celula-c02    # restaura
+python -m simulador.semente --zerar          # APAGA tudo (down -v), sobe, carrega a demonstração e liga as 16 células
+python -m simulador.cli c04                  # força o sensor da c04 (calibração ao vivo, alertas)
 ```
+
+A carga de demonstração (`simulador/semente.py`) **não** vai em `infra/postgres/init/`: o banco dos testes de integração precisa começar vazio. Ela não grava leituras; o histórico vem das próprias células (`HISTORICO_HORAS`, só na primeira subida, com buffer vazio), pelo MQTT e com `seq` contínuo, para nunca colidir com as leituras ao vivo. Rode a carga antes de ligar as células. Senha das 4 pessoas: `cultura123`.
 
 API em http://localhost:8000/docs. Banco em `postgresql://evolver:evolver@localhost:5432/evolver`.
 
@@ -179,6 +184,10 @@ Base e modelo de dados do MVP implementados (branch `feat/modelo-dados-mvp`, 06/
 **Login em todas as rotas da API** (branch `feat/login-rotas-antigas`, 09/11/2026), menos `/saude` e `/auth`; a interface baixa o CSV pela chamada com token. Passam os 38 testes de unidade e os 121 de integração (105 de `test_modelo_dados.py` e as 16 etapas do ponta a ponta).
 
 **Calibração de OD ao vivo** (branch `feat/calibracao-ao-vivo`, 10/11/2026): rotas `od-ao-vivo` e `GET calibracoes`, cadastro por pontos com o branco embutido no `b`, sem mudar o esquema. A interface lê o sensor ao vivo, grava cada padrão com um botão e guarda a calibração em andamento no `localStorage`; Ajustes mostra a versão em uso pela API. Passam os 50 testes de unidade e o `npm run build`. Os 22 testes novos de `test_modelo_dados.py` foram escritos mas **ainda não rodaram**: a máquina onde foram feitos não tinha Docker nem PostgreSQL.
+
+**Simulador com 16 células e carga de demonstração** (10/11/2026, na mesma branch): perfis por célula (c03 com desvio de temperatura, c11 ignorando setpoint, c04 livre), `simulador-16` no perfil `16-celulas` do Compose (c04 a c16; c01 a c03 seguem nos serviços próprios, e `CENARIO_C0x` vazio usa o perfil), histórico pela célula e a CLI que força o sensor. Depois de um valor de OD forçado, a célula publica uma rajada de 6 leituras com ruído de 0,1% do bruto, e a janela da calibração fica estável em ~3 s. Conferido num projeto Compose separado: `--zerar` sobe tudo, 73 leituras por célula sem colisão, os alertas da c03 e da c11 abertos pelas regras, e a calibração por pontos da c04 gravada pela API (R² 0,9961). Passam 61 testes de unidade e os 143 de integração no modo Docker Compose, inclusive os 22 da calibração ao vivo que ainda não tinham rodado.
+
+Na mesma data: a CLI provoca os cinco alertas (`temp`, `ph`, `cenario ignorar_setpoint`, `rede [s]` e `colisao`; a tabela está no README), todos conferidos ao vivo. A regra `setpoint_sem_confirmacao` passou a olhar só o último pedido de cada célula: antes, um pedido ignorado e depois substituído por outro confirmado prendia o alerta aberto para sempre. A OD de referência da Nova calibração aceita `0.2` e `0,2` (antes, `0.2` virava 2). Passam 62 testes de unidade e 144 de integração.
 
 Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 · Antiga" e "Login · conta CNPEM (guardado)", que não serão usadas. **No modo api (`VITE_FONTE_DADOS=api`), a interface está ligada à API** (branch `feat/interface-api`, 08/11/2026): login e cadastro (`/auth`, token em todas as chamadas, 401 volta para /entrar), experimentos (lista, detalhe, novo, duplicar, editar, encerrar e cancelar), compartilhamento (acessos), cultivos (atribuir, encerrar e resetar a célula, faixa de pH do cultivo, taxa de crescimento pelas leituras), apelido, descrição e modelo da célula (`PATCH /celulas/{id}`, em Ajustes), os cinco tipos de alerta com título e ajuda, o status cancelado em todas as telas, a calibração com padrões, R² e organismo, condição, réplica e `continua_de` do cultivo, o acompanhamento do setpoint pelo `GET /setpoints/{id}` e os setpoints aguardando. Toda rota e todo campo que a API devolve aparecem na interface (a tabela está em `interface/README.md`). O login usa a API sempre, mesmo no modo exemplo; o resto do modo exemplo (o padrão) continua com os dados do Figma e guarda as mudanças na memória. Fases, OD do turbidostato e agitação vão em `metadados` e o backend ainda não os usa. **Ainda falta na API:** regras de alerta configuráveis (no modo api, a aba Regras mostra as regras fixas do backend) e exportação agrupada (média por hora ou dia, Excel; hoje só sai o CSV de dados brutos). Também não existem recuperar ou trocar senha, convite para quem não tem conta, rota para fechar o `colisao_seq`, MAC, período de leitura, bombas, manutenção e o estado do consumidor e das regras (detalhes em `interface/README.md`).
 

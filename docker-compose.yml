@@ -37,6 +37,7 @@ x-env-celula: &env-celula
   KEEPALIVE_S: ${KEEPALIVE_S:-30}
   TAU_S: ${TAU_S:-120}
   ESCALA_TEMPO: ${ESCALA_TEMPO:-1}
+  HISTORICO_HORAS: ${HISTORICO_HORAS:-0}
 
 services:
   broker:
@@ -105,20 +106,32 @@ services:
         VITE_FONTE_DADOS: "${VITE_FONTE_DADOS:-exemplo}"
     restart: unless-stopped
     ports: ["${PORTA_INTERFACE:-8080}:80"]
-    depends_on:
-      api: { condition: service_healthy }
+    # Em modo exemplo (VITE_FONTE_DADOS=exemplo) a interface não usa a API:
+    # sobe assim que o nginx estiver pronto, sem esperar a API ser saudável.
+    # Em modo api a API já estará rodando por outros serviços dependerem dela.
 
   celula-c01:
     <<: *celula
-    environment: { <<: *env-celula, ID_CELULA: c01, CENARIO: "${CENARIO_C01:-normal}" }
+    environment: { <<: *env-celula, ID_CELULA: c01, CENARIO: "${CENARIO_C01:-}" }
 
   celula-c02:
     <<: *celula
-    environment: { <<: *env-celula, ID_CELULA: c02, CENARIO: "${CENARIO_C02:-normal}" }
+    environment: { <<: *env-celula, ID_CELULA: c02, CENARIO: "${CENARIO_C02:-}" }
 
   celula-c03:
     <<: *celula
-    environment: { <<: *env-celula, ID_CELULA: c03, CENARIO: "${CENARIO_C03:-normal}" }
+    environment: { <<: *env-celula, ID_CELULA: c03, CENARIO: "${CENARIO_C03:-}" }
+
+  # Com as três acima, completa as 16 células com os perfis da interface:
+  #   docker compose --profile 16-celulas up
+  simulador-16:
+    <<: *celula
+    profiles: ["16-celulas", "completo"]
+    # c01 a c03 já sobem pelos serviços acima; rodar de novo aqui duplicaria
+    # o client_id e o buffer delas.
+    command: ["python", "-m", "simulador", "c04", "c05", "c06", "c07", "c08", "c09", "c10",
+              "c11", "c12", "c13", "c14", "c15", "c16"]
+    environment: { <<: *env-celula }
 
 volumes:
   banco-dados:

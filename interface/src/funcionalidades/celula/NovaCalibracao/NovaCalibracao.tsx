@@ -38,9 +38,16 @@ const INICIAIS: Linha[] = [
   ...[1, 2, 3, 4, 5].map((n) => ({ rotulo: `P${n}`, od: "", gravado: null })),
 ];
 
-/** "1.104" e "0,500" no formato brasileiro. Vazio ou inválido vira NaN. */
+/** Valor bruto: "1.104" e "1104,5" no formato brasileiro. Vazio ou inválido vira NaN. */
 function numero(texto: string): number {
   const limpo = texto.trim().replace(/\./g, "").replace(",", ".");
+  return limpo === "" ? NaN : Number(limpo);
+}
+
+/** OD de referência: "0,2" e "0.2" valem o mesmo. A OD não tem milhar, então
+ *  o ponto é sempre decimal (com `numero`, "0.2" virava 2). */
+function lerOd(texto: string): number {
+  const limpo = texto.trim().replace(",", ".");
   return limpo === "" ? NaN : Number(limpo);
 }
 
@@ -50,7 +57,7 @@ const horaMinuto = (iso: string | Date) =>
 /** Bruto que o frasco do modo exemplo mostra para cada linha. */
 function brutoNoExemplo(linha: Linha, indice: number): number {
   if (linha.rotulo === "branco") return 98;
-  const od = numero(linha.od);
+  const od = lerOd(linha.od);
   return Math.round(98 + ((Number.isFinite(od) ? od : 0.05 + 0.15 * indice) + 0.018) / 0.000515);
 }
 
@@ -120,23 +127,23 @@ export function NovaCalibracao() {
 
   const branco = linhas.find((l) => l.rotulo === "branco")?.gravado?.bruto ?? null;
   const padroes = linhas.filter((l) => l.rotulo !== "branco");
-  const completos = padroes.filter((l) => l.gravado && Number.isFinite(numero(l.od)));
+  const completos = padroes.filter((l) => l.gravado && Number.isFinite(lerOd(l.od)));
   const incompletos = padroes.filter((l) => (l.gravado || l.od.trim()) && !completos.includes(l));
-  const preenchidos = padroes.filter((l) => Number.isFinite(numero(l.od))).length;
+  const preenchidos = padroes.filter((l) => Number.isFinite(lerOd(l.od))).length;
   const linhaSelecionada = linhas.find((l) => l.rotulo === selecionada) ?? null;
   const ultima = aoVivo?.ultima ?? null;
 
   const pontos: PontoDaCurva[] = branco === null ? [] : completos.map((l) => ({
-    nome: l.rotulo, x: l.gravado!.bruto - branco, od: numero(l.od),
+    nome: l.rotulo, x: l.gravado!.bruto - branco, od: lerOd(l.od),
   }));
   // O padrão sendo lido entra na prévia com o valor ao vivo, como no Figma.
   const pontoAoVivo: PontoDaCurva | null =
-    branco !== null && ultima && linhaSelecionada && linhaSelecionada.rotulo !== "branco" && Number.isFinite(numero(linhaSelecionada.od))
-      ? { nome: linhaSelecionada.rotulo, x: ultima.bruto - branco, od: numero(linhaSelecionada.od) }
+    branco !== null && ultima && linhaSelecionada && linhaSelecionada.rotulo !== "branco" && Number.isFinite(lerOd(linhaSelecionada.od))
+      ? { nome: linhaSelecionada.rotulo, x: ultima.bruto - branco, od: lerOd(linhaSelecionada.od) }
       : null;
   const naPrevia = pontoAoVivo && !linhaSelecionada?.gravado ? [...pontos, pontoAoVivo] : pontos;
   const reta = branco === null ? null : ajustarComBranco(branco, naPrevia.map((p) => ({ bruto: p.x + branco, od: p.od })));
-  const retaSalva = branco === null ? null : ajustarComBranco(branco, completos.map((l) => ({ bruto: l.gravado!.bruto, od: numero(l.od) })));
+  const retaSalva = branco === null ? null : ajustarComBranco(branco, completos.map((l) => ({ bruto: l.gravado!.bruto, od: lerOd(l.od) })));
   const pronto = branco !== null && completos.length >= MINIMO_DE_PADROES && retaSalva !== null;
   const esperandoNovaLeitura = travadoAte !== null && (aoVivo?.janela.seqInicio ?? -1) <= travadoAte;
   // A versão em uso nos mesmos eixos: od = a · (x + branco) + b.
@@ -228,7 +235,7 @@ export function NovaCalibracao() {
       const g = l.gravado!;
       return {
         rotulo: l.rotulo,
-        od_referencia: l.rotulo === "branco" ? null : numero(l.od),
+        od_referencia: l.rotulo === "branco" ? null : lerOd(l.od),
         bruto: g.bruto,
         origem: g.origem,
         ...(g.origem === "leitura" ? { seq_inicio: g.seqInicio, seq_fim: g.seqFim, n_leituras: g.nLeituras, desvio: g.desvio } : {}),

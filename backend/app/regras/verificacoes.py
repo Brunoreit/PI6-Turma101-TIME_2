@@ -34,16 +34,20 @@ def sem_comunicacao(conn: psycopg.Connection, cfg: Config) -> None:
 
 
 def setpoint_sem_confirmacao(conn: psycopg.Connection, cfg: Config) -> None:
-    """Pedido de setpoint que a célula não confirmou em SETPOINT_TIMEOUT_S."""
+    """O último pedido de setpoint da célula não foi confirmado em
+    SETPOINT_TIMEOUT_S. Só o último conta: um pedido antigo que a célula
+    ignorou fica como solicitado para sempre, mas deixa de valer quando um
+    pedido mais novo é confirmado."""
     atrasadas = {
         linha["id_celula"]: linha["temperatura_c"]
         for linha in conn.execute(
             """
-            SELECT DISTINCT ON (id_celula) id_celula, temperatura_c
-              FROM pedido_setpoint
+            SELECT id_celula, temperatura_c
+              FROM (SELECT DISTINCT ON (id_celula) id_celula, temperatura_c, estado, solicitado_em
+                      FROM pedido_setpoint
+                     ORDER BY id_celula, solicitado_em DESC) ultimo
              WHERE estado = 'solicitado'
                AND solicitado_em < now() - make_interval(secs => %s)
-             ORDER BY id_celula, solicitado_em DESC
             """,
             (cfg.setpoint_timeout_s,),
         ).fetchall()

@@ -16,7 +16,7 @@ class Config:
     mqtt_host: str = os.environ.get("MQTT_HOST", "localhost")
     mqtt_port: int = int(os.environ.get("MQTT_PORT", 1883))
 
-    # Faixa aceita para o setpoint. O eVOLVER opera da temperatura ambiente até 45 °C.
+    # Faixa aceita para o setpoint. O T.U.P.A opera da temperatura ambiente até 45 °C.
     temperatura_min_c: float = _float("TEMPERATURA_MIN_C", 20.0)
     temperatura_max_c: float = _float("TEMPERATURA_MAX_C", 45.0)
 

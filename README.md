@@ -108,6 +108,58 @@ docker compose kill -s SIGUSR1 celula-c02   # corta
 docker compose kill -s SIGUSR2 celula-c02   # restaura
 ```
 
+### Zerar e começar com dados de demonstração
+
+```bash
+python -m simulador.semente --zerar
+```
+
+**Apaga todos os dados do Docker Compose** (`down -v`: banco, broker e buffers das células) e então:
+
+1. sobe broker, banco, backend e a interface no modo api (http://localhost:8080);
+2. carrega o banco: 4 pessoas (`pedro.ximenes@cnpem.br`, `rogerio.medina@cnpem.br`, `henry.piozzi@cnpem.br`, `gabriel.bonatto@cnpem.br`, senha `cultura123`), as 16 células com a calibração v1, `EXP-01` a `EXP-04`, 14 cultivos abertos com faixa de pH e um pedido de setpoint por célula em cultivo;
+3. liga as 16 células. Na primeira subida, cada uma publica 24 h de leituras passadas (`HISTORICO_HORAS`) pelo MQTT, com `seq` contínuo, antes das leituras ao vivo.
+
+Em segundos as regras abrem dois alertas de verdade: desvio de temperatura na c03 (perfil com +3,4 °C) e setpoint sem confirmação na c11 (ignora o pedido de 37 °C). A c04 fica livre para calibrar.
+
+Opções: `--sem-celulas` não liga as células (para rodar `python -m simulador --historico 24` fora do Docker), `--historico 48` muda as horas de histórico. Sem `--zerar`, só carrega no banco que já está no ar. A carga não roda no init do PostgreSQL, porque o banco dos testes de integração precisa começar vazio.
+
+### Calibrar a OD com o simulador
+
+O terminal do simulador força o que o sensor da célula mede; quem calibra é a tela, e a reta que vale é a do servidor.
+
+```bash
+python -m simulador.cli c04               # abre o terminal de controle da c04
+```
+
+Na interface, abra a **Nova calibração** da c04 e alterne com o terminal:
+
+| No terminal | Na tela |
+|---|---|
+| `branco` (bruto 100) | espera "estável" e grava o branco |
+| `padrao 0.2 valor 0.235` (sensor lê como 0,235, bruto 570) | OD de referência 0,2 e grava |
+| `padrao 0.35 valor 0.342` | OD de referência 0,35 e grava |
+| `padrao 0.5 valor 0.51` | OD de referência 0,5 e grava |
+| `padrao 0.8 valor 0.795` | OD de referência 0,8, grava e salva a calibração |
+| `tabela` | confere a, b, R² e o b gravado no banco |
+| `auto` | a célula volta à simulação normal |
+
+A cada valor forçado, a célula publica na hora 6 leituras com ruído de 0,1% do bruto, então a janela fica estável em uns 3 s. O servidor usa a média dessas leituras, por isso a tela pode diferir da `tabela` nas últimas casas. Outras formas: `branco 120` e `padrao 0.8 bruto 1650` digitam o bruto; `ruido 5` aumenta o ruído para ver a tela recusar um ponto instável (`ruido auto` volta).
+
+Como a curva é calculada: o branco não é ponto da reta, só é descontado (x = bruto − branco). A reta é ajustada por mínimos quadrados só com os padrões, `OD = a·x + b`, sem forçar o zero, e o banco guarda `a` e `b − a·branco`. Detalhes em `backend/app/calibracao/ajuste.py`.
+
+### Provocar cada alerta pelo terminal
+
+| Alerta | Como provocar | Quando abre e fecha |
+|---|---|---|
+| `desvio_temperatura` | `temp 38.5` numa célula com setpoint atingido (c01, 30 °C) | abre em ~10 s; `auto` volta e fecha |
+| `ph_fora_da_faixa` | `ph 5.5` numa célula com **cultivo aberto** (c01: faixa 6,6 a 7,2) | abre em ~10 s; `auto` fecha |
+| `setpoint_sem_confirmacao` | `cenario ignorar_setpoint` e um setpoint novo pela interface | abre após `SETPOINT_TIMEOUT_S` (120 s); fecha quando um pedido mais novo é confirmado |
+| `sem_comunicacao` | `rede 120` (corta a rede por 120 s, sem aviso ao broker) | abre em ~45 s, quando o broker declara a célula offline; fecha quando a rede volta, e as leituras guardadas são reenviadas |
+| `colisao_seq` | `colisao` (o último seq de novo, com outro horário) | abre na hora; não fecha sozinho |
+
+Com a rede cortada a célula não ouve o broker, por isso ela volta sozinha depois do tempo pedido. Para ver as células responderem a uma mudança, mande um setpoint pela interface: o pedido passa por solicitado, recebido, aplicado e, quando a temperatura chega, atingido.
+
 ## Testes
 
 ```bash
