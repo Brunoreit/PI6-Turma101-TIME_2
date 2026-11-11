@@ -23,7 +23,7 @@ import pytest
 import requests
 from psycopg.rows import dict_row
 
-from tests.integracao.ambiente import CELULAS, criar_ambiente
+from tests.integracao.ambiente import CELULAS, RAIZ, criar_ambiente
 
 pytestmark = pytest.mark.integracao
 
@@ -76,11 +76,17 @@ def historico_completo(banco) -> bool:
     )
 
 
-def alerta_aberto(banco, id_celula: str, tipo: str) -> bool:
+def alerta_aberto(banco, id_celula: str | None, tipo: str) -> bool:
+    """id_celula None para os alertas do sistema."""
     return banco.execute(
-        "SELECT 1 FROM alerta WHERE id_celula = %s AND tipo = %s AND fechado_em IS NULL",
+        "SELECT 1 FROM alerta WHERE id_celula IS NOT DISTINCT FROM %s::text AND tipo = %s AND fechado_em IS NULL",
         (id_celula, tipo),
     ).fetchone() is not None
+
+
+def celulas_sem_comunicacao(banco) -> list[str]:
+    return [l["id_celula"] for l in banco.execute(
+        "SELECT id_celula FROM alerta WHERE tipo = 'sem_comunicacao' AND fechado_em IS NULL ORDER BY 1").fetchall()]
 
 
 def estado_celula(banco, id_celula: str) -> str | None:
@@ -146,23 +152,36 @@ def test_3_reconexao_reenvia_sem_buracos(ambiente, banco):
 
 
 def test_4_consumidor_parado_nao_perde_dados(ambiente, banco):
+    """Sem o sinal de vida do consumidor abre consumidor_parado, e nenhuma
+    célula ganha sem_comunicacao, mesmo calada por mais que SEM_COMUNICACAO_S."""
+    assert celulas_sem_comunicacao(banco) == []
     ambiente.parar("consumidor")
     parado = contagem(banco)
-    time.sleep(8)
+    esperar(lambda: alerta_aberto(banco, None, "consumidor_parado"), 15, "alerta consumidor_parado")
+    time.sleep(8)  # com o que já passou, mais que SEM_COMUNICACAO_S sem gravar nada
     assert contagem(banco) == parado, "nada deveria ser gravado com o consumidor parado"
+    assert celulas_sem_comunicacao(banco) == [], "célula não tem culpa do consumidor parado"
     ambiente.iniciar_servico("consumidor")
     # O broker entrega o que guardou na sessão persistente do consumidor.
     esperar(cresceu_em_todas(banco, parado, 8), 30, "entrega do que ficou no broker")
     esperar(lambda: historico_completo(banco), 20, "histórico completo após o consumidor voltar")
+    esperar(lambda: not alerta_aberto(banco, None, "consumidor_parado"), 15, "alerta consumidor_parado fechado")
+    assert celulas_sem_comunicacao(banco) == []
 
 
 def test_5_broker_parado_nao_perde_dados(ambiente, banco):
+    """Com o broker fora do ar abre broker_inacessivel, e as células, que
+    não têm culpa, não ganham sem_comunicacao."""
     ambiente.parar("broker")
     parado = contagem(banco)
+    esperar(lambda: alerta_aberto(banco, None, "broker_inacessivel"), 15, "alerta broker_inacessivel")
     time.sleep(8)
+    assert celulas_sem_comunicacao(banco) == []
     ambiente.iniciar_servico("broker")
     esperar(cresceu_em_todas(banco, parado, 8), 40, "reenvio das três células após o broker voltar")
     esperar(lambda: historico_completo(banco), 20, "histórico completo após o broker voltar")
+    esperar(lambda: not alerta_aberto(banco, None, "broker_inacessivel"), 15, "alerta broker_inacessivel fechado")
+    assert celulas_sem_comunicacao(banco) == []
 
 
 def test_6_setpoint_passa_por_todos_os_estados(ambiente, login):
@@ -359,6 +378,8 @@ def test_15_broker_parado_recusa_cultivo_com_temperatura_alvo(ambiente, banco):
     assert aceito.status_code == 201, aceito.text
     assert (aceito.json()["pedido_setpoint"], aceito.json()["setpoint_confirmado"]) == (None, None)
     assert pedidos() == antes[0]
+    # Como na etapa 5, a parada abre o alerta; o relatório da etapa 16 conta com ele.
+    esperar(lambda: alerta_aberto(banco, None, "broker_inacessivel"), 15, "alerta broker_inacessivel")
 
     ambiente.iniciar_servico("broker")
     esperar(lambda: requests.get(f"{api}/saude", timeout=5).json()["broker"], 30, "API reconectar ao broker")
@@ -367,6 +388,29 @@ def test_15_broker_parado_recusa_cultivo_com_temperatura_alvo(ambiente, banco):
 
 
 def test_16_integridade_final(ambiente, banco, login):
+    """Histórico completo, e o relatório de falhas do roteiro: cada falha
+    provocada (rede da c02, consumidor e broker duas vezes) abriu o alerta
+    certo, fechou depois, não culpou ninguém por engano e não perdeu leitura.
+    O relatório fica em relatorios/ (Markdown e JSON)."""
+    from app.relatorio.falhas import TIPOS_COMUNICACAO, montar, salvar
+
     integridade = requests.get(f"{ambiente.url_api}/integridade", headers=login, timeout=5).json()
     assert len(integridade) == len(CELULAS)
     assert all(linha["completo"] for linha in integridade), integridade
+
+    esperar(lambda: banco.execute("SELECT 1 FROM alerta WHERE tipo = ANY(%s) AND fechado_em IS NULL",
+                                  (list(TIPOS_COMUNICACAO),)).fetchone() is None,
+            30, "alertas de comunicação fechados")
+    relatorio = montar(banco, ambiente.inicio, simuladas=ambiente.falhas_simuladas, origem="teste ponta a ponta")
+    md, _ = salvar(relatorio, RAIZ / "relatorios")
+    print(f"\nrelatório de falhas em {md}")
+    falhas = relatorio["falhas_simuladas"]
+    assert [(f["acao"], f["alvo"]) for f in falhas] == [
+        ("rede", "c02"), ("consumidor", None), ("broker", None), ("broker", None)]
+    assert all(f["resultado"] == "ok" for f in falhas), [(f["acao"], f["problemas"]) for f in falhas]
+    assert all(f["leituras_chegaram_depois"] > 0 for f in falhas), "as leituras guardadas chegaram depois"
+    # Cada falha com o seu alerta, mesmo com as duas paradas do broker próximas.
+    assert [len(f["alertas"]) for f in falhas] == [1, 1, 1, 1], [f["alertas"] for f in falhas]
+    resumo = relatorio["resumo"]
+    assert resumo["dados_completos"] and resumo["alertas_abertos"] == 0
+    assert resumo["leituras_que_chegaram_atrasadas"] > 0

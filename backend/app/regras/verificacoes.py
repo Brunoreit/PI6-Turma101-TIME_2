@@ -14,23 +14,73 @@ from app.config import Config
 log = logging.getLogger(__name__)
 
 
-def sem_comunicacao(conn: psycopg.Connection, cfg: Config) -> None:
-    """Célula offline, ou sem mandar nada há mais de SEM_COMUNICACAO_S."""
-    for c in conn.execute(
+def _consumidor(conn: psycopg.Connection, cfg: Config) -> dict | None:
+    """Situação do consumidor pelo sinal de vida, ou None se ele nunca gravou."""
+    return conn.execute(
         """
-        SELECT id_celula,
-               estado = 'offline'
-               OR ultimo_contato < now() - make_interval(secs => %s) AS sem_contato
+        SELECT ultimo_sinal < now() - make_interval(secs => %s) AS parado,
+               NOT broker_conectado
+               AND broker_desde < now() - make_interval(secs => %s) AS sem_broker,
+               -- Conectado há pouco: as células ainda não tiveram tempo de
+               -- mandar algo depois da volta.
+               broker_conectado
+               AND broker_desde >= now() - make_interval(secs => %s) AS reconectou_agora,
+               broker_conectado
+          FROM processo WHERE nome = 'consumidor'
+        """,
+        (cfg.sinal_vida_limite_s, cfg.broker_inacessivel_s, cfg.sem_comunicacao_s),
+    ).fetchone()
+
+
+def comunicacao_do_servidor(conn: psycopg.Connection, cfg: Config) -> None:
+    """Consumidor sem sinal de vida (consumidor_parado) ou vivo mas sem
+    conexão com o broker (broker_inacessivel). Os dois alertas são do
+    sistema, sem célula. Sem nenhum sinal gravado ainda, não decide nada."""
+    c = _consumidor(conn, cfg)
+    if c is None:
+        return
+    if c["parado"]:
+        if repo.abrir_alerta(conn, None, "consumidor_parado",
+                             "O consumidor parou: as leituras não estão sendo gravadas. "
+                             "Elas ficam guardadas no broker até ele voltar."):
+            log.warning("alerta aberto: consumidor parado")
+        # Parado, ele não diz se o broker responde: o alerta do broker fica como está.
+        return
+    if repo.fechar_alerta(conn, None, "consumidor_parado"):
+        log.info("alerta fechado: consumidor voltou")
+    if c["sem_broker"]:
+        if repo.abrir_alerta(conn, None, "broker_inacessivel",
+                             "O servidor perdeu a conexão com o broker MQTT. As leituras ficam "
+                             "guardadas no broker ou nas células até a conexão voltar."):
+            log.warning("alerta aberto: broker inacessível")
+    elif c["broker_conectado"] and repo.fechar_alerta(conn, None, "broker_inacessivel"):
+        log.info("alerta fechado: servidor reconectado ao broker")
+
+
+def sem_comunicacao(conn: psycopg.Connection, cfg: Config) -> None:
+    """Célula offline, ou sem mandar nada há mais de SEM_COMUNICACAO_S.
+
+    Só abre quando o servidor está recebendo: com o consumidor parado, sem
+    broker ou reconectado há menos de SEM_COMUNICACAO_S, nenhum alerta abre
+    (seriam todas as células de uma vez, e a culpa não é delas). Vale também
+    para o offline: ao sair do ar, o broker publica o offline (LWT) das
+    células conectadas, e elas só se anunciam de novo quando ele volta."""
+    c = _consumidor(conn, cfg)
+    recebendo = c is None or (not c["parado"] and c["broker_conectado"] and not c["reconectou_agora"])
+    for cel in conn.execute(
+        """
+        SELECT id_celula, estado = 'offline' AS offline,
+               ultimo_contato < now() - make_interval(secs => %s) AS calada
           FROM celula
         """,
         (cfg.sem_comunicacao_s,),
     ).fetchall():
-        if c["sem_contato"]:
-            if repo.abrir_alerta(conn, c["id_celula"], "sem_comunicacao",
+        if (cel["offline"] or cel["calada"]) and recebendo:
+            if repo.abrir_alerta(conn, cel["id_celula"], "sem_comunicacao",
                                  "A célula parou de enviar dados."):
-                log.warning("alerta aberto: %s sem comunicação", c["id_celula"])
-        elif repo.fechar_alerta(conn, c["id_celula"], "sem_comunicacao"):
-            log.info("alerta fechado: %s voltou a se comunicar", c["id_celula"])
+                log.warning("alerta aberto: %s sem comunicação", cel["id_celula"])
+        elif not cel["offline"] and not cel["calada"] and repo.fechar_alerta(conn, cel["id_celula"], "sem_comunicacao"):
+            log.info("alerta fechado: %s voltou a se comunicar", cel["id_celula"])
 
 
 def setpoint_sem_confirmacao(conn: psycopg.Connection, cfg: Config) -> None:
@@ -143,5 +193,5 @@ def ph_fora_da_faixa(conn: psycopg.Connection, cfg: Config) -> None:
             log.info("alerta fechado: pH de %s voltou à faixa ou o cultivo mudou", c["id_celula"])
 
 
-TODAS = [sem_comunicacao, setpoint_sem_confirmacao, setpoint_atingido, desvio_temperatura,
+TODAS = [comunicacao_do_servidor, sem_comunicacao,setpoint_sem_confirmacao, setpoint_atingido, desvio_temperatura,
          ph_fora_da_faixa]

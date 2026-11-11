@@ -33,11 +33,14 @@ export type TipoAlerta =
   | "setpoint_sem_confirmacao"
   | "desvio_temperatura"
   | "ph_fora_da_faixa"
-  | "colisao_seq";
+  | "colisao_seq"
+  | "consumidor_parado"
+  | "broker_inacessivel";
 
 export interface AlertaApi {
   id_alerta: number;
-  id_celula: string;
+  /** null nos alertas do sistema (consumidor_parado e broker_inacessivel). */
+  id_celula: string | null;
   /** Um tipo que a interface não conhece aparece com o próprio nome. */
   tipo: TipoAlerta | (string & {});
   mensagem: string;
@@ -56,9 +59,21 @@ export interface LeituraApi {
   id_calibracao: number | null;
 }
 
+/** Sinal de vida de um processo do backend. */
+export interface ProcessoApi {
+  /** Sinal recente (dentro do limite do backend). */
+  ativo: boolean;
+  ultimo_sinal: string;
+  iniciado_em: string;
+}
+
 export interface SaudeApi {
   banco: boolean;
+  /** Se a própria API está conectada ao broker. */
   broker: boolean;
+  /** null se o consumidor nunca gravou sinal de vida. */
+  consumidor: (ProcessoApi & { broker_conectado: boolean; broker_desde: string }) | null;
+  regras: ProcessoApi | null;
 }
 
 export type EstadoPedidoApi = "solicitado" | "recebido" | "aplicado" | "atingido" | "recusado";

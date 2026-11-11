@@ -23,7 +23,8 @@ type Aba = "abertos" | "regras" | "historico";
 
 interface AlertaFechado {
   id: number;
-  idCelula: string;
+  /** null nos alertas do sistema. */
+  idCelula: string | null;
   titulo: string;
   mensagem: string;
   abertoEm: Date;
@@ -209,15 +210,17 @@ export function Alertas() {
               <span className={estilos.pontoAlerta} />
               <div className={estilos.alertaTextos}>
                 <p className={estilos.alertaTitulo}>
-                  <span className={estilos.codigo}>{nomeDa(a.idCelula)}</span> · {a.titulo}
+                  <span className={estilos.codigo}>{a.idCelula ? nomeDa(a.idCelula) : "Sistema"}</span> · {a.titulo}
                 </p>
                 <p className={estilos.descricao}>{a.mensagem}</p>
                 {a.ajuda && <p className={estilos.ajudaAlerta}>{a.ajuda}</p>}
               </div>
               <span className={estilos.alertaTempo}>aberto {formatar.tempoDecorrido(a.abertoEm)}</span>
-              <Link to={`/celulas/${a.idCelula}`} className={estilos.link}>
-                Abrir célula
-              </Link>
+              {a.idCelula && (
+                <Link to={`/celulas/${a.idCelula}`} className={estilos.link}>
+                  Abrir célula
+                </Link>
+              )}
             </div>
           ))}
         </div>
@@ -233,7 +236,7 @@ export function Alertas() {
               <span className={estilos.pontoFechado} />
               <div className={estilos.alertaTextos}>
                 <p className={estilos.alertaTitulo}>
-                  <span className={estilos.codigo}>{nomeDa(a.idCelula)}</span> · {a.titulo}
+                  <span className={estilos.codigo}>{a.idCelula ? nomeDa(a.idCelula) : "Sistema"}</span> · {a.titulo}
                 </p>
                 <p className={estilos.descricao}>{a.mensagem}</p>
                 <p className={estilos.descricao}>

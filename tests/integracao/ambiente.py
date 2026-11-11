@@ -17,7 +17,10 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+
+from app.relatorio.falhas import FalhaSimulada
 
 RAIZ = Path(__file__).resolve().parents[2]
 CELULAS = {"c01": "normal", "c02": "normal", "c03": "ignorar_setpoint"}
@@ -31,6 +34,9 @@ AMBIENTE_RAPIDO = {
     "REGRAS_INTERVALO_S": "1",
     "SEM_COMUNICACAO_S": "8",
     "SETPOINT_TIMEOUT_S": "6",
+    "SINAL_VIDA_S": "1",
+    "SINAL_VIDA_LIMITE_S": "4",
+    "BROKER_INACESSIVEL_S": "2",
 }
 
 # Os testes de login assinam tokens com ele, para provar expiração e adulteração.
@@ -209,5 +215,47 @@ class AmbienteLocal:
             shutil.rmtree(self.dir, ignore_errors=True)
 
 
+class ComFalhasAnotadas:
+    """Repassa tudo ao ambiente e anota as falhas que o teste provoca (célula
+    sem rede, consumidor ou broker parado), para o relatório de falhas."""
+
+    def __init__(self, ambiente):
+        self._ambiente = ambiente
+        self.inicio: datetime | None = None
+        self.falhas_simuladas: list[FalhaSimulada] = []
+
+    def __getattr__(self, nome: str):
+        return getattr(self._ambiente, nome)
+
+    def _comecou(self, acao: str, alvo: str | None = None) -> None:
+        self.falhas_simuladas.append(FalhaSimulada(acao=acao, inicio=datetime.now(timezone.utc), alvo=alvo))
+
+    def _terminou(self, acao: str, alvo: str | None = None) -> None:
+        for falha in reversed(self.falhas_simuladas):
+            if falha.acao == acao and falha.alvo == alvo and falha.fim is None:
+                falha.fim = datetime.now(timezone.utc)
+                return
+
+    def iniciar(self) -> None:
+        self.inicio = datetime.now(timezone.utc)
+        self._ambiente.iniciar()
+
+    def parar(self, nome: str) -> None:
+        if nome in ("broker", "consumidor"):
+            self._comecou(nome)
+        self._ambiente.parar(nome)
+
+    def iniciar_servico(self, nome: str) -> None:
+        self._ambiente.iniciar_servico(nome)
+        self._terminou(nome)
+
+    def sinal(self, nome: str, sinal: str) -> None:
+        if sinal == "SIGUSR1":
+            self._comecou("rede", nome)
+        self._ambiente.sinal(nome, sinal)
+        if sinal == "SIGUSR2":
+            self._terminou("rede", nome)
+
+
 def criar_ambiente():
-    return AmbienteLocal() if os.environ.get("AMBIENTE") == "local" else AmbienteCompose()
+    return ComFalhasAnotadas(AmbienteLocal() if os.environ.get("AMBIENTE") == "local" else AmbienteCompose())

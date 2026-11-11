@@ -265,6 +265,20 @@ def test_alertas_novos_sao_aceitos_e_tipo_inventado_e_recusado(tx):
     recusa(tx, sql, ("tipo_inventado",), errors.CheckViolation, "alerta_tipo_check")
 
 
+def test_alerta_do_sistema_nao_tem_celula_e_abre_um_por_tipo(tx):
+    # Pode já haver um aberto pelo processo de regras do ambiente; a
+    # transação deste teste começa sem nenhum.
+    tx.execute("UPDATE alerta SET fechado_em = now() WHERE id_celula IS NULL AND fechado_em IS NULL")
+    assert repo.abrir_alerta(tx, None, "consumidor_parado", "x")
+    assert not repo.abrir_alerta(tx, None, "consumidor_parado", "x")
+    assert repo.abrir_alerta(tx, None, "broker_inacessivel", "x")
+    assert repo.fechar_alerta(tx, None, "consumidor_parado")
+    assert repo.abrir_alerta(tx, None, "consumidor_parado", "x")
+    sql = "INSERT INTO alerta (id_celula, tipo, mensagem) VALUES (%s, %s, 'x')"
+    recusa(tx, sql, (None, "sem_comunicacao"), errors.CheckViolation, "alerta_celula_check")
+    recusa(tx, sql, ("tst-a", "broker_inacessivel"), errors.CheckViolation, "alerta_celula_check")
+
+
 def test_leitura_com_extras_e_aceita(tx):
     tx.execute("INSERT INTO leitura (id_celula, seq, ts_origem, extras) VALUES ('tst-a', 0, %s, %s)",
                (T0, Jsonb({"o2_pct": 21.0})))
@@ -819,6 +833,64 @@ def test_setpoint_sem_confirmacao_fecha_quando_um_pedido_mais_novo_e_confirmado(
     setpoint_sem_confirmacao(banco, config)
     assert not aberto()
     assert repo.buscar_pedido(banco, ignorado)["estado"] == "solicitado"
+
+
+def test_servidor_sem_receber_abre_alerta_do_sistema_e_nao_culpa_as_celulas(banco):
+    """Consumidor parado ou sem broker abre o alerta do sistema, e a célula
+    calada ou offline não ganha sem_comunicacao (o broker que sai do ar
+    publica o offline das células conectadas). Logo depois de reconectar também não:
+    só quando a célula continua calada depois de SEM_COMUNICACAO_S.
+
+    Roda numa transação desfeita: o consumidor do ambiente, que grava o
+    próprio sinal a cada segundo, espera ela acabar."""
+    from app.config import config
+    from app.regras.verificacoes import comunicacao_do_servidor, sem_comunicacao
+
+    def consumidor(sinal: str, conectado: bool, desde: str) -> None:
+        banco.execute(
+            f"""INSERT INTO processo (nome, iniciado_em, ultimo_sinal, broker_conectado, broker_desde)
+                VALUES ('consumidor', now() - interval '2 hours', {sinal}, %s, {desde})
+                ON CONFLICT (nome) DO UPDATE SET ultimo_sinal = EXCLUDED.ultimo_sinal,
+                       broker_conectado = EXCLUDED.broker_conectado, broker_desde = EXCLUDED.broker_desde""",
+            (conectado,))
+        comunicacao_do_servidor(banco, config)
+        sem_comunicacao(banco, config)
+
+    def abertos() -> set[tuple[str | None, str]]:
+        return {(a["id_celula"], a["tipo"]) for a in banco.execute(
+            "SELECT id_celula, tipo FROM alerta WHERE fechado_em IS NULL AND (id_celula IS NULL OR id_celula IN ('calada', 'caida'))"
+        ).fetchall()}
+
+    with banco.transaction(force_rollback=True):
+        banco.execute("UPDATE alerta SET fechado_em = now() WHERE id_celula IS NULL AND fechado_em IS NULL")
+        banco.execute("INSERT INTO celula (id_celula, estado, ultimo_contato) "
+                      "VALUES ('calada', 'online', now() - interval '1 hour'), ('caida', 'offline', now())")
+
+        consumidor("now() - interval '1 hour'", True, "now() - interval '2 hours'")
+        assert abertos() == {(None, "consumidor_parado")}
+
+        consumidor("now()", False, "now() - interval '1 hour'")
+        assert abertos() == {(None, "broker_inacessivel")}
+
+        consumidor("now()", False, "now()")  # caiu agora: ainda dentro de BROKER_INACESSIVEL_S
+        assert abertos() == {(None, "broker_inacessivel")}
+
+        consumidor("now()", True, "now()")  # reconectou agora
+        assert abertos() == set()
+
+        consumidor("now()", True, "now() - interval '1 hour'")  # recebendo há tempo: a célula é que calou
+        assert abertos() == {("calada", "sem_comunicacao"), ("caida", "sem_comunicacao")}
+
+        banco.execute("UPDATE celula SET ultimo_contato = now(), estado = 'online' WHERE id_celula IN ('calada', 'caida')")
+        consumidor("now() - interval '1 hour'", True, "now() - interval '2 hours'")
+        assert abertos() == {(None, "consumidor_parado")}, "voltou a falar: fecha mesmo com o consumidor parado"
+
+
+def test_saude_traz_o_sinal_de_vida_do_consumidor_e_das_regras(ambiente):
+    saude = requests.get(f"{ambiente.url_api}/saude", timeout=5).json()
+    assert saude["banco"] and saude["broker"]
+    assert saude["consumidor"]["ativo"] and saude["consumidor"]["broker_conectado"]
+    assert saude["regras"]["ativo"] and "broker_conectado" not in saude["regras"]
 
 
 def _medir(conn, id_celula: str, seq: int, ph: float | None, ts: datetime | None = None) -> None:

@@ -6,7 +6,9 @@ Executar: python -m app.regras.main
 import logging
 import signal
 import threading
+from datetime import datetime, timezone
 
+from app.banco import repositorios as repo
 from app.banco.conexao import conectar
 from app.config import config
 from app.regras.verificacoes import TODAS
@@ -21,8 +23,15 @@ def main() -> None:
     signal.signal(signal.SIGTERM, lambda *_: parar.set())
     signal.signal(signal.SIGINT, lambda *_: parar.set())
     log.info("verificando a cada %.0f s", config.regras_intervalo_s)
+    iniciado_em = datetime.now(timezone.utc)
 
     while not parar.is_set():
+        try:
+            repo.registrar_sinal(conn, "regras", iniciado_em)
+        except Exception:
+            log.exception("falha ao gravar o sinal de vida")
+            if conn.closed:
+                conn = conectar()
         for regra in TODAS:
             try:
                 regra(conn, config)

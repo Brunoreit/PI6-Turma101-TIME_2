@@ -20,8 +20,8 @@ export const ROTAS = [
   { caminho: "/exportar", rotulo: "Exportar dados", icone: iconeExportar },
 ] as const;
 
-function ItemDoSistema({ nome, ok, rotuloOk }: { nome: string; ok: boolean | null; rotuloOk: string }) {
-  const situacao = ok === null ? "sem dados" : ok ? rotuloOk : "parado";
+function ItemDoSistema({ nome, ok, rotuloOk, texto }: { nome: string; ok: boolean | null; rotuloOk: string; texto?: string }) {
+  const situacao = texto ?? (ok === null ? "sem dados" : ok ? rotuloOk : "parado");
   return (
     <div className={estilos.servico}>
       {ok ? (
@@ -84,9 +84,9 @@ export function BarraLateral() {
 
       <section className={estilos.sistema} aria-label="Sistema">
         <span className={estilos.sistemaTitulo}>Sistema</span>
-        <ItemDoSistema nome="Broker MQTT" ok={sistema.broker} rotuloOk="conectado" />
-        <ItemDoSistema nome="Consumidor" ok={sistema.consumidor} rotuloOk="ativo" />
-        <ItemDoSistema nome="Regras" ok={sistema.regras} rotuloOk="ativo" />
+        <ItemDoSistema nome="Broker MQTT" ok={sistema.broker} rotuloOk="conectado" texto={sistema.textos?.broker} />
+        <ItemDoSistema nome="Consumidor" ok={sistema.consumidor} rotuloOk="ativo" texto={sistema.textos?.consumidor} />
+        <ItemDoSistema nome="Regras" ok={sistema.regras} rotuloOk="ativo" texto={sistema.textos?.regras} />
       </section>
 
       <ContaDoUsuario />

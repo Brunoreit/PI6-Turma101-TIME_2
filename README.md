@@ -101,12 +101,43 @@ psql "postgresql://evolver:evolver@localhost:5432/evolver" -v ON_ERROR_STOP=1 -f
 
 ### Falhas simuladas
 
-Para simular uma queda de rede na célula c02 e depois restaurar:
+A comunicação tem dois trechos, e cada um pode cair sozinho:
+
+```
+ESP32 (célula) ──Wi-Fi──▶ Raspberry Pi (broker) ──rede──▶ servidor (consumidor, API) ──▶ banco
+```
+
+No Docker Compose, o consumidor e a API chegam ao broker pelo serviço `enlace`, um repassador TCP que faz o papel da rede entre o servidor e o Raspberry Pi. As células ligam direto no broker. Pela CLI do simulador (`python -m simulador.cli`), cada queda volta sozinha depois do tempo pedido, e o que ainda estiver cortado é religado ao sair:
+
+| Trecho | Na CLI | Direto no Docker | O que acontece |
+|---|---|---|---|
+| ESP ↔ Raspberry, uma célula | `rede 120` | `docker compose kill -s SIGUSR1 celula-c02` (`SIGUSR2` restaura) | Em ~45 s o broker declara a célula offline e abre `sem_comunicacao` nela. A célula guarda as leituras e reenvia ao voltar |
+| ESP ↔ Raspberry, todas | `rede todas 120` | | `sem_comunicacao` em cada célula |
+| Raspberry ↔ servidor | `servidor 120` | `docker compose pause enlace` (`unpause` religa) | Em ~30 a 45 s o consumidor e a API percebem, e ~20 s depois abre `broker_inacessivel`. As células seguem online e o broker guarda as leituras para o consumidor. Setpoint pela tela dá 503 |
+| Raspberry ou broker fora do ar | `broker 60` | `docker compose stop broker` | Abre `broker_inacessivel` em ~20 s. As células guardam as leituras e reenviam |
+| Consumidor parado | `consumidor 60` | `docker compose stop consumidor` | Abre `consumidor_parado` em ~30 s. O broker guarda as leituras |
+
+Nas três últimas, a culpa não é das células: enquanto o servidor não está recebendo, e até `SEM_COMUNICACAO_S` depois de voltar, a regra `sem_comunicacao` não abre alerta, nem pelo `offline` que o broker publica das células conectadas quando ele mesmo sai do ar. Os dois alertas do sistema não têm célula e fecham sozinhos quando a conexão volta. A barra lateral da interface mostra o broker (visto pela API), o consumidor (`ativo`, `sem broker` ou `parado há…`) e as regras, pelo sinal de vida que os dois gravam na tabela `processo` (`GET /saude`). Em todos os casos o histórico fica completo: ao religar, o que ficou guardado chega e `GET /integridade` continua sem buracos.
+
+### Relatório de falhas
+
+Diz, para um período, quais alertas de comunicação abriram e fecharam e se alguma leitura se perdeu. Vale para falhas reais e simuladas, e sai em Markdown (para ler) e em JSON (os mesmos dados), na pasta `relatorios/` (fora do git):
 
 ```bash
-docker compose kill -s SIGUSR1 celula-c02   # corta
-docker compose kill -s SIGUSR2 celula-c02   # restaura
+python -m app.relatorio.falhas                 # últimas 24 h
+python -m app.relatorio.falhas --desde 2h      # 30m, 2h, 1d ou "2026-11-11 14:00"; --ate, --pasta, --banco
 ```
+
+Na CLI do simulador, cada falha provocada (`rede`, `servidor`, `broker`, `consumidor`) é anotada com início e fim em `relatorios/falhas-simuladas.jsonl`. O comando `relatorio` gera o relatório desde que a CLI abriu (`relatorio 2h` para outro período); ao sair, ele é gerado sozinho se houve falha sem relatório. Espere a comunicação voltar e os alertas fecharem antes de gerar, senão a falha aparece como em andamento.
+
+Para cada falha simulada, o relatório traz:
+- o alerta esperado e se ele abriu, e em quanto tempo;
+- se fechou depois que a comunicação voltou;
+- os alertas indevidos: célula culpada quando o problema era do servidor, ou o contrário;
+- as leituras medidas durante a falha, e quantas chegaram depois, guardadas pela célula ou pelo broker;
+- os `seq` que faltam.
+
+Depois vêm todos os alertas do período e a integridade por célula. A etapa 16 do ponta a ponta gera o mesmo relatório para as falhas do roteiro e falha se alguma não der OK.
 
 ### Zerar e começar com dados de demonstração
 
@@ -157,6 +188,8 @@ Como a curva é calculada: o branco não é ponto da reta, só é descontado (x 
 | `setpoint_sem_confirmacao` | `cenario ignorar_setpoint` e um setpoint novo pela interface | abre após `SETPOINT_TIMEOUT_S` (120 s); fecha quando um pedido mais novo é confirmado |
 | `sem_comunicacao` | `rede 120` (corta a rede por 120 s, sem aviso ao broker) | abre em ~45 s, quando o broker declara a célula offline; fecha quando a rede volta, e as leituras guardadas são reenviadas |
 | `colisao_seq` | `colisao` (o último seq de novo, com outro horário) | abre na hora; não fecha sozinho |
+| `broker_inacessivel` (sistema) | `servidor 120` ou `broker 60` | abre em ~20 s (broker parado) ou ~1 min (rede cortada); fecha quando o consumidor reconecta |
+| `consumidor_parado` (sistema) | `consumidor 60` | abre em ~30 s; fecha quando ele volta |
 
 Com a rede cortada a célula não ouve o broker, por isso ela volta sozinha depois do tempo pedido. Para ver as células responderem a uma mudança, mande um setpoint pela interface: o pedido passa por solicitado, recebido, aplicado e, quando a temperatura chega, atingido.
 
@@ -181,8 +214,8 @@ Use `MANTER_AMBIENTE=1` para não apagar o ambiente e os logs ao final.
 | 1 | Três células sobem | Aparecem cadastradas sozinhas, online, com leituras |
 | 2 | A rede da c02 é cortada sem aviso | O broker publica offline e abre o alerta de célula sem comunicação |
 | 3 | A rede volta | As leituras guardadas chegam, sem buraco e sem repetição, e o alerta fecha |
-| 4 | O consumidor para por 8 s | Nada é gravado e, ao voltar, ele recebe tudo que o broker guardou |
-| 5 | O broker para por 8 s | As células guardam localmente e reenviam quando ele volta |
+| 4 | O consumidor para | Abre `consumidor_parado`, nenhuma célula ganha `sem_comunicacao`, nada é gravado e, ao voltar, ele recebe tudo que o broker guardou e o alerta fecha |
+| 5 | O broker para | Abre `broker_inacessivel` sem culpar as células, que guardam localmente e reenviam quando ele volta; o alerta fecha |
 | 6 | Setpoint de 37 °C na c01 | Passa por solicitado, recebido, aplicado e atingido, nessa ordem |
 | 7 | Setpoint de 80 °C | A API recusa por estar fora da faixa |
 | 8 | Setpoint na c03, que ignora pedidos | O pedido fica em solicitado e abre alerta |
@@ -205,7 +238,7 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 
 ## O que o teste ponta a ponta revelou
 
-**Consumidor parado gera alerta falso.** Na etapa 4, com o consumidor parado, ninguém atualiza o último contato das células, e a regra de comunicação abre alerta para as três, mesmo com elas funcionando. Hoje o alerta fecha sozinho quando o consumidor volta. Para produção, vale o consumidor registrar um sinal de vida e a regra distinguir "célula parou" de "consumidor parou".
+**Consumidor parado gerava alerta falso (corrigido).** Na etapa 4, com o consumidor parado, ninguém atualizava o último contato das células, e a regra de comunicação abria alerta para as três, mesmo com elas funcionando. Agora o consumidor grava um sinal de vida, a regra distingue "célula parou" de "consumidor parou" ou "servidor sem broker", e as etapas 4 e 5 conferem que só o alerta do sistema abre.
 
 **A primeira leitura podia se perder.** O broker só guarda mensagens para o consumidor depois que ele se inscreve pela primeira vez. Se uma célula subisse antes, a leitura `seq 0` era descartada, e o teste falhava de vez em quando, conforme a ordem em que os contêineres subiam. Agora o consumidor avisa quando está inscrito (healthcheck) e o Docker Compose só sobe as células depois disso.
 
@@ -241,4 +274,4 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 - Fechar o contrato de mensagens com o grupo do hardware (`docs/contrato-mqtt.md`)
 - Senha no broker, que ainda aceita conexão anônima
 - Endpoints de regras de alerta e de exportação agrupada, as duas partes da interface que ainda não têm API
-- Sinal de vida do consumidor, para evitar o alerta falso
+- Aviso fora da tela (e-mail) para os alertas, principalmente os de comunicação

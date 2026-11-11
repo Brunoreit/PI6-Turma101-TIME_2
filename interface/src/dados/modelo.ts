@@ -33,7 +33,8 @@ export interface CelulaResumo {
 
 export interface AlertaResumo {
   id: number;
-  idCelula: string;
+  /** null nos alertas do sistema, que não são de uma célula. */
+  idCelula: string | null;
   /** Tipo da API, como "ph_fora_da_faixa". */
   tipo?: string;
   titulo: string;
@@ -43,10 +44,13 @@ export interface AlertaResumo {
   abertoEm: Date;
 }
 
+/** Situação de uma parte do sistema: true funciona, false parou, null sem dados. */
 export interface Sistema {
   broker: boolean | null;
   consumidor: boolean | null;
   regras: boolean | null;
+  /** Texto no lugar do padrão ("conectado", "ativo", "parado"), como "sem broker". */
+  textos?: Partial<Record<"broker" | "consumidor" | "regras", string>>;
 }
 
 export interface VisaoGeral {

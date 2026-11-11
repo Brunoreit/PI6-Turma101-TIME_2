@@ -138,11 +138,32 @@ ALTER TABLE pedido_setpoint ADD COLUMN IF NOT EXISTS id_pessoa INTEGER REFERENCE
 -- Leitura: campos que a placa mandou e o contrato ainda não conhece.
 ALTER TABLE leitura ADD COLUMN IF NOT EXISTS extras JSONB;
 
--- Alerta: dois tipos novos.
+-- Alerta: tipos novos. Os dois do sistema (consumidor_parado e
+-- broker_inacessivel) não são de uma célula e ficam com id_celula nulo.
+-- Continua valendo um aberto por célula e tipo; para os do sistema, um
+-- aberto por tipo (NULLS NOT DISTINCT).
 ALTER TABLE alerta DROP CONSTRAINT IF EXISTS alerta_tipo_check;
 ALTER TABLE alerta ADD CONSTRAINT alerta_tipo_check CHECK (tipo IN (
     'sem_comunicacao', 'setpoint_sem_confirmacao', 'desvio_temperatura',
-    'ph_fora_da_faixa', 'colisao_seq'));
+    'ph_fora_da_faixa', 'colisao_seq', 'consumidor_parado', 'broker_inacessivel'));
+ALTER TABLE alerta ALTER COLUMN id_celula DROP NOT NULL;
+ALTER TABLE alerta DROP CONSTRAINT IF EXISTS alerta_celula_check;
+ALTER TABLE alerta ADD CONSTRAINT alerta_celula_check CHECK (
+    (id_celula IS NULL) = (tipo IN ('consumidor_parado', 'broker_inacessivel')));
+DROP INDEX IF EXISTS alerta_um_aberto;
+CREATE UNIQUE INDEX alerta_um_aberto ON alerta (id_celula, tipo) NULLS NOT DISTINCT WHERE fechado_em IS NULL;
+
+-- Sinal de vida dos processos do backend. O consumidor grava a cada
+-- SINAL_VIDA_S e também quando conecta ou desconecta do broker; as regras
+-- gravam a cada rodada. Sem isso, consumidor parado parece célula muda.
+CREATE TABLE IF NOT EXISTS processo (
+    nome             TEXT PRIMARY KEY CHECK (nome IN ('consumidor', 'regras')),
+    iniciado_em      TIMESTAMPTZ NOT NULL,
+    ultimo_sinal     TIMESTAMPTZ NOT NULL,
+    -- Só o consumidor: se está conectado ao broker e desde quando.
+    broker_conectado BOOLEAN,
+    broker_desde     TIMESTAMPTZ
+);
 
 -- ---------------------------------------------------------------- visão
 

@@ -18,7 +18,7 @@ requires-python = ">=3.12"
 # O pacote app mora em backend/app; contrato e simulador ficam na raiz.
 package-dir = { "app" = "backend/app" }
 packages = [
-    "app", "app.api", "app.banco", "app.calibracao", "app.consumidor", "app.regras",
+    "app", "app.api", "app.banco", "app.calibracao", "app.consumidor", "app.regras", "app.relatorio",
     "contrato",
     "simulador",
 ]

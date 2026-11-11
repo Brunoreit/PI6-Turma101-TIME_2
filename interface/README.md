@@ -22,7 +22,7 @@ Há duas fontes:
 | `VITE_FONTE_DADOS` | O que mostra |
 |---|---|
 | `exemplo` (padrão) | Dados iguais aos do Figma, em `src/dados/exemplo.ts` e nos `exemplo.ts` de cada tela. As mudanças ficam na memória até recarregar a página |
-| `api` | Tudo pela API: células, alertas, experimentos, acessos e cultivos. O que a API não informa (estado do consumidor e das regras, setpoints aguardando, MAC, bombas, manutenção) aparece como "sem dados" ou "—" |
+| `api` | Tudo pela API: células, alertas, experimentos, acessos e cultivos. A barra lateral mostra o broker, o consumidor (`ativo`, `sem broker`, `parado há…`) e as regras pelo `GET /saude`, e os alertas do sistema (`consumidor_parado`, `broker_inacessivel`) aparecem sem célula. O que a API não informa (MAC, bombas, manutenção) aparece como "sem dados" ou "—" |
 
 O login é sempre pela API, nos dois modos. No modo `api`, nenhuma tela usa
 dados de exemplo: a lista de células do Historiador e do Exportar vem de
@@ -74,7 +74,6 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 - **Recuperar e trocar senha**, **convite para quem não tem conta** e **fechar
   o alerta `colisao_seq`**.
 - **Dados da placa:** MAC, período de leitura, bombas e modo manutenção.
-- **Estado do consumidor e das regras** na barra lateral.
 
 No modo `exemplo`, as mudanças (novo experimento, compartilhar, encerrar,
 cancelar, nova regra) ficam na memória até recarregar a página. Os botões

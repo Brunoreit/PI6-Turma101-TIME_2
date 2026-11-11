@@ -335,12 +335,16 @@ async function carregarDaApi(id: string, periodo: Periodo, idPessoa: number | nu
       ok: saude?.broker ?? null,
       valor: saude === null ? "sem dados" : saude.broker ? "conectado à API" : "desconectado da API",
     },
-    // Sem sinal de vida do consumidor, leitura antiga não diz se ele parou
-    // ou se a célula parou de mandar. Só a leitura recente prova que está ok.
+    // Pelo sinal de vida: vivo e ligado ao broker. Sem ele (consumidor que
+    // nunca gravou), só a leitura recente prova que está ok.
     {
       chave: "consumidor",
-      ok: recente ? true : null,
-      valor: ultimaLeituraEm ? `última gravação ${formatar.tempoDecorrido(ultimaLeituraEm, agora)}` : "nada gravado",
+      ok: saude?.consumidor ? saude.consumidor.ativo && saude.consumidor.broker_conectado : recente ? true : null,
+      valor: saude?.consumidor && !saude.consumidor.ativo
+        ? `parado, último sinal ${formatar.tempoDecorrido(new Date(saude.consumidor.ultimo_sinal), agora)}`
+        : saude?.consumidor && !saude.consumidor.broker_conectado
+          ? `sem conexão com o broker desde ${formatar.hora(new Date(saude.consumidor.broker_desde))}`
+          : ultimaLeituraEm ? `última gravação ${formatar.tempoDecorrido(ultimaLeituraEm, agora)}` : "nada gravado",
     },
     {
       chave: "banco",

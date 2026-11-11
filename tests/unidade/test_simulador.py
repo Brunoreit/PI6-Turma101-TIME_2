@@ -212,3 +212,36 @@ def test_parse_comando_padrao_sintaxe():
     assert abs(reg["a"] - 0.0005) < 1e-6
     assert abs(reg["b"] - 0.0) < 1e-4
     assert abs(reg["r2"] - 1.0) < 1e-4
+
+
+def test_enlace_repassa_nos_dois_sentidos_e_fecha_junto():
+    import asyncio
+
+    from simulador.enlace import servir
+
+    async def roteiro():
+        async def eco(leitor, escritor):
+            while dados := await leitor.read(100):
+                escritor.write(dados.upper())
+                await escritor.drain()
+            escritor.close()
+
+        destino = await asyncio.start_server(eco, "127.0.0.1", 0)
+        porta_destino = destino.sockets[0].getsockname()[1]
+        enlace = await servir(0, "127.0.0.1", porta_destino)
+        porta = enlace.sockets[0].getsockname()[1]
+
+        leitor, escritor = await asyncio.open_connection("127.0.0.1", porta)
+        escritor.write(b"mqtt")
+        await escritor.drain()
+        assert await leitor.readexactly(4) == b"MQTT"
+        escritor.close()
+
+        # Destino fora do ar: o enlace aceita e fecha, como um broker parado.
+        destino.close()
+        await destino.wait_closed()
+        leitor, escritor = await asyncio.open_connection("127.0.0.1", porta)
+        assert await asyncio.wait_for(leitor.read(), 5) == b""
+        enlace.close()
+
+    asyncio.run(roteiro())

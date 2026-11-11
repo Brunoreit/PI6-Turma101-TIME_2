@@ -27,6 +27,15 @@ class Config:
     tolerancia_atingido_c: float = _float("TOLERANCIA_ATINGIDO_C", 0.5)
     desvio_max_c: float = _float("DESVIO_MAX_C", 2.0)
 
+    # Sinal de vida. O consumidor grava a cada SINAL_VIDA_S; sem sinal há
+    # mais de SINAL_VIDA_LIMITE_S ele é dado como parado (alerta
+    # consumidor_parado). Desconectado do broker há mais de
+    # BROKER_INACESSIVEL_S abre broker_inacessivel. Nos dois casos a regra
+    # sem_comunicacao não abre alerta: o problema é do servidor.
+    sinal_vida_s: float = _float("SINAL_VIDA_S", 10)
+    sinal_vida_limite_s: float = _float("SINAL_VIDA_LIMITE_S", 30)
+    broker_inacessivel_s: float = _float("BROKER_INACESSIVEL_S", 20)
+
     # Nova calibração de OD pela leitura ao vivo (só a API usa). O bruto de
     # um padrão é a média das últimas N leituras, gravada só com a leitura
     # estável: (máximo - mínimo) / média menor que a variação máxima.

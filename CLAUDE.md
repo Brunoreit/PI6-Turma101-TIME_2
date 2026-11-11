@@ -50,9 +50,11 @@ backend/app/
   calibracao/        od = a * od_bruto + b (conversao.py) e o ajuste da reta com branco (ajuste.py)
   consumidor/        cliente MQTT e tratadores de mensagem
   regras/            verificações de alerta (verificacoes.py)
+  relatorio/         relatório de falhas de comunicação (falhas.py), Markdown e JSON em relatorios/
   api/               main.py (rotas), esquemas.py (entrada), autenticacao.py (senha e token)
 simulador/           célula falsa: modelo físico, buffer SQLite, sinais de falha (python -m simulador.celula)
-                     perfis.py (as 16 células), cli.py (força o sensor), semente.py (carga de demonstração)
+                     perfis.py (as 16 células), cli.py (força o sensor e derruba a comunicação),
+                     semente.py (carga de demonstração), enlace.py (rede servidor ↔ broker no Compose)
 interface/           React + TypeScript + Vite, uma pasta por tela em src/funcionalidades/ (ver interface/README.md)
 tests/unidade/       rápidos, sem infraestrutura
 tests/integracao/    test_ponta_a_ponta.py (roteiro com MQTT) e test_modelo_dados.py (esquema, repositórios, consumidor, regra de pH e API), modo compose ou local
@@ -75,7 +77,9 @@ MANTER_AMBIENTE=1 ...                         # não apaga ambiente e logs ao fi
 docker compose kill -s SIGUSR1 celula-c02    # simula queda de rede da célula
 docker compose kill -s SIGUSR2 celula-c02    # restaura
 python -m simulador.semente --zerar          # APAGA tudo (down -v), sobe, carrega a demonstração e liga as 16 células
-python -m simulador.cli c04                  # força o sensor da c04 (calibração ao vivo, alertas)
+python -m simulador.cli c04                  # força o sensor da c04 (calibração ao vivo, alertas, quedas)
+docker compose pause enlace                  # corta servidor ↔ broker (unpause religa)
+python -m app.relatorio.falhas --desde 2h    # relatório de falhas (na CLI do simulador: relatorio)
 ```
 
 A carga de demonstração (`simulador/semente.py`) **não** vai em `infra/postgres/init/`: o banco dos testes de integração precisa começar vazio. Ela não grava leituras; o histórico vem das próprias células (`HISTORICO_HORAS`, só na primeira subida, com buffer vazio), pelo MQTT e com `seq` contínuo, para nunca colidir com as leituras ao vivo. Rode a carga antes de ligar as células. Senha das 4 pessoas: `cultura123`.
@@ -134,7 +138,8 @@ PostgreSQL 16 puro, sem TimescaleDB nem InfluxDB (decisão consciente: volume de
 | `calibracao`, `calibracao_padrao` | Curvas de OD por célula, versionadas, uma ativa; com `sensor`, `pontos`, `r2`, `organismo` e quem calibrou |
 | `leitura` | Medições, chave `(id_celula, seq)`, com `extras` para campos que o contrato não conhece |
 | `pedido_setpoint` | Pedidos de temperatura, com `id_pessoa` quando há login |
-| `alerta` | Tipos `sem_comunicacao`, `setpoint_sem_confirmacao`, `desvio_temperatura`, `ph_fora_da_faixa` e `colisao_seq`; um aberto por célula e tipo |
+| `alerta` | Tipos `sem_comunicacao`, `setpoint_sem_confirmacao`, `desvio_temperatura`, `ph_fora_da_faixa` e `colisao_seq`; e os do sistema, com `id_celula` nulo: `consumidor_parado` e `broker_inacessivel`. Um aberto por célula e tipo (`NULLS NOT DISTINCT`) |
+| `processo` | Sinal de vida do consumidor (com `broker_conectado` e `broker_desde`) e das regras |
 | `pessoa` | Contas: nome, e-mail (minúsculo, único) e resumo scrypt da senha |
 | `experimento` | A ficha do estudo: `cadastrado` (Stand by), `em_andamento`, `encerrado` ou `cancelado` |
 | `experimento_acesso` | Compartilhamento: `leitura` ou `edicao`. O responsável não tem linha aqui |
@@ -189,11 +194,16 @@ Base e modelo de dados do MVP implementados (branch `feat/modelo-dados-mvp`, 06/
 
 Na mesma data: a CLI provoca os cinco alertas (`temp`, `ph`, `cenario ignorar_setpoint`, `rede [s]` e `colisao`; a tabela está no README), todos conferidos ao vivo. A regra `setpoint_sem_confirmacao` passou a olhar só o último pedido de cada célula: antes, um pedido ignorado e depois substituído por outro confirmado prendia o alerta aberto para sempre. A OD de referência da Nova calibração aceita `0.2` e `0,2` (antes, `0.2` virava 2). Passam 62 testes de unidade e 144 de integração.
 
-Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 · Antiga" e "Login · conta CNPEM (guardado)", que não serão usadas. **No modo api (`VITE_FONTE_DADOS=api`), a interface está ligada à API** (branch `feat/interface-api`, 08/11/2026): login e cadastro (`/auth`, token em todas as chamadas, 401 volta para /entrar), experimentos (lista, detalhe, novo, duplicar, editar, encerrar e cancelar), compartilhamento (acessos), cultivos (atribuir, encerrar e resetar a célula, faixa de pH do cultivo, taxa de crescimento pelas leituras), apelido, descrição e modelo da célula (`PATCH /celulas/{id}`, em Ajustes), os cinco tipos de alerta com título e ajuda, o status cancelado em todas as telas, a calibração com padrões, R² e organismo, condição, réplica e `continua_de` do cultivo, o acompanhamento do setpoint pelo `GET /setpoints/{id}` e os setpoints aguardando. Toda rota e todo campo que a API devolve aparecem na interface (a tabela está em `interface/README.md`). O login usa a API sempre, mesmo no modo exemplo; o resto do modo exemplo (o padrão) continua com os dados do Figma e guarda as mudanças na memória. Fases, OD do turbidostato e agitação vão em `metadados` e o backend ainda não os usa. **Ainda falta na API:** regras de alerta configuráveis (no modo api, a aba Regras mostra as regras fixas do backend) e exportação agrupada (média por hora ou dia, Excel; hoje só sai o CSV de dados brutos). Também não existem recuperar ou trocar senha, convite para quem não tem conta, rota para fechar o `colisao_seq`, MAC, período de leitura, bombas, manutenção e o estado do consumidor e das regras (detalhes em `interface/README.md`).
+Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 · Antiga" e "Login · conta CNPEM (guardado)", que não serão usadas. **No modo api (`VITE_FONTE_DADOS=api`), a interface está ligada à API** (branch `feat/interface-api`, 08/11/2026): login e cadastro (`/auth`, token em todas as chamadas, 401 volta para /entrar), experimentos (lista, detalhe, novo, duplicar, editar, encerrar e cancelar), compartilhamento (acessos), cultivos (atribuir, encerrar e resetar a célula, faixa de pH do cultivo, taxa de crescimento pelas leituras), apelido, descrição e modelo da célula (`PATCH /celulas/{id}`, em Ajustes), os cinco tipos de alerta com título e ajuda, o status cancelado em todas as telas, a calibração com padrões, R² e organismo, condição, réplica e `continua_de` do cultivo, o acompanhamento do setpoint pelo `GET /setpoints/{id}` e os setpoints aguardando. Toda rota e todo campo que a API devolve aparecem na interface (a tabela está em `interface/README.md`). O login usa a API sempre, mesmo no modo exemplo; o resto do modo exemplo (o padrão) continua com os dados do Figma e guarda as mudanças na memória. Fases, OD do turbidostato e agitação vão em `metadados` e o backend ainda não os usa. **Ainda falta na API:** regras de alerta configuráveis (no modo api, a aba Regras mostra as regras fixas do backend) e exportação agrupada (média por hora ou dia, Excel; hoje só sai o CSV de dados brutos). Também não existem recuperar ou trocar senha, convite para quem não tem conta, rota para fechar o `colisao_seq`, MAC, período de leitura, bombas e manutenção (detalhes em `interface/README.md`).
+
+**Comunicação e sinal de vida** (11/11/2026, na mesma branch). A comunicação é requisito central: o consumidor grava sinal de vida em `processo` a cada `SINAL_VIDA_S` e ao conectar ou cair do broker, numa thread com conexão própria; as regras gravam a cada rodada. A regra `comunicacao_do_servidor` abre `consumidor_parado` (sem sinal há `SINAL_VIDA_LIMITE_S`) e `broker_inacessivel` (sem broker há `BROKER_INACESSIVEL_S`), alertas do sistema com `id_celula` nulo. Enquanto o servidor não recebe, e até `SEM_COMUNICACAO_S` depois de reconectar, `sem_comunicacao` não abre, nem pelo `offline`: ao sair do ar, o broker publica o `offline` (LWT) das células conectadas, e elas só se anunciam de novo quando ele volta. `GET /saude` traz `consumidor` e `regras`, e a barra lateral os mostra. No Compose, consumidor e API chegam ao broker pelo `enlace` (`simulador/enlace.py`, repassador TCP): `docker compose pause enlace` corta o trecho Raspberry ↔ servidor sem fechar conexões. A CLI ganhou `rede todas`, `servidor`, `broker` e `consumidor [s]`, que voltam sozinhos (tabela no README). As etapas 4 e 5 do ponta a ponta conferem os alertas do sistema e que nenhuma célula é culpada.
+
+**Relatório de falhas** (11/11/2026, na mesma branch): `python -m app.relatorio.falhas` lê do banco os alertas do período e a integridade (buracos de `seq` pelo `ts_origem`) e grava Markdown e JSON em `relatorios/` (no `.gitignore`). Não grava nada no banco e não muda o esquema; as consultas novas estão em `repositorios.py`. A CLI do simulador anota cada falha provocada em `relatorios/falhas-simuladas.jsonl` e ganhou o comando `relatorio` (gerado sozinho ao sair, se houve falha). Para cada falha simulada, o relatório confere se o alerta esperado abriu e fechou, os alertas indevidos e se alguma leitura se perdeu. Cada falha só conta os alertas abertos durante ela (com 10 s de tolerância) e antes da falha simulada seguinte; uma queda mais curta que o tempo de detecção sai como "não abriu" com a duração. A etapa 16 do ponta a ponta gera o relatório das falhas do roteiro (o ambiente de teste as anota) e exige todas OK; por isso a etapa 15 espera `broker_inacessivel` antes de religar o broker. Passam 67 testes de unidade e 147 de integração no modo Docker Compose.
 
 ## Problemas conhecidos
 
-- **Alerta falso com consumidor parado.** Sem o consumidor, `ultimo_contato` não é atualizado e a regra `sem_comunicacao` abre alerta para todas as células. Correção planejada: consumidor grava sinal de vida e a regra ignora a checagem quando ele estiver parado.
+- **`enlace` só existe no Compose.** Em produção, `MQTT_HOST` do backend aponta direto para o Raspberry Pi. O corte pelo `enlace` não tem etapa no ponta a ponta, porque o modo local não tem esse serviço; foi conferido à mão.
+
 - **Broker com `allow_anonymous true`.** Aceitável só em desenvolvimento. A API exige login, mas quem alcança a porta do broker pode publicar um setpoint direto para a célula, mesmo com cultivo aberto.
 - **Senhas de desenvolvimento no repositório.** O `SEGREDO_SESSAO` do `docker-compose.yml` e a senha `evolver` do banco são valores de desenvolvimento. Fora dele, troque os dois: com o segredo do repositório, qualquer um cria um token válido.
 - **`colisao_seq` não fecha sozinho.** Não há regra nem rota para fechar o alerta; ele fica aberto até o próximo `down -v`.
@@ -203,7 +213,7 @@ Interface: todas as telas do Figma (arquivo Telas) prontas, menos "Célula c08 �
 ## Próximos passos
 
 1. Endpoints de regras de alerta e de exportação agrupada (média por hora ou dia, Excel), para a interface deixar de usar dados de exemplo nessas telas
-2. Sinal de vida do consumidor
+2. Aviso fora da tela (e-mail), principalmente para os alertas de comunicação
 3. Senha no broker
 4. Fechar o contrato com o grupo do hardware, inclusive o ID por MAC e o modelo da placa
 5. Escolher um processo de migração do banco depois da entrega

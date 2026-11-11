@@ -39,7 +39,8 @@ function CardDeResumo({ rotulo, valor, detalhe, emAlerta = false }: {
 function Resumo({ dados }: { dados: Dados }) {
   const total = dados.celulas.length;
   const online = dados.celulas.filter((c) => c.situacao !== "offline").length;
-  const celulasComAlerta = new Set(dados.alertas.map((a) => a.idCelula)).size;
+  const celulasComAlerta = new Set(dados.alertas.filter((a) => a.idCelula).map((a) => a.idCelula)).size;
+  const doSistema = dados.alertas.some((a) => !a.idCelula);
   const { setpointsAguardando: setpoints, leituras24h: leituras } = dados;
 
   return (
@@ -48,7 +49,11 @@ function Resumo({ dados }: { dados: Dados }) {
       <CardDeResumo
         rotulo="Alertas abertos"
         valor={formatar.inteiro(dados.alertas.length)}
-        detalhe={dados.alertas.length ? `em ${plural(celulasComAlerta, "célula", "células")}` : "nenhum alerta"}
+        detalhe={
+          !dados.alertas.length ? "nenhum alerta"
+            : [celulasComAlerta && `em ${plural(celulasComAlerta, "célula", "células")}`, doSistema && "no sistema"]
+                .filter(Boolean).join(" e ")
+        }
         emAlerta={dados.alertas.length > 0}
       />
       <CardDeResumo
@@ -80,11 +85,15 @@ function AlertasAbertos({ dados, agora }: { dados: Dados; agora: Date }) {
       {dados.alertas.map((alerta) => (
         <div key={alerta.id} className={estilos.alerta}>
           <span className={estilos.faixa} />
-          <span className={estilos.alertaCelula}>{alerta.idCelula}</span>
+          <span className={estilos.alertaCelula}>{alerta.idCelula ?? "sistema"}</span>
           <span className={estilos.alertaTitulo}>{alerta.titulo}</span>
           <span className={estilos.alertaMensagem}>{alerta.mensagem}</span>
           <span className={estilos.alertaTempo}>{formatar.tempoDecorrido(alerta.abertoEm, agora)}</span>
-          <Link to={`/celulas/${alerta.idCelula}`} className={estilos.link}>Abrir célula</Link>
+          {alerta.idCelula ? (
+            <Link to={`/celulas/${alerta.idCelula}`} className={estilos.link}>Abrir célula</Link>
+          ) : (
+            <Link to="/alertas" className={estilos.link}>Ver alerta</Link>
+          )}
         </div>
       ))}
     </section>

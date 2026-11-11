@@ -3,11 +3,11 @@
 //   VITE_FONTE_DADOS=exemplo  (padrão) dados de exemplo iguais aos do Figma
 //   VITE_FONTE_DADOS=api      dados reais, pela API
 //
-// No modo api, o que a API ainda não informa (estado do consumidor e das
-// regras) fica como "sem dados".
+// No modo api, o estado do consumidor e das regras vem do sinal de vida que
+// eles gravam (GET /saude); antes do primeiro sinal, fica "sem dados".
 
 import { consultarSaude, listarAlertas, listarCelulas, listarExperimentos, listarLeituras, listarSetpoints } from "@/api/cliente";
-import type { AlertaApi, CelulaApi, ExperimentoListadoApi, LeituraApi, PedidoSetpointApi, TipoAlerta } from "@/api/tipos";
+import type { AlertaApi, CelulaApi, ExperimentoListadoApi, LeituraApi, PedidoSetpointApi, SaudeApi, TipoAlerta } from "@/api/tipos";
 import * as formatar from "@/compartilhado/formatar";
 import { gerarExemplo } from "./exemplo";
 import {
@@ -16,6 +16,7 @@ import {
   type Experimento,
   type CelulaResumo,
   type SituacaoCelula,
+  type Sistema,
   type VisaoGeral,
 } from "./modelo";
 
@@ -47,6 +48,14 @@ export const TITULO_DO_ALERTA: Record<TipoAlerta, { titulo: string; ajuda: strin
   colisao_seq: {
     titulo: "Leitura repetida com horário diferente",
     ajuda: "Chegou uma leitura com o mesmo número de outra, mas com outro horário. A leitura original foi mantida e a nova, descartada. Este alerta não fecha sozinho.",
+  },
+  consumidor_parado: {
+    titulo: "Consumidor parado",
+    ajuda: "O processo que grava as leituras parou de dar sinal de vida. Nada se perde: o broker guarda as leituras até ele voltar. Enquanto isso, nenhuma célula ganha alerta de sem comunicação. Fecha sozinho quando ele voltar.",
+  },
+  broker_inacessivel: {
+    titulo: "Servidor sem conexão com o broker",
+    ajuda: "O servidor não alcança o broker MQTT (Raspberry Pi desligado, broker parado ou rede entre os dois cortada). As leituras ficam guardadas no broker ou nas células e chegam quando a conexão voltar. Enquanto isso, nenhuma célula ganha alerta de sem comunicação. Fecha sozinho quando a conexão voltar.",
   },
 };
 
@@ -91,7 +100,7 @@ async function carregarDaApi(sinal?: AbortSignal): Promise<VisaoGeral> {
   return {
     celulas: celulas.map((c, i) => celulaDaApi(c, leituras[i], alertas, inicio, experimentos, agora)),
     alertas: alertas.map(alertaDaApi),
-    sistema: { broker: saude?.broker ?? null, consumidor: null, regras: null },
+    sistema: sistemaDaApi(saude, agora),
     setpointsAguardando: setpointsAguardando(pedidos.map((lista) => lista[0]).filter(Boolean)),
     leituras24h: { total, perdidas },
     atualizadoEm: agora,
@@ -167,6 +176,29 @@ function mediaPorHora(leituras: LeituraApi[], inicio: Date): (number | null)[] {
     contagens[hora] += 1;
   }
   return somas.map((soma, i) => (contagens[i] ? soma / contagens[i] : null));
+}
+
+/** Barra lateral: o broker visto pela API e o sinal de vida do consumidor
+ *  (vivo e ligado ao broker) e das regras. */
+export function sistemaDaApi(saude: SaudeApi | null, agora: Date): Sistema {
+  if (!saude) return { broker: null, consumidor: null, regras: null };
+  const parado = (p: { ultimo_sinal: string } | null) =>
+    p ? `parado ${formatar.tempoDecorrido(new Date(p.ultimo_sinal), agora)}` : undefined;
+  const c = saude.consumidor;
+  const textos: Sistema["textos"] = { broker: saude.broker ? undefined : "desconectado" };
+  let consumidor: boolean | null = null;
+  if (c && !c.ativo) {
+    consumidor = false;
+    textos.consumidor = parado(c);
+  } else if (c && !c.broker_conectado) {
+    consumidor = false;
+    textos.consumidor = "sem broker";
+  } else if (c) {
+    consumidor = true;
+  }
+  const regras = saude.regras ? saude.regras.ativo : null;
+  if (saude.regras && !saude.regras.ativo) textos.regras = parado(saude.regras);
+  return { broker: saude.broker, consumidor, regras, textos };
 }
 
 export function alertaDaApi(alerta: AlertaApi): AlertaResumo {

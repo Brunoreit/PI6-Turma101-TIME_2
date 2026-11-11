@@ -1,6 +1,11 @@
 # Sobe o sistema inteiro: broker, banco, os três processos do backend
 # e três células simuladas.
 #
+# O consumidor e a API chegam ao broker pelo enlace, que faz o papel do cabo
+# entre o servidor e o Raspberry Pi do broker; as células ligam direto no
+# broker, como as placas pelo Wi-Fi. "docker compose pause enlace" corta
+# servidor <-> Raspberry; "unpause" religa (ver simulador/enlace.py).
+#
 #   docker compose up --build
 #
 # Valores padrão são os de uso normal. O teste de integração sobrescreve
@@ -11,16 +16,20 @@ x-backend: &backend
   restart: unless-stopped
   environment: &env-backend
     DATABASE_URL: postgresql://evolver:${POSTGRES_PASSWORD:-evolver}@banco:5432/evolver
-    MQTT_HOST: broker
+    MQTT_HOST: enlace
     MQTT_PORT: "1883"
     TEMPERATURA_MIN_C: ${TEMPERATURA_MIN_C:-20}
     TEMPERATURA_MAX_C: ${TEMPERATURA_MAX_C:-45}
     REGRAS_INTERVALO_S: ${REGRAS_INTERVALO_S:-10}
     SEM_COMUNICACAO_S: ${SEM_COMUNICACAO_S:-90}
     SETPOINT_TIMEOUT_S: ${SETPOINT_TIMEOUT_S:-120}
+    SINAL_VIDA_S: ${SINAL_VIDA_S:-10}
+    SINAL_VIDA_LIMITE_S: ${SINAL_VIDA_LIMITE_S:-30}
+    BROKER_INACESSIVEL_S: ${BROKER_INACESSIVEL_S:-20}
   depends_on:
     banco: { condition: service_healthy }
     broker: { condition: service_healthy }
+    enlace: { condition: service_started }
 
 x-celula: &celula
   build: { context: ., dockerfile: simulador/Dockerfile }
@@ -51,6 +60,16 @@ services:
       test: ["CMD", "mosquitto_sub", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
       interval: 5s
       retries: 10
+
+  # Repassador TCP entre o servidor (consumidor e API) e o broker. Ferramenta
+  # de teste: em produção MQTT_HOST aponta direto para o Raspberry Pi.
+  enlace:
+    build: { context: ., dockerfile: simulador/Dockerfile }
+    restart: unless-stopped
+    command: ["python", "-m", "simulador.enlace"]
+    environment: { ENLACE_PORTA: "1883", ENLACE_DESTINO: "broker:1883" }
+    depends_on:
+      broker: { condition: service_healthy }
 
   banco:
     image: postgres:16-alpine

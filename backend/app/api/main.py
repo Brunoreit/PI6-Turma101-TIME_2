@@ -121,14 +121,33 @@ def _conferir_temperatura(temperatura_c: float) -> None:
 
 @app.get("/saude")
 def saude():
-    """Aberta, sem login: só diz se o banco e o broker respondem."""
+    """Aberta, sem login: se o banco e o broker respondem à API e o sinal de
+    vida do consumidor e das regras (None se nunca gravaram ou se o banco
+    não responde). Não traz dado de célula nem de pessoa."""
+    processos: dict[str, dict] = {}
     try:
         with estado["pool"].connection(timeout=2) as conn:
-            conn.execute("SELECT 1")
+            processos = {p["nome"]: p for p in repo.listar_processos(conn)}
         banco = True
     except Exception:
         banco = False
-    return {"banco": banco, "broker": estado["mqtt"].is_connected()}
+
+    def resumo(nome: str, limite_s: float) -> dict | None:
+        p = processos.get(nome)
+        if p is None:
+            return None
+        return {"ativo": p["segundos_sem_sinal"] <= limite_s, "ultimo_sinal": p["ultimo_sinal"],
+                "iniciado_em": p["iniciado_em"],
+                **({"broker_conectado": p["broker_conectado"], "broker_desde": p["broker_desde"]}
+                   if nome == "consumidor" else {})}
+
+    return {
+        "banco": banco,
+        "broker": estado["mqtt"].is_connected(),
+        "consumidor": resumo("consumidor", config.sinal_vida_limite_s),
+        # As regras gravam uma vez por rodada.
+        "regras": resumo("regras", max(config.sinal_vida_limite_s, 3 * config.regras_intervalo_s)),
+    }
 
 
 def _sessao(pessoa: dict) -> dict:

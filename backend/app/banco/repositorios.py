@@ -337,7 +337,8 @@ def listar_pedidos(conn: psycopg.Connection, id_celula: str) -> list[dict]:
 # ---------------------------------------------------------------- alertas
 
 
-def abrir_alerta(conn: psycopg.Connection, id_celula: str, tipo: str, mensagem: str) -> bool:
+def abrir_alerta(conn: psycopg.Connection, id_celula: str | None, tipo: str, mensagem: str) -> bool:
+    """id_celula None só nos alertas do sistema (consumidor_parado e broker_inacessivel)."""
     return conn.execute(
         """
         INSERT INTO alerta (id_celula, tipo, mensagem) VALUES (%s, %s, %s)
@@ -347,14 +348,43 @@ def abrir_alerta(conn: psycopg.Connection, id_celula: str, tipo: str, mensagem: 
     ).rowcount == 1
 
 
-def fechar_alerta(conn: psycopg.Connection, id_celula: str, tipo: str) -> bool:
+def fechar_alerta(conn: psycopg.Connection, id_celula: str | None, tipo: str) -> bool:
     return conn.execute(
         """
         UPDATE alerta SET fechado_em = now()
-         WHERE id_celula = %s AND tipo = %s AND fechado_em IS NULL
+         WHERE id_celula IS NOT DISTINCT FROM %s::text AND tipo = %s AND fechado_em IS NULL
         """,
         (id_celula, tipo),
     ).rowcount == 1
+
+
+# ---------------------------------------------------------------- sinal de vida
+
+
+def registrar_sinal(conn: psycopg.Connection, nome: str, iniciado_em: datetime,
+                    broker_conectado: bool | None = None, broker_desde: datetime | None = None) -> None:
+    """Sinal de vida de um processo do backend ('consumidor' ou 'regras')."""
+    conn.execute(
+        """
+        INSERT INTO processo (nome, iniciado_em, ultimo_sinal, broker_conectado, broker_desde)
+        VALUES (%s, %s, now(), %s, %s)
+        ON CONFLICT (nome) DO UPDATE
+           SET iniciado_em = EXCLUDED.iniciado_em, ultimo_sinal = now(),
+               broker_conectado = EXCLUDED.broker_conectado, broker_desde = EXCLUDED.broker_desde
+        """,
+        (nome, iniciado_em, broker_conectado, broker_desde),
+    )
+
+
+def listar_processos(conn: psycopg.Connection) -> list[dict]:
+    """Cada processo com o último sinal e há quantos segundos ele chegou."""
+    return conn.execute(
+        """
+        SELECT nome, iniciado_em, ultimo_sinal, broker_conectado, broker_desde,
+               extract(epoch FROM now() - ultimo_sinal)::float AS segundos_sem_sinal
+          FROM processo ORDER BY nome
+        """
+    ).fetchall()
 
 
 def listar_alertas(conn: psycopg.Connection, somente_abertos: bool = True) -> list[dict]:
@@ -366,6 +396,67 @@ def listar_alertas(conn: psycopg.Connection, somente_abertos: bool = True) -> li
         """,
         (somente_abertos,),
     ).fetchall()
+
+
+# ---------------------------------------------------------------- relatório de falhas
+
+
+def alertas_no_periodo(conn: psycopg.Connection, desde: datetime, ate: datetime) -> list[dict]:
+    """Alertas que estiveram abertos em algum momento do período, do mais antigo."""
+    return conn.execute(
+        """
+        SELECT id_alerta, id_celula, tipo, mensagem, aberto_em, fechado_em
+          FROM alerta
+         WHERE aberto_em <= %s AND (fechado_em IS NULL OR fechado_em >= %s)
+         ORDER BY aberto_em, id_alerta
+        """,
+        (ate, desde),
+    ).fetchall()
+
+
+def leituras_por_celula(conn: psycopg.Connection, desde: datetime, ate: datetime,
+                        celulas: list[str] | None = None, atraso_s: float = 5) -> list[dict]:
+    """Por célula, as leituras medidas no período (pelo horário da célula):
+    quantas, o primeiro e o último seq, quantas chegaram ao banco depois do
+    fim do período (guardadas e reenviadas), quantas levaram mais que
+    atraso_s para chegar e o maior atraso de entrega."""
+    return conn.execute(
+        """
+        SELECT id_celula, count(*) AS leituras,
+               min(seq) AS primeiro_seq, max(seq) AS ultimo_seq,
+               count(*) FILTER (WHERE ts_recebido > %(ate)s) AS chegaram_depois,
+               count(*) FILTER (WHERE ts_recebido - ts_origem > make_interval(secs => %(atraso)s)) AS atrasadas,
+               extract(epoch FROM max(ts_recebido - ts_origem))::float AS maior_atraso_s
+          FROM leitura
+         WHERE ts_origem BETWEEN %(desde)s AND %(ate)s
+           AND (%(celulas)s::text[] IS NULL OR id_celula = ANY(%(celulas)s::text[]))
+         GROUP BY id_celula ORDER BY id_celula
+        """,
+        {"desde": desde, "ate": ate, "celulas": celulas, "atraso": atraso_s},
+    ).fetchall()
+
+
+def buracos_de_seq(conn: psycopg.Connection, desde: datetime, ate: datetime,
+                   celulas: list[str] | None = None) -> list[dict]:
+    """Intervalos de seq que faltam entre as leituras medidas no período.
+    Como o seq é contínuo por célula, cada intervalo é uma leitura perdida
+    (ou ainda guardada na célula, se ela continua sem comunicação)."""
+    return conn.execute(
+        """
+        SELECT id_celula, anterior + 1 AS de, seq - 1 AS ate, seq - anterior - 1 AS faltam
+          FROM (SELECT id_celula, seq, lag(seq) OVER (PARTITION BY id_celula ORDER BY seq) AS anterior
+                  FROM leitura
+                 WHERE ts_origem BETWEEN %(desde)s AND %(ate)s
+                   AND (%(celulas)s::text[] IS NULL OR id_celula = ANY(%(celulas)s::text[]))) s
+         WHERE seq - anterior > 1
+         ORDER BY id_celula, de
+        """,
+        {"desde": desde, "ate": ate, "celulas": celulas},
+    ).fetchall()
+
+
+def agora_no_banco(conn: psycopg.Connection) -> datetime:
+    return conn.execute("SELECT now() AS agora").fetchone()["agora"]
 
 
 # ---------------------------------------------------------------- pessoas
