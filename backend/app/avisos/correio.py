@@ -51,7 +51,7 @@ def montar(alerta: dict, cfg: Config) -> EmailMessage:
         f"Aberto em {aberto}.\n"
         f"Veja a célula: {link}\n\n"
         "O alerta fecha sozinho quando a leitura volta ao limite. Este e-mail vai uma vez por alerta.\n"
-        "Para não receber mais, desligue o e-mail da regra na tela Alertas.\n"
+        "Para não receber mais, desligue ou exclua a regra na tela Alertas.\n"
     )
     return msg
 

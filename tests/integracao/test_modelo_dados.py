@@ -984,7 +984,7 @@ def test_setpoint_aplicado_que_nao_chega_abre_desvio_depois_do_prazo(desvio):
     conn.execute("UPDATE pedido_setpoint SET aplicado_em = now() - interval '2 minutes' WHERE id_pedido = %s", (pedido,))
     (alerta,) = rodar()
     assert alerta["fechado_em"] is None
-    assert alerta["mensagem"] == ("Temperatura em 30.0 °C, alvo de 37.0 °C. "
+    assert alerta["mensagem"] == ("Temperatura em 30,0 °C, alvo de 37,0 °C. "
                                   "O setpoint foi aplicado há 2 min e a temperatura não chegou ao alvo.")
 
     _temperatura(conn, celula, 1, 36.2)
@@ -1016,7 +1016,7 @@ def test_desvio_espera_a_persistencia_e_a_mensagem_acompanha_a_medida(desvio):
     # Aberto, o alerta fica e a mensagem troca, sem abrir outro.
     _temperatura(conn, celula, 2, 35.5)
     (alerta,) = rodar(alerta_persistencia_s=60)
-    assert (alerta["mensagem"], alerta["fechado_em"]) == ("Temperatura em 35.5 °C, alvo de 30.0 °C.", None)
+    assert (alerta["mensagem"], alerta["fechado_em"]) == ("Temperatura em 35,5 °C, alvo de 30,0 °C.", None)
 
     # Voltou e saiu de novo logo depois: fechou, e o pico sozinho não reabre.
     _temperatura(conn, celula, 3, 30.2)
@@ -1034,7 +1034,7 @@ def test_setpoint_recebido_e_nao_aplicado_abre_alerta(banco):
         _pedido(banco, id_celula, 36.0, "recebido", solicitado_ha_s=3600)
         setpoint_sem_confirmacao(banco, _cfg())
         (alerta,) = _alertas_de(banco, id_celula, "setpoint_sem_confirmacao")
-        assert alerta["mensagem"] == "A célula recebeu o setpoint de 36.0 °C, mas não confirmou que aplicou."
+        assert alerta["mensagem"] == "A célula recebeu o setpoint de 36,0 °C, mas não confirmou que aplicou."
 
 
 def test_ph_espera_a_persistencia_e_a_mensagem_acompanha_a_medida(cenario):
@@ -1059,7 +1059,7 @@ def test_ph_espera_a_persistencia_e_a_mensagem_acompanha_a_medida(cenario):
         _medir(conn, celula, 2, 8.4, agora + timedelta(milliseconds=1))
         (alerta,) = rodar(60)
         assert (alerta["mensagem"], alerta["fechado_em"]) == (
-            "pH em 8.40, fora da faixa de referência (de 6.50 a 7.50).", None)
+            "pH em 8,40, fora da faixa de referência (de 6,50 a 7,50).", None)
 
 
 # ------------------------------------------------------------------ API: alertas
@@ -1133,7 +1133,7 @@ def test_ph_fora_da_faixa_abre_uma_vez_e_fecha_quando_volta(cenario, regra_ph):
     regra_ph()
     alertas = _alertas_ph(conn, celula)
     assert len(alertas) == 1 and alertas[0]["fechado_em"] is None
-    assert alertas[0]["mensagem"] == "pH em 8.00, fora da faixa de referência (de 6.50 a 7.50)."
+    assert alertas[0]["mensagem"] == "pH em 8,00, fora da faixa de referência (de 6,50 a 7,50)."
 
     _medir(conn, celula, 1, 7.0, cultivo["iniciado_em"] + timedelta(seconds=2))
     regra_ph()
@@ -1153,7 +1153,7 @@ def test_ph_a_ultima_leitura_e_a_de_maior_ts_origem(cenario, regra_ph):
     _medir(conn, celula, 3, 7.0, inicio - timedelta(seconds=1))
     regra_ph()
     assert _ph_aberto(conn, celula)
-    assert "máximo de 7.50" in _alertas_ph(conn, celula)[0]["mensagem"]
+    assert "máximo de 7,50" in _alertas_ph(conn, celula)[0]["mensagem"]
 
 
 def test_ph_so_com_minimo(cenario, regra_ph):
@@ -2298,13 +2298,13 @@ def test_regra_da_tela_so_abre_depois_do_tempo_e_fecha_quando_volta(cenario, reg
     regras_da_tela.rodar()   # idempotente: não abre de novo
     alertas = _alertas_da_regra(conn, regra)
     assert [(a["id_celula"], a["tipo"], a["fechado_em"]) for a in alertas] == [(persistente, "regra", None)]
-    assert alertas[0]["mensagem"] == "Temperatura alta: Temperatura em 61.0 °C, acima de 50.0 °C há mais de 2 min."
+    assert alertas[0]["mensagem"] == "Temperatura alta: Temperatura em 61,0 °C, acima de 50,0 °C há mais de 2 min."
 
     # Aberto, o alerta acompanha o valor medido; quando a leitura volta ao limite, fecha.
     _ler(conn, persistente, 2, 0.1, temperatura=62.0)
     regras_da_tela.rodar()
     assert [a["mensagem"] for a in _alertas_da_regra(conn, regra)] == [
-        "Temperatura alta: Temperatura em 62.0 °C, acima de 50.0 °C há mais de 2 min."]
+        "Temperatura alta: Temperatura em 62,0 °C, acima de 50,0 °C há mais de 2 min."]
     _ler(conn, persistente, 3, 0, temperatura=30.0)
     regras_da_tela.rodar()
     assert all(a["fechado_em"] for a in _alertas_da_regra(conn, regra))

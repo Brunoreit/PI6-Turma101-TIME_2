@@ -14,6 +14,11 @@ from app.config import Config
 log = logging.getLogger(__name__)
 
 
+def _numero(valor: float, casas: int) -> str:
+    """Número das mensagens de alerta, com vírgula decimal como na tela: 37,0."""
+    return f"{valor:.{casas}f}".replace(".", ",")
+
+
 def _consumidor(conn: psycopg.Connection, cfg: Config) -> dict | None:
     """Situação do consumidor pelo sinal de vida, ou None se ele nunca gravou."""
     return conn.execute(
@@ -113,9 +118,9 @@ def setpoint_sem_confirmacao(conn: psycopg.Connection, cfg: Config) -> None:
     }
     for id_celula, pedido in atrasadas.items():
         if pedido["estado"] == "recebido":
-            mensagem = f"A célula recebeu o setpoint de {pedido['temperatura_c']:.1f} °C, mas não confirmou que aplicou."
+            mensagem = f"A célula recebeu o setpoint de {_numero(pedido['temperatura_c'], 1)} °C, mas não confirmou que aplicou."
         else:
-            mensagem = f"A célula não confirmou o setpoint de {pedido['temperatura_c']:.1f} °C."
+            mensagem = f"A célula não confirmou o setpoint de {_numero(pedido['temperatura_c'], 1)} °C."
         if repo.abrir_alerta(conn, id_celula, "setpoint_sem_confirmacao", mensagem, atualizar=True):
             log.warning("alerta aberto: %s não confirmou setpoint", id_celula)
     for c in conn.execute(
@@ -187,7 +192,7 @@ def desvio_temperatura(conn: psycopg.Connection, cfg: Config) -> None:
         fora.add(c["id_celula"])
         if not c["persistente"] and c["id_celula"] not in abertos:
             continue
-        mensagem = f"Temperatura em {c['medida']:.1f} °C, alvo de {c['alvo']:.1f} °C."
+        mensagem = f"Temperatura em {_numero(c['medida'], 1)} °C, alvo de {_numero(c['alvo'], 1)} °C."
         if c["estado"] == "aplicado":
             mensagem += (f" O setpoint foi aplicado há {c['aplicado_ha_s'] / 60:.0f} min "
                          "e a temperatura não chegou ao alvo.")
@@ -206,8 +211,8 @@ def _abertos(conn: psycopg.Connection, tipo: str) -> set[str]:
 
 def _faixa(minimo: float | None, maximo: float | None) -> str:
     if minimo is not None and maximo is not None:
-        return f"de {minimo:.2f} a {maximo:.2f}"
-    return f"mínimo de {minimo:.2f}" if minimo is not None else f"máximo de {maximo:.2f}"
+        return f"de {_numero(minimo, 2)} a {_numero(maximo, 2)}"
+    return f"mínimo de {_numero(minimo, 2)}" if minimo is not None else f"máximo de {_numero(maximo, 2)}"
 
 
 def ph_fora_da_faixa(conn: psycopg.Connection, cfg: Config) -> None:
@@ -247,7 +252,7 @@ def ph_fora_da_faixa(conn: psycopg.Connection, cfg: Config) -> None:
         if not c["persistente"] and c["id_celula"] not in abertos:
             continue
         if repo.abrir_alerta(conn, c["id_celula"], "ph_fora_da_faixa",
-                             f"pH em {c['ph']:.2f}, fora da faixa de referência "
+                             f"pH em {_numero(c['ph'], 2)}, fora da faixa de referência "
                              f"({_faixa(c['ph_ref_min'], c['ph_ref_max'])}).", atualizar=True):
             log.warning("alerta aberto: pH fora da faixa em %s", c["id_celula"])
     for id_celula in abertos - fora:
@@ -259,7 +264,8 @@ def ph_fora_da_faixa(conn: psycopg.Connection, cfg: Config) -> None:
 # destas tabelas, nunca do que a pessoa digitou.
 _COLUNA = {"temperatura": "temperatura_c", "od": "od", "ph": "ph"}
 _OPERADOR = {"maior": ">", "menor": "<"}
-_MEDIDA = {"temperatura": ("Temperatura", "{:.1f} °C"), "od": ("OD", "{:.3f}"), "ph": ("pH", "{:.2f}")}
+# Nome, casas decimais e unidade de cada medida na mensagem do alerta.
+_MEDIDA = {"temperatura": ("Temperatura", 1, " °C"), "od": ("OD", 3, ""), "ph": ("pH", 2, "")}
 
 
 def _fora_do_limite(conn: psycopg.Connection, regra: dict) -> list[dict]:
@@ -316,15 +322,15 @@ def regras_configuradas(conn: psycopg.Connection, cfg: Config) -> None:
           FROM regra_alerta WHERE ativa AND excluida_em IS NULL ORDER BY id_regra
         """
     ).fetchall():
-        medida, formato = _MEDIDA[regra["parametro"]]
+        medida, casas, unidade = _MEDIDA[regra["parametro"]]
         sentido = "acima" if regra["comparacao"] == "maior" else "abaixo"
         for c in _fora_do_limite(conn, regra):
             chave = (regra["id_regra"], c["id_celula"])
             if not c["persistente"] and chave not in abertos:
                 continue
             fora.add(chave)
-            mensagem = (f"{regra['nome']}: {medida} em {formato.format(c['valor'])}, {sentido} de "
-                        f"{formato.format(regra['limite'])} há mais de {regra['por_minutos']} min.")
+            mensagem = (f"{regra['nome']}: {medida} em {_numero(c['valor'], casas)}{unidade}, {sentido} de "
+                        f"{_numero(regra['limite'], casas)}{unidade} há mais de {regra['por_minutos']} min.")
             if repo.abrir_alerta(conn, c["id_celula"], "regra", mensagem, atualizar=True, id_regra=regra["id_regra"]):
                 log.warning("alerta aberto: regra %s (%s) em %s", regra["id_regra"], regra["nome"], c["id_celula"])
     for id_regra, id_celula in abertos - fora:

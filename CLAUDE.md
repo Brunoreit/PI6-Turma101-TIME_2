@@ -130,6 +130,7 @@ Estados do pedido de setpoint no banco: `solicitado → recebido → aplicado �
 - Dependências: a versão fica no `requirements.txt` da parte que usa (`backend/`, `simulador/` ou `tests/`). O `requirements.txt` da raiz junta os três para desenvolver. O `pyproject.toml` registra os pacotes do projeto e guarda a configuração do pytest e do Pyright.
 - Configuração só por variável de ambiente, lida em `config.py`. Novas variáveis vão também em `.env.example` e no `docker-compose.yml`.
 - Mensagens de erro da API dizem o que aconteceu e como resolver, sem pedir desculpas.
+- Números nas mensagens de alerta usam vírgula decimal, como a tela (`_numero` em `verificacoes.py`): "Temperatura em 37,0 °C".
 - Toda funcionalidade nova que envolve MQTT ganha uma etapa no teste de integração. A etapa de integridade é sempre a última.
 
 ## Banco

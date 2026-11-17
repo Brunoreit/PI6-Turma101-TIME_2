@@ -103,7 +103,7 @@ const SO_QUEM_PODE = "Só quem criou a regra, ou quem é responsável ou pode mo
 function RegrasDoBackend() {
   return (
     <div className={estilos.lista}>
-      <p className={estilos.descricao}>
+      <p className={estilos.cabecalhoDoSistema}>
         Verificações do sistema: valem para todas as células e não podem ser desligadas.
       </p>
       {Object.entries(TITULO_DO_ALERTA).map(([tipo, { titulo, ajuda }]) => (
@@ -113,7 +113,7 @@ function RegrasDoBackend() {
             <p className={estilos.alertaTitulo}>{titulo}</p>
             <p className={estilos.descricao}>{ajuda}</p>
           </div>
-          <span className={estilos.codigo}>{tipo}</span>
+          <span className={estilos.codigoDoSistema}>{tipo}</span>
         </div>
       ))}
     </div>

@@ -15,7 +15,7 @@ CFG = replace(Config(), smtp_host="smtp.teste", smtp_porta=1025, smtp_usuario=""
 
 
 def _alerta(**campos) -> dict:
-    return {"id_alerta": 7, "id_celula": "c03", "mensagem": "Temperatura alta: Temperatura em 61.0 °C, acima de 50.0 °C há mais de 2 min.",
+    return {"id_alerta": 7, "id_celula": "c03", "mensagem": "Temperatura alta: Temperatura em 61,0 °C, acima de 50,0 °C há mais de 2 min.",
             "aberto_em": datetime(2026, 11, 17, 14, 2, tzinfo=timezone.utc), "id_regra": 3, "regra_nome": "Temperatura alta",
             "gravidade": "aviso", "id_experimento": None, "experimento_nome": None,
             "destinatarios": ["ana@cnpem.br", "henry@cnpem.br"], **campos}
@@ -63,7 +63,7 @@ def test_mensagem_do_alerta():
     assert (msg["From"].addresses[0].display_name, msg["From"].addresses[0].addr_spec) == ("T.U.P.A", "alertas@tupa.local")
     texto = msg.get_content()
     assert 'A regra "Temperatura alta" abriu um alerta na célula c03.' in texto
-    assert "Temperatura em 61.0 °C" in texto
+    assert "Temperatura em 61,0 °C" in texto
     assert "http://tupa.local:8080/celulas/c03" in texto
     # 14:02 UTC é 11:02 em São Paulo.
     assert "Aberto em 17/11/2026 11:02." in texto
