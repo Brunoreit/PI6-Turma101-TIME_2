@@ -58,66 +58,6 @@
 
 /* ---------- regras */
 
-.corpo {
-  display: flex;
-  align-items: flex-start;
-  gap: 24px;
-}
-
-.tabela {
-  display: flex;
-  flex: 1 1 0;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--fundo\/pagina);
-  border: 1px solid var(--borda\/padrao);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.cabecalhoTabela,
-.linha,
-.linhaDestacada {
-  display: grid;
-  grid-template-columns: minmax(180px, 214px) minmax(130px, 160px) 52px 96px 48px 36px;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  font-size: 13px;
-}
-
-.cabecalhoTabela {
-  padding: 10px 16px;
-  background: var(--fundo\/sutil);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--texto\/secundario);
-}
-
-.linha,
-.linhaDestacada {
-  border-top: 1px solid var(--borda\/padrao);
-}
-
-.linhaDestacada {
-  background: var(--marca\/fundo);
-}
-
-.colunaRegra {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-
-.nomeRegra {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
 .descricao {
   font-size: 12px;
   color: var(--texto\/secundario);
@@ -138,11 +78,6 @@
   background: var(--fundo\/sutil);
   color: var(--texto\/secundario);
 }
-
-.codigo {
-  font-family: var(--fonte-mono);
-}
-
 .canais {
   display: flex;
   gap: 6px;
@@ -163,19 +98,6 @@
 }
 
 /* ---------- nova regra */
-
-.painel {
-  display: flex;
-  flex-shrink: 0;
-  flex-direction: column;
-  gap: 16px;
-  width: 380px;
-  padding: 18px 20px 20px;
-  background: var(--fundo\/pagina);
-  border: 1px solid var(--borda\/padrao);
-  border-radius: 8px;
-}
-
 .painelTitulo {
   display: flex;
   flex-direction: column;
@@ -324,47 +246,12 @@
   overflow: hidden;
 }
 
-.alerta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-}
-
-.alerta + .alerta {
-  border-top: 1px solid var(--borda\/padrao);
-}
-
-.pontoAlerta,
-.pontoFechado {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--status\/alerta);
-}
-
-.pontoFechado {
-  background: var(--status\/offline-barra);
-}
-
 .alertaTextos {
   display: flex;
   flex: 1 1 0;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-}
-
-.alertaTitulo {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.alertaTempo {
-  font-size: 12px;
-  color: var(--texto\/secundario);
-  white-space: nowrap;
 }
 
 .link {
@@ -465,28 +352,7 @@
 }
 
 /* Alerta de regra crítica: vem primeiro (ordenarAlertas) e com fundo e faixa vermelhos. */
-.alertaCritico {
-  background: var(--status\/alerta-fundo);
-  box-shadow: inset 3px 0 0 var(--status\/alerta);
-}
-
 /* ---------- verificações do sistema (modo api, embaixo das regras) */
-
-.cabecalhoDoSistema {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--borda\/padrao);
-  background: var(--fundo\/sutil);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--texto\/secundario);
-}
-
-.codigoDoSistema {
-  flex-shrink: 0;
-  font-family: var(--fonte-mono);
-  font-size: 12px;
-  color: var(--texto\/secundario);
-}
 
 /* ---------- janela (pop-up) Nova regra */
 
@@ -745,4 +611,135 @@
   line-height: 1;
   color: var(--status\/online);
   cursor: pointer;
+}
+
+/* ---------- abertos e regras no estilo do histórico */
+
+.barraResumo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+  background: var(--fundo\/lateral);
+}
+
+.barraResumo .contagem {
+  padding-bottom: 0;
+}
+
+.resumo {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.resumoAlerta {
+  color: var(--status\/alerta);
+}
+
+.diaCritico {
+  background: var(--status\/alerta-fundo);
+  color: var(--status\/alerta);
+}
+
+.diaCritico span {
+  color: var(--status\/alerta);
+}
+
+.linhaCritica {
+  box-shadow: inset 3px 0 0 var(--status\/alerta);
+}
+
+.horaHistorico small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+.duracaoAberta {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--status\/alerta-fundo);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--status\/alerta);
+  white-space: nowrap;
+}
+
+.acoesAlerta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.linhaRegra {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.linhaRegra + .linhaRegra {
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.regraDestacada {
+  background: var(--marca\/fundo);
+  box-shadow: inset 3px 0 0 var(--marca\/principal);
+}
+
+.chipsRegra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 2px;
+}
+
+.chip {
+  padding: 2px 8px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 999px;
+  background: var(--fundo\/pagina);
+  font-size: 12px;
+}
+
+.chipCodigo {
+  font-family: var(--fonte-mono);
+}
+
+.seloDesligada {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--status\/offline-fundo);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+}
+
+.fechamento > .acaoRegra,
+.fechamento > .confirmacao {
+  align-self: flex-end;
+}
+
+.controlesRegra {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+@media (max-width: 760px) {
+  .linhaRegra {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .linhaRegra .fechamento {
+    grid-column: 1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
 }

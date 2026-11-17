@@ -269,19 +269,28 @@ ou num experimento aberto que a pessoa pode modificar. A regra passa a valer
 na próxima rodada do processo de regras e abre um alerta do tipo `regra` em
 cada célula fora do limite.
 
-- A tabela lista as regras de todas as células e as dos experimentos que a
+- A lista mostra as regras de todas as células e as dos experimentos que a
   pessoa vê (`GET /regras`), com quantos alertas cada uma tem abertos.
 - A chave liga e desliga (`PATCH /regras/{id}`); desligar fecha os alertas
   da regra. "Excluir" pede confirmação (`DELETE /regras/{id}`).
 - Só quem criou a regra, ou o responsável e quem pode modificar o
   experimento dela, liga, desliga e exclui (`pode_alterar`). Os outros veem
   a regra sem o "Excluir", e a chave explica por que não muda.
-- Embaixo ficam as verificações do sistema, que não podem ser desligadas.
+- Embaixo, no mesmo quadro, ficam as verificações do sistema, que não podem
+  ser desligadas, cada uma com o código do tipo de alerta.
 - No modo `exemplo`, a aba continua como no Figma, com as regras na memória.
 - A janela abre na aba em que a pessoa está, sem trocar de aba, e fecha no X,
   no Esc, em Cancelar ou clicando fora. Começa fechada nos dois modos (no
   Figma o painel fica aberto ao lado da tabela). Ao salvar, um aviso verde
   confirma a regra criada, com "Ver regras" quando a pessoa está em outra aba.
+
+**As três abas seguem o mesmo desenho:** uma barra de resumo acima (Abertos:
+quantos e quantos críticos; Regras: quantas, ativas e com alerta aberto;
+Histórico: filtros e contagem) e um quadro com grupos de cabeçalho cinza. Nos
+Abertos, os grupos são "Críticos" (cabeçalho vermelho) e "Demais alertas";
+cada alerta tem a hora em que abriu, a célula num selo, há quanto tempo está
+aberto e as ações. Nas Regras, cada regra mostra a condição, o tempo e onde
+vale em selos, com os canais, a chave e o "Excluir" à direita.
 
 O Histórico filtra por célula (ou "Sistema") e por tipo, pelos parâmetros
 `id_celula` e `tipo` do `GET /alertas`, numa barra acima da lista com

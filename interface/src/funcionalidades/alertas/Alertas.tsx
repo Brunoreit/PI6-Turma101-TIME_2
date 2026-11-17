@@ -120,6 +120,17 @@ function porDia(alertas: AlertaFechado[]): { chave: string; rotulo: string; aler
   return grupos;
 }
 
+/** Abertos em grupos: "Críticos" e "Demais alertas", ou um grupo só sem críticos. */
+function gruposDosAbertos<T extends { critico?: boolean }>(alertas: T[]): { chave: string; rotulo: string; alertas: T[] }[] {
+  const criticos = alertas.filter((a) => a.critico);
+  if (criticos.length === 0) return alertas.length ? [{ chave: "todos", rotulo: "Abertos agora", alertas }] : [];
+  const demais = alertas.filter((a) => !a.critico);
+  return [
+    { chave: "criticos", rotulo: "Críticos", alertas: criticos },
+    ...(demais.length ? [{ chave: "demais", rotulo: "Demais alertas", alertas: demais }] : []),
+  ];
+}
+
 const horaCurta = (d: Date) => d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
 /** "menos de 1 min", "42 min", "3 h 12 min". */
@@ -140,27 +151,6 @@ function Chave({ ligada, onClick, nome }: { ligada: boolean; onClick: () => void
 
 const NA_API = FONTE_DADOS === "api";
 const SO_QUEM_PODE = "Só quem criou a regra, ou quem é responsável ou pode modificar o experimento dela, pode alterá-la.";
-
-/** Modo api: as verificações que o backend sempre roda, fixas no código. */
-function RegrasDoBackend() {
-  return (
-    <div className={estilos.lista}>
-      <p className={estilos.cabecalhoDoSistema}>
-        Verificações do sistema: valem para todas as células e não podem ser desligadas.
-      </p>
-      {Object.entries(TITULO_DO_ALERTA).map(([tipo, { titulo, ajuda }]) => (
-        <div key={tipo} className={estilos.alerta}>
-          <span className={estilos.pontoFechado} />
-          <div className={estilos.alertaTextos}>
-            <p className={estilos.alertaTitulo}>{titulo}</p>
-            <p className={estilos.descricao}>{ajuda}</p>
-          </div>
-          <span className={estilos.codigoDoSistema}>{tipo}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function Alertas() {
   const { dados, recarregar } = useDados();
@@ -183,6 +173,7 @@ export function Alertas() {
   const [erroAoFechar, setErroAoFechar] = useState<string | null>(null);
   const { historico, erro, cortado } = useHistorico(aba === "historico", filtro, fechados);
   const abertos = dados?.alertas ?? [];
+  const criticos = abertos.filter((a) => a.critico).length;
 
   function fechar(id: number) {
     setFechando(id);
@@ -195,6 +186,9 @@ export function Alertas() {
       .catch((e: Error) => setErroAoFechar(e.message))
       .finally(() => setFechando(null));
   }
+
+  const ativas = regras.filter((r) => r.ativa).length;
+  const comAlertaAberto = regras.filter((r) => r.alertasAbertos).length;
 
   const abas: { valor: Aba; rotulo: string }[] = [
     { valor: "abertos", rotulo: `Abertos ${abertos.length}` },
@@ -330,105 +324,187 @@ export function Alertas() {
         </div>
       )}
 
-      {aba === "regras" && erroDasRegras && (
-        <p className={estilos.erro} role="alert">
-          {erroDasRegras}
-        </p>
-      )}
-
       {aba === "regras" && (
-        <div className={estilos.corpo}>
-          <div className={estilos.tabela} role="table" aria-label="Regras de alerta">
-            <div className={estilos.cabecalhoTabela} role="row">
-              {["Regra", "Condição", "Por", "Onde vale", "Canais", "Ativa"].map((c) => (
-                <span key={c} role="columnheader">
-                  {c}
+        <div className={estilos.historico}>
+          <div className={estilos.barraResumo}>
+            <span className={estilos.resumo}>
+              {regras.length === 0
+                ? "Nenhuma regra criada"
+                : `${regras.length} ${regras.length === 1 ? "regra" : "regras"} · ${ativas} ${ativas === 1 ? "ativa" : "ativas"}`}
+              {comAlertaAberto > 0 && (
+                <span className={estilos.resumoAlerta}>
+                  {" "}
+                  · {comAlertaAberto} com alerta aberto
                 </span>
-              ))}
-            </div>
-            {regras.map((r) => (
-              <div key={r.id} className={r.id === destacada ? estilos.linhaDestacada : estilos.linha} role="row">
-                <span className={estilos.colunaRegra} role="cell">
-                  <span className={estilos.nomeRegra}>
-                    {r.nome}
-                    {r.gravidade === "critica" && <span className={estilos.seloCritica}>crítica</span>}
-                  </span>
-                  <span className={estilos.descricao}>{r.descricao}</span>
-                  {r.dependeDoHardware && <span className={estilos.seloHardware}>depende do hardware</span>}
-                  {NA_API && Boolean(r.alertasAbertos) && (
-                    <span className={estilos.seloAbertos}>
-                      {r.alertasAbertos === 1 ? "1 alerta aberto" : `${r.alertasAbertos} alertas abertos`}
-                    </span>
-                  )}
-                  {NA_API && r.podeAlterar && (
-                    excluindo === r.id ? (
-                      <span className={estilos.confirmacao}>
-                        Excluir a regra?
-                        <button type="button" className={estilos.acaoPerigo} onClick={() => excluir(r)}>
+              )}
+            </span>
+            <span className={estilos.contagem}>A chave liga e desliga a regra; desligada, os alertas dela fecham.</span>
+          </div>
+          {erroDasRegras && (
+            <p className={estilos.erro} role="alert">
+              {erroDasRegras}
+            </p>
+          )}
+          <div className={estilos.lista}>
+            <section className={estilos.grupoDoDia}>
+              <h3 className={estilos.dia}>
+                Regras criadas
+                <span>{regras.length === 1 ? "1 regra" : `${regras.length} regras`}</span>
+              </h3>
+              <div role="list" aria-label="Regras de alerta">
+                {regras.map((r) => (
+                  <div
+                    key={r.id}
+                    role="listitem"
+                    className={r.id === destacada ? `${estilos.linhaRegra} ${estilos.regraDestacada}` : estilos.linhaRegra}
+                  >
+                    <div className={estilos.alertaTextos}>
+                      <p className={estilos.tituloHistorico}>
+                        {r.nome}
+                        {r.gravidade === "critica" && <span className={estilos.seloCritica}>crítica</span>}
+                        {!r.ativa && <span className={estilos.seloDesligada}>desligada</span>}
+                      </p>
+                      <p className={estilos.chipsRegra}>
+                        <span className={estilos.chip}>{r.condicao}</span>
+                        <span className={estilos.chip}>por {r.porMinutos} min</span>
+                        <span className={r.ondeVale ? `${estilos.chip} ${estilos.chipCodigo}` : estilos.chip}>
+                          {r.ondeVale ?? "Todas as células"}
+                        </span>
+                      </p>
+                      <p className={estilos.descricao}>{r.descricao}</p>
+                      {(r.dependeDoHardware || (NA_API && Boolean(r.alertasAbertos))) && (
+                        <p className={estilos.chipsRegra}>
+                          {r.dependeDoHardware && <span className={estilos.seloHardware}>depende do hardware</span>}
+                          {NA_API && Boolean(r.alertasAbertos) && (
+                            <span className={estilos.seloAbertos}>
+                              {r.alertasAbertos === 1 ? "1 alerta aberto" : `${r.alertasAbertos} alertas abertos`}
+                            </span>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                    <div className={estilos.fechamento}>
+                      <span className={estilos.controlesRegra}>
+                        <span className={estilos.canais}>
+                          <img src={iconeSino} width={15} height={15} alt="Avisa na tela" title="Avisa na tela" />
+                          {r.email && <img src={iconeEmail} width={15} height={15} alt="Avisa por e-mail" title="Avisa por e-mail" />}
+                        </span>
+                        <Chave ligada={r.ativa} nome={r.nome} onClick={() => alternar(r)} />
+                      </span>
+                    {NA_API && r.podeAlterar && (
+                      excluindo === r.id ? (
+                        <span className={estilos.confirmacao}>
+                          Excluir a regra?
+                          <button type="button" className={estilos.acaoPerigo} onClick={() => excluir(r)}>
+                            Excluir
+                          </button>
+                          <button type="button" className={estilos.acaoRegra} onClick={() => setExcluindo(null)}>
+                            Cancelar
+                          </button>
+                        </span>
+                      ) : (
+                        <button type="button" className={estilos.acaoRegra} aria-label={`Excluir a regra ${r.nome}`} onClick={() => setExcluindo(r.id)}>
                           Excluir
                         </button>
-                        <button type="button" className={estilos.acaoRegra} onClick={() => setExcluindo(null)}>
-                          Cancelar
-                        </button>
-                      </span>
-                    ) : (
-                      <button type="button" className={estilos.acaoRegra} aria-label={`Excluir a regra ${r.nome}`} onClick={() => setExcluindo(r.id)}>
-                        Excluir
-                      </button>
-                    )
-                  )}
-                </span>
-                <span role="cell">{r.condicao}</span>
-                <span role="cell">{r.porMinutos} min</span>
-                <span role="cell" className={r.ondeVale ? estilos.codigo : undefined}>
-                  {r.ondeVale ?? "Todas as células"}
-                </span>
-                <span role="cell" className={estilos.canais}>
-                  <img src={iconeSino} width={15} height={15} alt="Na tela" />
-                  {r.email && <img src={iconeEmail} width={15} height={15} alt="E-mail" />}
-                </span>
-                <span role="cell">
-                  <Chave ligada={r.ativa} nome={r.nome} onClick={() => alternar(r)} />
-                </span>
+                      )
+                    )}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-            {NA_API && regras.length === 0 && (
-              <p className={estilos.vazio}>Nenhuma regra criada ainda. Use "Nova regra" para ser avisado quando uma medida passar de um limite.</p>
+              {NA_API && regras.length === 0 && (
+                <p className={estilos.vazio}>
+                  Nenhuma regra criada ainda. Use "Nova regra" para ser avisado quando uma medida passar de um limite.
+                </p>
+              )}
+            </section>
+            {NA_API && (
+              <section className={estilos.grupoDoDia} aria-label="Verificações do sistema">
+                <h3 className={estilos.dia}>
+                  Verificações do sistema
+                  <span>sempre ativas, valem para todas as células</span>
+                </h3>
+                {Object.entries(TITULO_DO_ALERTA).map(([tipo, { titulo, ajuda }]) => (
+                  <div key={tipo} className={estilos.linhaRegra}>
+                    <div className={estilos.alertaTextos}>
+                      <p className={estilos.tituloHistorico}>{titulo}</p>
+                      <p className={estilos.descricao}>{ajuda}</p>
+                    </div>
+                    <div className={estilos.fechamento}>
+                      <span className={estilos.seloCelula}>{tipo}</span>
+                    </div>
+                  </div>
+                ))}
+              </section>
             )}
           </div>
         </div>
       )}
 
-      {aba === "regras" && NA_API && <RegrasDoBackend />}
-
       {aba === "abertos" && (
-        <div className={estilos.lista}>
-          {erroAoFechar && <p className={estilos.erro}>{erroAoFechar}</p>}
-          {abertos.length === 0 && <p className={estilos.vazio}>Nenhum alerta aberto. Tudo dentro do esperado.</p>}
-          {abertos.map((a) => (
-            <div key={a.id} className={a.critico ? `${estilos.alerta} ${estilos.alertaCritico}` : estilos.alerta}>
-              <span className={estilos.pontoAlerta} />
-              <div className={estilos.alertaTextos}>
-                <p className={estilos.alertaTitulo}>
-                  <span className={estilos.codigo}>{a.idCelula ? nomeDa(a.idCelula) : "Sistema"}</span> · {a.titulo}
-                  {a.critico && <> <SeloCritico /></>}
-                </p>
-                <p className={estilos.descricao}>{a.mensagem}</p>
-                {a.ajuda && <p className={estilos.ajudaAlerta}>{a.ajuda}</p>}
-              </div>
-              <span className={estilos.alertaTempo}>aberto {formatar.tempoDecorrido(a.abertoEm)}</span>
-              {FONTE_DADOS === "api" && a.tipo && FECHA_A_MAO.has(a.tipo) && (
-                <Botao ocupado={fechando === a.id} onClick={() => fechar(a.id)}>
-                  Fechar alerta
-                </Botao>
+        <div className={estilos.historico}>
+          <div className={estilos.barraResumo}>
+            <span className={estilos.resumo}>
+              {abertos.length === 0
+                ? "Nenhum alerta aberto"
+                : `${abertos.length} ${abertos.length === 1 ? "alerta aberto" : "alertas abertos"}`}
+              {criticos > 0 && (
+                <span className={estilos.resumoAlerta}>
+                  {" "}
+                  · {criticos} {criticos === 1 ? "crítico" : "críticos"}
+                </span>
               )}
-              {a.idCelula && (
-                <Link to={`/celulas/${a.idCelula}`} className={estilos.link}>
-                  Abrir célula
-                </Link>
-              )}
-            </div>
-          ))}
+            </span>
+            <span className={estilos.contagem}>Os alertas abrem e fecham sozinhos; a lista se atualiza a cada poucos segundos.</span>
+          </div>
+          {erroAoFechar && (
+            <p className={estilos.erro} role="alert">
+              {erroAoFechar}
+            </p>
+          )}
+          <div className={estilos.lista}>
+            {abertos.length === 0 && <p className={estilos.vazio}>Tudo dentro do esperado.</p>}
+            {gruposDosAbertos(abertos).map((grupo) => (
+              <section key={grupo.chave} className={estilos.grupoDoDia} aria-label={grupo.rotulo}>
+                <h3 className={grupo.chave === "criticos" ? `${estilos.dia} ${estilos.diaCritico}` : estilos.dia}>
+                  {grupo.rotulo}
+                  <span>{grupo.alertas.length === 1 ? "1 alerta" : `${grupo.alertas.length} alertas`}</span>
+                </h3>
+                {grupo.alertas.map((a) => (
+                  <div key={a.id} className={a.critico ? `${estilos.linhaHistorico} ${estilos.linhaCritica}` : estilos.linhaHistorico}>
+                    <span className={estilos.horaHistorico}>
+                      {horaCurta(a.abertoEm)}
+                      {a.abertoEm.toDateString() !== new Date().toDateString() && <small>{formatar.diaMes(a.abertoEm)}</small>}
+                    </span>
+                    <div className={estilos.alertaTextos}>
+                      <p className={estilos.tituloHistorico}>
+                        <span className={estilos.seloCelula}>{a.idCelula ? nomeDa(a.idCelula) : "Sistema"}</span>
+                        {a.titulo}
+                        {a.critico && <SeloCritico />}
+                      </p>
+                      <p className={estilos.descricao}>{a.mensagem}</p>
+                      {a.ajuda && <p className={estilos.ajudaAlerta}>{a.ajuda}</p>}
+                    </div>
+                    <div className={estilos.fechamento}>
+                      <span className={estilos.duracaoAberta}>aberto {formatar.tempoDecorrido(a.abertoEm)}</span>
+                      <span className={estilos.acoesAlerta}>
+                        {FONTE_DADOS === "api" && a.tipo && FECHA_A_MAO.has(a.tipo) && (
+                          <Botao ocupado={fechando === a.id} onClick={() => fechar(a.id)}>
+                            Fechar alerta
+                          </Botao>
+                        )}
+                        {a.idCelula && (
+                          <Link to={`/celulas/${a.idCelula}`} className={estilos.link}>
+                            Abrir célula
+                          </Link>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </section>
+            ))}
+          </div>
         </div>
       )}
 
