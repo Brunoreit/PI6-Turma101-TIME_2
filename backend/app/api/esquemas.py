@@ -251,6 +251,27 @@ class NovaExportacao(BaseModel):
         return self
 
 
+class NovaRegra(BaseModel):
+    """Regra de alerta criada na tela: a medida acima ou abaixo do limite por um tempo."""
+
+    nome: str = Field(max_length=80)
+    parametro: Literal["temperatura", "od", "ph"]
+    comparacao: Literal["maior", "menor"]
+    limite: float = Field(allow_inf_nan=False)
+    por_minutos: int = Field(ge=1, le=1440, description="Minutos seguidos fora do limite antes de avisar")
+    id_experimento: int | None = Field(default=None, description="Sem ele, a regra vale para todas as células")
+    gravidade: Literal["aviso", "critica"] = "aviso"
+
+    @field_validator("nome")
+    @classmethod
+    def _nome(cls, nome: str) -> str:
+        return _texto_obrigatorio(nome, "Dê um nome à regra.")
+
+
+class AlteracaoRegra(BaseModel):
+    ativa: bool = Field(description="false desliga a regra e fecha os alertas que ela abriu")
+
+
 class NovoCultivo(BaseModel):
     id_celula: str
     condicao: str | None = Field(default=None, description='Rótulo do grupo, ex.: "30 °C"')

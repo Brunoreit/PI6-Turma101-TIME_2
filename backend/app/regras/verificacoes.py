@@ -255,5 +255,82 @@ def ph_fora_da_faixa(conn: psycopg.Connection, cfg: Config) -> None:
             log.info("alerta fechado: pH de %s voltou à faixa ou o cultivo mudou", id_celula)
 
 
+# Regras criadas na tela (tabela regra_alerta). A coluna e o operador vêm
+# destas tabelas, nunca do que a pessoa digitou.
+_COLUNA = {"temperatura": "temperatura_c", "od": "od", "ph": "ph"}
+_OPERADOR = {"maior": ">", "menor": "<"}
+_MEDIDA = {"temperatura": ("Temperatura", "{:.1f} °C"), "od": ("OD", "{:.3f}"), "ph": ("pH", "{:.2f}")}
+
+
+def _fora_do_limite(conn: psycopg.Connection, regra: dict) -> list[dict]:
+    """Células em que a última leitura da medida passou do limite da regra.
+    `persistente` diz se a medida ficou fora do limite pelos últimos
+    por_minutos inteiros: nenhuma leitura desse tempo ficou dentro do limite
+    e a última leitura de antes dele já estava fora. Sem leitura anterior
+    (a célula acabou de entrar no experimento), ainda não é persistente."""
+    coluna, operador = _COLUNA[regra["parametro"]], _OPERADOR[regra["comparacao"]]
+    return conn.execute(
+        f"""
+        WITH alvo AS (
+            SELECT id_celula, NULL::timestamptz AS desde FROM celula WHERE %(experimento)s::int IS NULL
+            UNION ALL
+            SELECT id_celula, iniciado_em FROM cultivo
+             WHERE id_experimento = %(experimento)s AND status = 'em_andamento')
+        SELECT a.id_celula, u.valor,
+               NOT EXISTS (
+                SELECT 1 FROM leitura d
+                 WHERE d.id_celula = a.id_celula AND d.{coluna} IS NOT NULL
+                   AND (a.desde IS NULL OR d.ts_origem >= a.desde)
+                   AND d.ts_origem >= now() - make_interval(mins => %(minutos)s)
+                   AND NOT (d.{coluna} {operador} %(limite)s))
+               AND coalesce((
+                SELECT d.{coluna} {operador} %(limite)s FROM leitura d
+                 WHERE d.id_celula = a.id_celula AND d.{coluna} IS NOT NULL
+                   AND (a.desde IS NULL OR d.ts_origem >= a.desde)
+                   AND d.ts_origem <= now() - make_interval(mins => %(minutos)s)
+                 ORDER BY d.ts_origem DESC LIMIT 1), false) AS persistente
+          FROM alvo a
+          JOIN LATERAL (
+                SELECT l.{coluna} AS valor FROM leitura l
+                 WHERE l.id_celula = a.id_celula AND l.{coluna} IS NOT NULL
+                   AND (a.desde IS NULL OR l.ts_origem >= a.desde)
+                 ORDER BY l.ts_origem DESC LIMIT 1) u ON true
+         WHERE u.valor {operador} %(limite)s
+        """,
+        {"experimento": regra["id_experimento"], "minutos": regra["por_minutos"], "limite": regra["limite"]},
+    ).fetchall()
+
+
+def regras_configuradas(conn: psycopg.Connection, cfg: Config) -> None:
+    """Regras criadas na tela: a medida acima (ou abaixo) do limite por
+    por_minutos seguidos, em todas as células ou nas células com cultivo
+    aberto no experimento da regra. Aberto, o alerta acompanha o valor
+    medido. Fecha quando a última leitura volta ao limite, quando a célula
+    sai do experimento e quando a regra é desligada ou excluída."""
+    abertos = {(a["id_regra"], a["id_celula"]) for a in conn.execute(
+        "SELECT id_regra, id_celula FROM alerta WHERE tipo = 'regra' AND fechado_em IS NULL").fetchall()}
+    fora = set()
+    for regra in conn.execute(
+        """
+        SELECT id_regra, nome, parametro, comparacao, limite, por_minutos, id_experimento
+          FROM regra_alerta WHERE ativa AND excluida_em IS NULL ORDER BY id_regra
+        """
+    ).fetchall():
+        medida, formato = _MEDIDA[regra["parametro"]]
+        sentido = "acima" if regra["comparacao"] == "maior" else "abaixo"
+        for c in _fora_do_limite(conn, regra):
+            chave = (regra["id_regra"], c["id_celula"])
+            if not c["persistente"] and chave not in abertos:
+                continue
+            fora.add(chave)
+            mensagem = (f"{regra['nome']}: {medida} em {formato.format(c['valor'])}, {sentido} de "
+                        f"{formato.format(regra['limite'])} há mais de {regra['por_minutos']} min.")
+            if repo.abrir_alerta(conn, c["id_celula"], "regra", mensagem, atualizar=True, id_regra=regra["id_regra"]):
+                log.warning("alerta aberto: regra %s (%s) em %s", regra["id_regra"], regra["nome"], c["id_celula"])
+    for id_regra, id_celula in abertos - fora:
+        if repo.fechar_alerta(conn, id_celula, "regra", id_regra=id_regra):
+            log.info("alerta fechado: regra %s em %s", id_regra, id_celula)
+
+
 TODAS = [comunicacao_do_servidor, sem_comunicacao, setpoint_sem_confirmacao, setpoint_atingido, desvio_temperatura,
-         ph_fora_da_faixa]
+         ph_fora_da_faixa, regras_configuradas]

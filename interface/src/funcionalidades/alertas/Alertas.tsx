@@ -1,13 +1,14 @@
 // Tela "Alertas · regras" do Figma (nó 83:1303). Abertos e Histórico listam
 // os alertas que o backend abre, com o título e a ajuda de cada tipo. A aba
-// Regras é a do Figma no modo exemplo; no modo api, a API ainda não tem regras
-// configuráveis, então ela mostra as regras fixas do backend, sem editar.
+// Regras é a do Figma: no modo exemplo, as regras ficam na memória; no modo
+// api, vêm de /regras (criar, ligar, desligar e excluir), e embaixo aparecem
+// as verificações fixas do backend, que não dá para desligar.
 // O Histórico filtra por célula e tipo, e o alerta que nenhuma regra fecha
 // (colisao_seq) ganha o botão Fechar alerta.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { fecharAlerta, listarAlertas } from "@/api/cliente";
+import { alterarRegra, criarRegra, excluirRegra, fecharAlerta, listarAlertas, listarRegras } from "@/api/cliente";
 import chaveDesligada from "@/assets/icones/chave-desligada.svg";
 import chaveLigada from "@/assets/icones/chave-ligada.svg";
 import iconeEmail from "@/assets/icones/email-15.svg";
@@ -17,8 +18,11 @@ import * as formatar from "@/compartilhado/formatar";
 import { useDados } from "@/dados/DadosProvider";
 import { useCelulas } from "@/dados/useCelulas";
 import { FONTE_DADOS, infoDoAlerta, TITULO_DO_ALERTA } from "@/dados/fonte";
+import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
+import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
+import { useSessao } from "@/sessao/SessaoProvider";
 import estilos from "./Alertas.module.css";
-import { REGRAS_EXEMPLO, type Regra } from "./modelo";
+import { REGRAS_EXEMPLO, regraDaApi, regraParaApi, type Regra, type RegraNova } from "./modelo";
 import { NovaRegra } from "./NovaRegra";
 
 type Aba = "abertos" | "regras" | "historico";
@@ -66,7 +70,7 @@ function useHistorico(ativo: boolean, filtro: FiltroDoHistorico, versao: number)
             .map((a) => ({
               id: a.id_alerta,
               idCelula: a.id_celula,
-              titulo: infoDoAlerta(a.tipo).titulo,
+              titulo: infoDoAlerta(a.tipo, a.regra_nome).titulo,
               mensagem: a.mensagem,
               abertoEm: new Date(a.aberto_em),
               fechadoEm: new Date(a.fechado_em!),
@@ -91,15 +95,15 @@ function Chave({ ligada, onClick, nome }: { ligada: boolean; onClick: () => void
   );
 }
 
-const SEM_REGRAS_NA_API = "Ainda não disponível: a API ainda não tem regras de alerta configuráveis.";
+const NA_API = FONTE_DADOS === "api";
+const SO_QUEM_PODE = "Só quem criou a regra, ou quem é responsável ou pode modificar o experimento dela, pode alterá-la.";
 
-/** Modo api: as regras que o backend já roda, fixas no código. */
+/** Modo api: as verificações que o backend sempre roda, fixas no código. */
 function RegrasDoBackend() {
   return (
     <div className={estilos.lista}>
       <p className={estilos.descricao}>
-        A API ainda não tem regras configuráveis. Estas são as verificações que o backend já faz, iguais para todas as
-        células.
+        Verificações do sistema: valem para todas as células e não podem ser desligadas.
       </p>
       {Object.entries(TITULO_DO_ALERTA).map(([tipo, { titulo, ajuda }]) => (
         <div key={tipo} className={estilos.alerta}>
@@ -120,9 +124,14 @@ export function Alertas() {
   const { ids: idsDasCelulas, nome: nomeDa } = useCelulas();
   const [parametros, setParametros] = useSearchParams();
   const aba = (parametros.get("aba") as Aba | null) ?? (FONTE_DADOS === "api" ? "abertos" : "regras");
-  const [regras, setRegras] = useState(REGRAS_EXEMPLO);
-  const [destacada, setDestacada] = useState<number | null>(6);
-  const [criando, setCriando] = useState(true);
+  const { experimentos } = useExperimentos();
+  const { usuario } = useSessao();
+  // No modo exemplo, a tela abre como no Figma: a regra 6 destacada e o painel Nova regra aberto.
+  const [regras, setRegras] = useState<Regra[]>(NA_API ? [] : REGRAS_EXEMPLO);
+  const [destacada, setDestacada] = useState<number | null>(NA_API ? null : 6);
+  const [criando, setCriando] = useState(!NA_API);
+  const [erroDasRegras, setErroDasRegras] = useState<string | null>(null);
+  const [excluindo, setExcluindo] = useState<number | null>(null);
   const [filtro, setFiltro] = useState<FiltroDoHistorico>({ idCelula: "", tipo: "" });
   const [fechados, setFechados] = useState(0);
   const [fechando, setFechando] = useState<number | null>(null);
@@ -144,14 +153,69 @@ export function Alertas() {
 
   const abas: { valor: Aba; rotulo: string }[] = [
     { valor: "abertos", rotulo: `Abertos ${abertos.length}` },
-    { valor: "regras", rotulo: FONTE_DADOS === "api" ? "Regras" : `Regras ${regras.length}` },
+    { valor: "regras", rotulo: `Regras ${regras.length}` },
     { valor: "historico", rotulo: "Histórico" },
   ];
 
-  function salvar(regra: Omit<Regra, "id">) {
+  const carregarRegras = useCallback(async () => {
+    try {
+      setRegras((await listarRegras()).map(regraDaApi));
+      setErroDasRegras(null);
+    } catch (falha) {
+      setErroDasRegras(mensagemDoErro(falha));
+    }
+  }, []);
+  useEffect(() => {
+    if (NA_API) carregarRegras();
+  }, [aba, carregarRegras]);
+
+  /** No modo api, um erro da API aparece no painel Nova regra, que continua aberto. */
+  async function salvar(regra: RegraNova) {
+    if (NA_API) {
+      const idExperimento = regra.ondeVale ? experimentos.find((e) => e.codigo === regra.ondeVale)?.id : undefined;
+      const criada = await criarRegra(regraParaApi(regra, idExperimento));
+      await carregarRegras();
+      setDestacada(criada.id_regra);
+      setCriando(false);
+      return;
+    }
     const id = Math.max(0, ...regras.map((r) => r.id)) + 1;
-    setRegras((lista) => [...lista, { ...regra, id }]);
+    const nova: Regra = {
+      id,
+      nome: regra.nome,
+      descricao: `Criada por ${usuario?.nome ?? "você"}.`,
+      condicao: `${regra.parametro === "Densidade óptica" ? "OD" : regra.parametro} ${regra.comparacao.toLowerCase()} ${regra.limiteTexto}`,
+      porMinutos: regra.porMinutos,
+      ondeVale: regra.ondeVale,
+      gravidade: regra.gravidade,
+      email: regra.email,
+      ativa: true,
+      criadaPor: usuario?.nome,
+    };
+    setRegras((lista) => [...lista, nova]);
     setDestacada(id);
+  }
+
+  /** Liga ou desliga. No modo api, desligar fecha os alertas que a regra abriu. */
+  function alternar(regra: Regra) {
+    if (!NA_API) return setRegras((lista) => lista.map((x) => (x.id === regra.id ? { ...x, ativa: !x.ativa } : x)));
+    if (!regra.podeAlterar) return setErroDasRegras(SO_QUEM_PODE);
+    alterarRegra(regra.id, !regra.ativa)
+      .then(() => {
+        recarregar();
+        return carregarRegras();
+      })
+      .catch((falha) => setErroDasRegras(mensagemDoErro(falha)));
+  }
+
+  function excluir(regra: Regra) {
+    setExcluindo(null);
+    excluirRegra(regra.id)
+      .then(() => {
+        recarregar();
+        return carregarRegras();
+      })
+      .catch((falha) => setErroDasRegras(mensagemDoErro(falha)));
   }
 
   return (
@@ -160,14 +224,13 @@ export function Alertas() {
         <div className={estilos.tituloBloco}>
           <h1>Alertas</h1>
           <p>
-            {FONTE_DADOS === "api"
-              ? "Alertas que o backend abre e fecha sozinho. As regras configuráveis ainda não existem na API."
+            {NA_API
+              ? "Alertas que o sistema abre e fecha sozinho. Você cria regras para todas as células ou para os experimentos que pode modificar."
               : "Regras que decidem quando o sistema avisa e por onde. Você cria regras para os experimentos que pode modificar."}
           </p>
         </div>
         <Botao
           tipo="primario"
-          indisponivel={FONTE_DADOS === "api" ? SEM_REGRAS_NA_API : undefined}
           onClick={() => {
             setParametros({ aba: "regras" });
             setCriando(true);
@@ -191,9 +254,13 @@ export function Alertas() {
         ))}
       </nav>
 
-      {aba === "regras" && FONTE_DADOS === "api" && <RegrasDoBackend />}
+      {aba === "regras" && erroDasRegras && (
+        <p className={estilos.erro} role="alert">
+          {erroDasRegras}
+        </p>
+      )}
 
-      {aba === "regras" && FONTE_DADOS === "exemplo" && (
+      {aba === "regras" && (
         <div className={estilos.corpo}>
           <div className={estilos.tabela} role="table" aria-label="Regras de alerta">
             <div className={estilos.cabecalhoTabela} role="row">
@@ -212,6 +279,28 @@ export function Alertas() {
                   </span>
                   <span className={estilos.descricao}>{r.descricao}</span>
                   {r.dependeDoHardware && <span className={estilos.seloHardware}>depende do hardware</span>}
+                  {NA_API && Boolean(r.alertasAbertos) && (
+                    <span className={estilos.seloAbertos}>
+                      {r.alertasAbertos === 1 ? "1 alerta aberto" : `${r.alertasAbertos} alertas abertos`}
+                    </span>
+                  )}
+                  {NA_API && r.podeAlterar && (
+                    excluindo === r.id ? (
+                      <span className={estilos.confirmacao}>
+                        Excluir a regra?
+                        <button type="button" className={estilos.acaoPerigo} onClick={() => excluir(r)}>
+                          Excluir
+                        </button>
+                        <button type="button" className={estilos.acaoRegra} onClick={() => setExcluindo(null)}>
+                          Cancelar
+                        </button>
+                      </span>
+                    ) : (
+                      <button type="button" className={estilos.acaoRegra} aria-label={`Excluir a regra ${r.nome}`} onClick={() => setExcluindo(r.id)}>
+                        Excluir
+                      </button>
+                    )
+                  )}
                 </span>
                 <span role="cell">{r.condicao}</span>
                 <span role="cell">{r.porMinutos} min</span>
@@ -223,18 +312,19 @@ export function Alertas() {
                   {r.email && <img src={iconeEmail} width={15} height={15} alt="E-mail" />}
                 </span>
                 <span role="cell">
-                  <Chave
-                    ligada={r.ativa}
-                    nome={r.nome}
-                    onClick={() => setRegras((lista) => lista.map((x) => (x.id === r.id ? { ...x, ativa: !x.ativa } : x)))}
-                  />
+                  <Chave ligada={r.ativa} nome={r.nome} onClick={() => alternar(r)} />
                 </span>
               </div>
             ))}
+            {NA_API && regras.length === 0 && (
+              <p className={estilos.vazio}>Nenhuma regra criada ainda. Use "Nova regra" para ser avisado quando uma medida passar de um limite.</p>
+            )}
           </div>
           {criando && <NovaRegra onSalvar={salvar} onCancelar={() => setCriando(false)} />}
         </div>
       )}
+
+      {aba === "regras" && NA_API && <RegrasDoBackend />}
 
       {aba === "abertos" && (
         <div className={estilos.lista}>

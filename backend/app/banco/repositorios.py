@@ -338,40 +338,43 @@ def listar_pedidos(conn: psycopg.Connection, id_celula: str) -> list[dict]:
 
 
 def abrir_alerta(conn: psycopg.Connection, id_celula: str | None, tipo: str, mensagem: str,
-                 atualizar: bool = False) -> bool:
+                 atualizar: bool = False, id_regra: int | None = None) -> bool:
     """Devolve True só quando abriu um alerta novo. id_celula None só nos
-    alertas do sistema (consumidor_parado e broker_inacessivel).
+    alertas do sistema (consumidor_parado e broker_inacessivel). id_regra só
+    no tipo regra, que tem um alerta aberto por célula e regra.
 
     Com atualizar, o alerta que já está aberto troca de mensagem quando ela
     muda (o valor medido agora, não o do momento em que abriu)."""
     if not atualizar:
         return conn.execute(
             """
-            INSERT INTO alerta (id_celula, tipo, mensagem) VALUES (%s, %s, %s)
-            ON CONFLICT (id_celula, tipo) WHERE fechado_em IS NULL DO NOTHING
+            INSERT INTO alerta (id_celula, tipo, mensagem, id_regra) VALUES (%s, %s, %s, %s)
+            ON CONFLICT (id_celula, tipo, id_regra) WHERE fechado_em IS NULL DO NOTHING
             """,
-            (id_celula, tipo, mensagem),
+            (id_celula, tipo, mensagem, id_regra),
         ).rowcount == 1
     linha = conn.execute(
         """
-        INSERT INTO alerta (id_celula, tipo, mensagem) VALUES (%s, %s, %s)
-        ON CONFLICT (id_celula, tipo) WHERE fechado_em IS NULL
+        INSERT INTO alerta (id_celula, tipo, mensagem, id_regra) VALUES (%s, %s, %s, %s)
+        ON CONFLICT (id_celula, tipo, id_regra) WHERE fechado_em IS NULL
         DO UPDATE SET mensagem = EXCLUDED.mensagem
             WHERE alerta.mensagem IS DISTINCT FROM EXCLUDED.mensagem
         RETURNING (xmax = 0) AS novo
         """,
-        (id_celula, tipo, mensagem),
+        (id_celula, tipo, mensagem, id_regra),
     ).fetchone()
     return bool(linha and linha["novo"])
 
 
-def fechar_alerta(conn: psycopg.Connection, id_celula: str | None, tipo: str) -> bool:
+def fechar_alerta(conn: psycopg.Connection, id_celula: str | None, tipo: str,
+                  id_regra: int | None = None) -> bool:
     return conn.execute(
         """
         UPDATE alerta SET fechado_em = now()
-         WHERE id_celula IS NOT DISTINCT FROM %s::text AND tipo = %s AND fechado_em IS NULL
+         WHERE id_celula IS NOT DISTINCT FROM %s::text AND tipo = %s
+           AND id_regra IS NOT DISTINCT FROM %s::int AND fechado_em IS NULL
         """,
-        (id_celula, tipo),
+        (id_celula, tipo, id_regra),
     ).rowcount == 1
 
 
@@ -405,7 +408,9 @@ def listar_processos(conn: psycopg.Connection) -> list[dict]:
 
 
 _ALERTA = """a.id_alerta, a.id_celula, a.tipo, a.mensagem, a.aberto_em, a.fechado_em,
-             a.fechado_por, p.nome AS fechado_por_nome"""
+             a.fechado_por, p.nome AS fechado_por_nome,
+             a.id_regra, (SELECT r.nome FROM regra_alerta r WHERE r.id_regra = a.id_regra) AS regra_nome,
+             (SELECT r.gravidade FROM regra_alerta r WHERE r.id_regra = a.id_regra) AS regra_gravidade"""
 
 
 def listar_alertas(conn: psycopg.Connection, somente_abertos: bool = True, id_celula: str | None = None,
@@ -1056,3 +1061,64 @@ def datas_do_experimento(conn: psycopg.Connection, id_experimento: int, fuso: st
 def hoje_no_fuso(conn: psycopg.Connection, fuso: str) -> str:
     """A data de hoje no fuso pedido, como 2026-11-16."""
     return conn.execute("SELECT to_char(now() AT TIME ZONE %s, 'YYYY-MM-DD') AS hoje", (fuso,)).fetchone()["hoje"]
+
+
+# ---------------------------------------------------------------- regras de alerta
+#
+# A pessoa vê as regras de todas as células e as dos experimentos que ela
+# pode ver. Pode ligar, desligar e excluir as que criou e as dos
+# experimentos em que é responsável ou tem edição.
+
+_REGRA = """
+    SELECT r.id_regra, r.nome, r.parametro, r.comparacao, r.limite, r.por_minutos, r.id_experimento,
+           e.nome AS experimento_nome, r.gravidade, r.ativa, r.id_criada_por, p.nome AS criada_por, r.criada_em,
+           (SELECT count(*) FROM alerta a WHERE a.id_regra = r.id_regra AND a.fechado_em IS NULL) AS alertas_abertos,
+           coalesce(r.id_criada_por = %(pessoa)s OR e.id_responsavel = %(pessoa)s OR x.permissao = 'edicao',
+                    false) AS pode_alterar
+      FROM regra_alerta r
+      JOIN pessoa p ON p.id_pessoa = r.id_criada_por
+      LEFT JOIN experimento e ON e.id_experimento = r.id_experimento
+      LEFT JOIN experimento_acesso x ON x.id_experimento = r.id_experimento AND x.id_pessoa = %(pessoa)s
+     WHERE r.excluida_em IS NULL
+       AND (r.id_experimento IS NULL OR e.id_responsavel = %(pessoa)s OR x.id_pessoa IS NOT NULL)
+"""
+
+
+def listar_regras(conn: psycopg.Connection, id_pessoa: int) -> list[dict]:
+    return conn.execute(_REGRA + " ORDER BY r.criada_em, r.id_regra", {"pessoa": id_pessoa}).fetchall()
+
+
+def buscar_regra(conn: psycopg.Connection, id_regra: int, id_pessoa: int) -> dict | None:
+    """None se a regra não existe, foi excluída ou é de um experimento que a pessoa não vê."""
+    return conn.execute(_REGRA + " AND r.id_regra = %(regra)s", {"pessoa": id_pessoa, "regra": id_regra}).fetchone()
+
+
+def criar_regra(conn: psycopg.Connection, id_pessoa: int, **campos) -> int:
+    colunas = ["id_criada_por", *campos]
+    return conn.execute(
+        f"""
+        INSERT INTO regra_alerta ({", ".join(colunas)})
+        VALUES ({", ".join(["%s"] * len(colunas))}) RETURNING id_regra
+        """,
+        (id_pessoa, *campos.values()),
+    ).fetchone()["id_regra"]
+
+
+def _fechar_alertas_da_regra(conn: psycopg.Connection, id_regra: int) -> None:
+    conn.execute("UPDATE alerta SET fechado_em = now() WHERE id_regra = %s AND fechado_em IS NULL", (id_regra,))
+
+
+def ligar_regra(conn: psycopg.Connection, id_regra: int, ativa: bool) -> None:
+    """Desligar fecha na hora os alertas que a regra tinha aberto."""
+    with conn.transaction():
+        conn.execute("UPDATE regra_alerta SET ativa = %s WHERE id_regra = %s AND excluida_em IS NULL",
+                     (ativa, id_regra))
+        if not ativa:
+            _fechar_alertas_da_regra(conn, id_regra)
+
+
+def excluir_regra(conn: psycopg.Connection, id_regra: int) -> None:
+    """A regra some das listas e os alertas dela fecham; os antigos continuam no histórico."""
+    with conn.transaction():
+        conn.execute("UPDATE regra_alerta SET ativa = false, excluida_em = now() WHERE id_regra = %s", (id_regra,))
+        _fechar_alertas_da_regra(conn, id_regra)

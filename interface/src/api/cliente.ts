@@ -4,7 +4,7 @@
 
 import type {
   AcessoApi, AlertaApi, CalibracaoApi, CalibracaoSalvaApi, CelulaApi, OdAoVivoApi, PontoCalibracaoApi, CultivoApi, CultivoIniciadoApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
-  LeituraApi, PedidoSetpointApi, PermissaoApi, PessoaApi, SaudeApi, SessaoApi,
+  LeituraApi, NovaRegraApi, PedidoSetpointApi, PermissaoApi, PessoaApi, RegraApi, SaudeApi, SessaoApi,
 } from "./tipos";
 
 const BASE = "/api";
@@ -117,6 +117,23 @@ export function listarAlertas(
   if (filtros.idCelula) parametros.set("id_celula", filtros.idCelula);
   if (filtros.tipo) parametros.set("tipo", filtros.tipo);
   return buscar(`/alertas?${parametros}`, sinal);
+}
+
+export function listarRegras(sinal?: AbortSignal): Promise<RegraApi[]> {
+  return buscar("/regras", sinal);
+}
+
+export function criarRegra(regra: NovaRegraApi): Promise<RegraApi> {
+  return enviar("/regras", regra);
+}
+
+/** Desligar fecha os alertas que a regra abriu. */
+export function alterarRegra(id: number, ativa: boolean): Promise<RegraApi> {
+  return enviar(`/regras/${id}`, { ativa }, "PATCH");
+}
+
+export function excluirRegra(id: number): Promise<void> {
+  return enviar(`/regras/${id}`, undefined, "DELETE");
 }
 
 /** Só para o alerta que nenhuma regra fecha (colisao_seq); os outros dão 409. */

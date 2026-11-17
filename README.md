@@ -156,6 +156,21 @@ Em segundos as regras abrem dois alertas de verdade: desvio de temperatura na c0
 
 Opções: `--dias 7` publica menos histórico (carrega mais rápido), `--sem-celulas` não liga as células (para rodar `python -m simulador --historico 2160` fora do Docker). Se a máquina já usa a porta 5432, passe as portas e a URL do banco: `PORTA_BANCO=55432 python -m simulador.semente postgresql://evolver:evolver@localhost:55432/evolver --zerar`. Sem `--zerar`, só carrega no banco que já está no ar; isso só serve num banco vazio, porque o histórico das células começa no `seq` 0 e colidiria com leituras que já existissem. A carga não roda no init do PostgreSQL, porque o banco dos testes de integração precisa começar vazio.
 
+### Regras de alerta criadas na tela
+
+Além das verificações fixas, cada pessoa cria regras na tela Alertas (ou pela API): uma medida acima ou abaixo de um limite por alguns minutos seguidos.
+
+```bash
+# Avisa quando a temperatura de qualquer célula passar de 38 °C por 5 minutos seguidos
+curl -X POST localhost:8000/regras -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"nome": "Temperatura alta", "parametro": "temperatura", "comparacao": "maior", "limite": 38, "por_minutos": 5}'
+```
+
+- `parametro`: `temperatura`, `od` ou `ph`. `comparacao`: `maior` ou `menor`. `por_minutos`: de 1 a 1440.
+- Com `id_experimento`, a regra vale só para as células com cultivo aberto nele, e só o responsável ou quem pode modificar o experimento cria. Sem ele, vale para todas as células.
+- O processo de regras avalia as regras a cada rodada e abre um alerta do tipo `regra` por célula. Ele só abre quando a medida ficou fora do limite pelo tempo inteiro, e fecha sozinho quando ela volta.
+- `PATCH /regras/{id} {"ativa": false}` desliga a regra e fecha os alertas dela; `DELETE /regras/{id}` exclui. Os alertas antigos continuam no histórico.
+
 ### Exportar os dados
 
 `POST /exportacoes` devolve o arquivo que a tela Exportar baixa. Por experimento, cada célula sai no período em que esteve nele; por célula, vale o período pedido:
@@ -298,5 +313,5 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 
 - Fechar o contrato de mensagens com o grupo do hardware (`docs/contrato-mqtt.md`)
 - Senha no broker, que ainda aceita conexão anônima
-- Endpoint de regras de alerta configuráveis e gráficos para publicação, as partes da interface que ainda não têm API
+- Gráficos para publicação na tela Exportar, a parte da interface que ainda não tem API
 - Aviso fora da tela (e-mail) para os alertas, principalmente os de comunicação

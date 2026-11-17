@@ -398,3 +398,41 @@
   gap: 12px;
   max-width: 520px;
 }
+
+/* ---------- regras criadas na tela (modo api; não está no Figma) */
+
+.seloAbertos {
+  align-self: flex-start;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--status\/alerta-fundo);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--status\/alerta);
+}
+
+.acaoRegra,
+.acaoPerigo {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.acaoPerigo {
+  color: var(--status\/alerta);
+}
+
+.confirmacao {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--status\/alerta);
+}

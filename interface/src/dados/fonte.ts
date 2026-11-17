@@ -60,7 +60,14 @@ export const TITULO_DO_ALERTA: Record<TipoAlerta, { titulo: string; ajuda: strin
 };
 
 /** Título e ajuda de um tipo. Tipo desconhecido aparece com o próprio nome. */
-export function infoDoAlerta(tipo: string): { titulo: string; ajuda: string | undefined } {
+export function infoDoAlerta(tipo: string, nomeDaRegra?: string | null): { titulo: string; ajuda: string | undefined } {
+  // Alerta de uma regra criada na tela: o título é o nome que a pessoa deu.
+  if (tipo === "regra") {
+    return {
+      titulo: nomeDaRegra ?? "Regra de alerta",
+      ajuda: "Regra criada na aba Regras. Fecha sozinho quando a medida voltar ao limite, quando a célula sair do experimento ou quando a regra for desligada.",
+    };
+  }
   const conhecido = TITULO_DO_ALERTA[tipo as TipoAlerta];
   return conhecido ?? { titulo: tipo, ajuda: undefined };
 }
@@ -206,7 +213,7 @@ export function alertaDaApi(alerta: AlertaApi): AlertaResumo {
     id: alerta.id_alerta,
     idCelula: alerta.id_celula,
     tipo: alerta.tipo,
-    ...infoDoAlerta(alerta.tipo),
+    ...infoDoAlerta(alerta.tipo, alerta.regra_nome),
     mensagem: alerta.mensagem,
     abertoEm: new Date(alerta.aberto_em),
   };

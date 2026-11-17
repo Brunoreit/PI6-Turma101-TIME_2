@@ -49,7 +49,36 @@ export interface AlertaApi {
   /** Quem fechou à mão (só o colisao_seq). Nulo quando a regra fechou. */
   fechado_por: number | null;
   fechado_por_nome: string | null;
+  /** Só no tipo "regra": a regra criada na tela que abriu o alerta. */
+  id_regra: number | null;
+  regra_nome: string | null;
+  regra_gravidade: "aviso" | "critica" | null;
 }
+
+/** Regra de alerta criada na tela (GET /regras). */
+export interface RegraApi {
+  id_regra: number;
+  nome: string;
+  parametro: "temperatura" | "od" | "ph";
+  comparacao: "maior" | "menor";
+  limite: number;
+  por_minutos: number;
+  /** null: vale para todas as células. */
+  id_experimento: number | null;
+  codigo_experimento: string | null;
+  experimento_nome: string | null;
+  gravidade: "aviso" | "critica";
+  ativa: boolean;
+  criada_por: string;
+  criada_em: string;
+  alertas_abertos: number;
+  /** A pessoa logada pode ligar, desligar e excluir. */
+  pode_alterar: boolean;
+}
+
+export type NovaRegraApi = Pick<RegraApi, "nome" | "parametro" | "comparacao" | "limite" | "por_minutos" | "gravidade"> & {
+  id_experimento?: number;
+};
 
 export interface LeituraApi {
   seq: number;

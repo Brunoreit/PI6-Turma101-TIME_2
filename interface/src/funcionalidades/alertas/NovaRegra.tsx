@@ -1,4 +1,6 @@
-// "painel Nova regra" da tela Alertas do Figma (nó 83:1651).
+// "painel Nova regra" da tela Alertas do Figma (nó 83:1651). No modo api a
+// regra vai para o POST /regras; e-mail e o teste com leituras antigas ainda
+// não existem no sistema e aparecem como indisponíveis.
 
 import { useState } from "react";
 import iconeInfo from "@/assets/icones/info-14.svg";
@@ -6,51 +8,71 @@ import iconeTestar from "@/assets/icones/testar.svg";
 import { Botao } from "@/compartilhado/componentes/Botao";
 import { CaixaDeSelecao } from "@/compartilhado/componentes/CaixaDeSelecao";
 import { Campo } from "@/compartilhado/componentes/Campo";
+import { FONTE_DADOS } from "@/dados/fonte";
+import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
-import { fechado } from "@/funcionalidades/experimentos/modelo";
+import { acessoNoExperimento, fechado } from "@/funcionalidades/experimentos/modelo";
 import { useSessao } from "@/sessao/SessaoProvider";
 import estilos from "./Alertas.module.css";
-import { COMPARACOES, PARAMETROS, type Comparacao, type Gravidade, type Parametro, type Regra } from "./modelo";
+import { COMPARACOES, PARAMETROS, type Comparacao, type Gravidade, type Parametro, type RegraNova } from "./modelo";
 
 const SIGLA: Record<Parametro, string> = { "Densidade óptica": "OD", Temperatura: "temperatura", pH: "pH" };
+const NA_API = FONTE_DADOS === "api";
 
-export function NovaRegra({ onSalvar, onCancelar }: { onSalvar: (regra: Omit<Regra, "id">) => void; onCancelar: () => void }) {
+interface Props {
+  /** Rejeitar (a API recusou) mostra a mensagem no painel, que continua aberto. */
+  onSalvar: (regra: RegraNova) => void | Promise<void>;
+  onCancelar: () => void;
+}
+
+export function NovaRegra({ onSalvar, onCancelar }: Props) {
   const { experimentos } = useExperimentos();
   const { usuario } = useSessao();
+  // Regra de um experimento: só nos abertos que a pessoa pode modificar (a API recusa os outros).
+  const ativos = experimentos.filter((e) => !fechado(e) && acessoNoExperimento(e, usuario?.email) !== "leitura");
   const [nome, setNome] = useState("OD acima do esperado");
   const [parametro, setParametro] = useState<Parametro>("Densidade óptica");
   const [comparacao, setComparacao] = useState<Comparacao>("Maior que");
   const [limite, setLimite] = useState("0,80");
   const [minutos, setMinutos] = useState("15");
-  const [ondeVale, setOndeVale] = useState("EXP-01");
+  // No Figma a regra nova vale para o EXP-01; com os dados reais, começa em todas as células.
+  const [ondeVale, setOndeVale] = useState(NA_API ? "" : "EXP-01");
   const [gravidade, setGravidade] = useState<Gravidade>("aviso");
-  const [email, setEmail] = useState(true);
+  const [email, setEmail] = useState(!NA_API);
   const [teste, setTeste] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
 
-  const ativos = experimentos.filter((e) => !fechado(e));
   const alvo = ondeVale ? `de uma célula do ${ondeVale}` : "de qualquer célula";
   const sentido = comparacao === "Maior que" ? "acima" : "abaixo";
   const previa = `Avisa quando a ${SIGLA[parametro]} ${alvo} ficar ${sentido} de ${limite || "?"} por ${minutos || "?"} minutos seguidos.`;
 
-  function salvar() {
+  async function salvar() {
+    if (salvando) return;
     const n = Number(limite.replace(",", "."));
     const m = Number(minutos);
     if (!nome.trim()) return setErro("Dê um nome à regra.");
     if (limite.trim() === "" || Number.isNaN(n)) return setErro("O limite precisa ser um número, como 0,80.");
-    if (!(m > 0)) return setErro("O tempo precisa ser de pelo menos 1 minuto.");
-    onSalvar({
-      nome: nome.trim(),
-      descricao: `Criada por ${usuario?.nome ?? "você"}.`,
-      condicao: `${SIGLA[parametro] === "OD" ? "OD" : parametro} ${comparacao.toLowerCase()} ${limite}`,
-      porMinutos: m,
-      ondeVale: ondeVale || null,
-      gravidade,
-      email,
-      ativa: true,
-      criadaPor: usuario?.nome,
-    });
+    if (!Number.isInteger(m) || m < 1 || m > 1440) return setErro("O tempo vai de 1 a 1440 minutos, sem casas decimais.");
     setErro(null);
+    setSalvando(true);
+    try {
+      await onSalvar({
+        nome: nome.trim(),
+        parametro,
+        comparacao,
+        limite: n,
+        limiteTexto: limite.trim(),
+        porMinutos: m,
+        ondeVale: ondeVale || null,
+        gravidade,
+        email,
+      });
+    } catch (falha) {
+      setErro(mensagemDoErro(falha));
+    } finally {
+      setSalvando(false);
+    }
   }
 
   return (
@@ -123,9 +145,15 @@ export function NovaRegra({ onSalvar, onCancelar }: { onSalvar: (regra: Omit<Reg
         <CaixaDeSelecao marcada desabilitada titulo="Todo alerta aparece na tela.">
           Na tela
         </CaixaDeSelecao>
-        <CaixaDeSelecao marcada={email} onChange={setEmail}>
-          E-mail para o responsável e quem pode modificar
-        </CaixaDeSelecao>
+        {NA_API ? (
+          <CaixaDeSelecao marcada={false} desabilitada titulo="O sistema ainda não envia e-mail. O alerta aparece na tela.">
+            E-mail para o responsável e quem pode modificar · em breve
+          </CaixaDeSelecao>
+        ) : (
+          <CaixaDeSelecao marcada={email} onChange={setEmail}>
+            E-mail para o responsável e quem pode modificar
+          </CaixaDeSelecao>
+        )}
         <CaixaDeSelecao marcada={false} desabilitada titulo="Canal ainda não disponível.">
           WhatsApp ou SMS · canal a definir com o LNBR
         </CaixaDeSelecao>
@@ -137,7 +165,7 @@ export function NovaRegra({ onSalvar, onCancelar }: { onSalvar: (regra: Omit<Reg
       <button
         type="button"
         className={estilos.testar}
-        onClick={() => setTeste("Teste com leituras antigas ainda não disponível: a API não guarda regras novas.")}
+        onClick={() => setTeste("Ainda não disponível: a API não testa a regra com leituras antigas. Salve a regra; ela começa a valer na próxima verificação.")}
       >
         <img src={iconeTestar} width={12} height={12} alt="" />
         Testar com as leituras das últimas 24 h
@@ -146,8 +174,8 @@ export function NovaRegra({ onSalvar, onCancelar }: { onSalvar: (regra: Omit<Reg
       {erro && <p className={estilos.erro}>{erro}</p>}
       <div className={estilos.botoes}>
         <Botao onClick={onCancelar}>Cancelar</Botao>
-        <Botao tipo="primario" submit>
-          Salvar regra
+        <Botao tipo="primario" submit ocupado={salvando}>
+          {salvando ? "Salvando..." : "Salvar regra"}
         </Botao>
       </div>
     </form>

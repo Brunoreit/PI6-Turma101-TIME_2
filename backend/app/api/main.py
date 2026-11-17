@@ -28,9 +28,10 @@ from fastapi.responses import Response, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.api import autenticacao
-from app.api.esquemas import (AlteracaoCelula, AlteracaoCultivo, AlteracaoExperimento, Cadastro, Entrada,
+from app.api.esquemas import (AlteracaoCelula, AlteracaoCultivo, AlteracaoExperimento, AlteracaoRegra, Cadastro,
+                              Entrada,
                               Motivo, MotivoOpcional, NovaCalibracao, NovoAcesso, NovoCultivo,
-                              NovaExportacao, NovoExperimento, NovoSetpoint, PontoCalibracao)
+                              NovaExportacao, NovaRegra, NovoExperimento, NovoSetpoint, PontoCalibracao)
 from app.banco import repositorios as repo
 from app.calibracao import ajuste
 from app.exportacao import montagem
@@ -713,6 +714,59 @@ def listar_leituras_do_cultivo(conn: Conexao, pessoa: PessoaLogada, id_cultivo: 
     """Leituras medidas no período do cultivo."""
     _exigir_cultivo(conn, id_cultivo, pessoa)
     return repo.listar_leituras_do_cultivo(conn, id_cultivo, desde, limite)
+
+
+# ------------------------------------------------------------------ regras de alerta
+
+
+def _regra_com_codigo(regra: dict) -> dict:
+    codigo = f"EXP-{regra['id_experimento']:02d}" if regra["id_experimento"] is not None else None
+    return {**regra, "codigo_experimento": codigo}
+
+
+def _exigir_regra(conn: psycopg.Connection, id_regra: int, pessoa: dict) -> dict:
+    """A regra, se a pessoa pode vê-la e alterá-la."""
+    regra = repo.buscar_regra(conn, id_regra, pessoa["id_pessoa"])
+    if regra is None:
+        raise HTTPException(404, f"Regra {id_regra} não encontrada. Atualize a lista de regras.")
+    if not regra["pode_alterar"]:
+        raise HTTPException(403, "Só quem criou a regra, ou quem é responsável ou pode modificar o experimento "
+                                 "dela, pode alterá-la.")
+    return regra
+
+
+@app.get("/regras")
+def listar_regras(conn: Conexao, pessoa: PessoaLogada):
+    """As regras de todas as células e as dos experimentos que a pessoa vê."""
+    return [_regra_com_codigo(r) for r in repo.listar_regras(conn, pessoa["id_pessoa"])]
+
+
+@app.post("/regras", status_code=201)
+def criar_regra(conn: Conexao, pessoa: PessoaLogada, corpo: NovaRegra):
+    """Regra de um experimento: só o responsável ou quem pode modificar. Regra
+    de todas as células: qualquer pessoa logada."""
+    if corpo.id_experimento is not None:
+        _exigir_acesso(conn, corpo.id_experimento, pessoa, "responsavel", "edicao")
+        status = repo.buscar_experimento(conn, corpo.id_experimento)["status"]
+        if status in ("encerrado", "cancelado"):
+            raise HTTPException(409, f"O experimento {corpo.id_experimento} já está {status}: a regra nunca avisaria. "
+                                     "Escolha um experimento aberto ou todas as células.")
+    id_regra = repo.criar_regra(conn, pessoa["id_pessoa"], **corpo.model_dump())
+    return _regra_com_codigo(repo.buscar_regra(conn, id_regra, pessoa["id_pessoa"]))
+
+
+@app.patch("/regras/{id_regra}")
+def alterar_regra(conn: Conexao, pessoa: PessoaLogada, id_regra: int, corpo: AlteracaoRegra):
+    """Liga ou desliga a regra. Desligada, os alertas que ela abriu fecham."""
+    _exigir_regra(conn, id_regra, pessoa)
+    repo.ligar_regra(conn, id_regra, corpo.ativa)
+    return _regra_com_codigo(repo.buscar_regra(conn, id_regra, pessoa["id_pessoa"]))
+
+
+@app.delete("/regras/{id_regra}", status_code=204)
+def excluir_regra(conn: Conexao, pessoa: PessoaLogada, id_regra: int):
+    _exigir_regra(conn, id_regra, pessoa)
+    repo.excluir_regra(conn, id_regra)
 
 
 # ------------------------------------------------------------------ exportação

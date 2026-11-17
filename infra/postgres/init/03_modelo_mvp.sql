@@ -145,13 +145,42 @@ ALTER TABLE leitura ADD COLUMN IF NOT EXISTS extras JSONB;
 ALTER TABLE alerta DROP CONSTRAINT IF EXISTS alerta_tipo_check;
 ALTER TABLE alerta ADD CONSTRAINT alerta_tipo_check CHECK (tipo IN (
     'sem_comunicacao', 'setpoint_sem_confirmacao', 'desvio_temperatura',
-    'ph_fora_da_faixa', 'colisao_seq', 'consumidor_parado', 'broker_inacessivel'));
+    'ph_fora_da_faixa', 'colisao_seq', 'consumidor_parado', 'broker_inacessivel', 'regra'));
 ALTER TABLE alerta ALTER COLUMN id_celula DROP NOT NULL;
 ALTER TABLE alerta DROP CONSTRAINT IF EXISTS alerta_celula_check;
 ALTER TABLE alerta ADD CONSTRAINT alerta_celula_check CHECK (
     (id_celula IS NULL) = (tipo IN ('consumidor_parado', 'broker_inacessivel')));
+
+-- Regras de alerta criadas pelas pessoas na tela: uma medida acima ou
+-- abaixo de um limite por um tempo. Sem experimento, vale para todas as
+-- células; com experimento, só para as células com cultivo aberto nele.
+-- Excluir só marca excluida_em, para os alertas antigos continuarem
+-- apontando para a regra.
+CREATE TABLE IF NOT EXISTS regra_alerta (
+    id_regra       SERIAL PRIMARY KEY,
+    nome           TEXT NOT NULL CHECK (btrim(nome) <> ''),
+    parametro      TEXT NOT NULL CHECK (parametro IN ('temperatura', 'od', 'ph')),
+    comparacao     TEXT NOT NULL CHECK (comparacao IN ('maior', 'menor')),
+    limite         DOUBLE PRECISION NOT NULL,
+    por_minutos    INTEGER NOT NULL CHECK (por_minutos BETWEEN 1 AND 1440),
+    id_experimento INTEGER REFERENCES experimento,
+    gravidade      TEXT NOT NULL DEFAULT 'aviso' CHECK (gravidade IN ('aviso', 'critica')),
+    ativa          BOOLEAN NOT NULL DEFAULT true,
+    id_criada_por  INTEGER NOT NULL REFERENCES pessoa,
+    criada_em      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    excluida_em    TIMESTAMPTZ,
+    CONSTRAINT regra_excluida_fica_desligada CHECK (excluida_em IS NULL OR NOT ativa)
+);
+
+-- O alerta de uma regra (tipo regra) aponta para ela. Um aberto por
+-- célula, tipo e regra; nos outros tipos id_regra é nulo e vale o mesmo
+-- de antes, um aberto por célula e tipo.
+ALTER TABLE alerta ADD COLUMN IF NOT EXISTS id_regra INTEGER REFERENCES regra_alerta;
+ALTER TABLE alerta DROP CONSTRAINT IF EXISTS alerta_regra_check;
+ALTER TABLE alerta ADD CONSTRAINT alerta_regra_check CHECK ((tipo = 'regra') = (id_regra IS NOT NULL));
 DROP INDEX IF EXISTS alerta_um_aberto;
-CREATE UNIQUE INDEX alerta_um_aberto ON alerta (id_celula, tipo) NULLS NOT DISTINCT WHERE fechado_em IS NULL;
+CREATE UNIQUE INDEX alerta_um_aberto ON alerta (id_celula, tipo, id_regra) NULLS NOT DISTINCT
+    WHERE fechado_em IS NULL;
 -- Quem fechou à mão. Só o colisao_seq, que nenhuma regra fecha, pode ser
 -- fechado assim; nos outros fica nulo.
 ALTER TABLE alerta ADD COLUMN IF NOT EXISTS fechado_por INTEGER REFERENCES pessoa;

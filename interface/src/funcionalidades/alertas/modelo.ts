@@ -1,9 +1,11 @@
-// Regras de alerta, como a tela "Alertas · regras" do Figma mostra. Hoje o
-// processo de regras do backend tem três verificações fixas (sem
-// comunicação, desvio de temperatura e setpoint sem confirmação), sem
-// endpoint para listar ou criar regras. Por isso a lista vem daqui e as
-// mudanças ficam na memória até recarregar a página. No modo api, a tela mostra
-// as regras fixas do backend, porque a API ainda não tem regras configuráveis.
+// Regras de alerta, como a tela "Alertas · regras" do Figma mostra. No modo
+// exemplo a lista vem daqui e as mudanças ficam na memória até recarregar a
+// página. No modo api, as regras criadas na tela vêm de GET /regras e viram
+// este mesmo formato (regraDaApi); as verificações fixas do backend aparecem
+// numa lista à parte.
+
+import type { NovaRegraApi, RegraApi } from "@/api/tipos";
+import * as formatar from "@/compartilhado/formatar";
 
 export type Gravidade = "aviso" | "critica";
 
@@ -25,6 +27,63 @@ export interface Regra {
   dependeDoHardware?: boolean;
   /** Regras criadas por alguém. As do sistema não têm autor. */
   criadaPor?: string;
+  /** Modo api: a pessoa logada pode ligar, desligar e excluir a regra. */
+  podeAlterar?: boolean;
+  /** Modo api: alertas que a regra tem abertos agora. */
+  alertasAbertos?: number;
+}
+
+/** O que o painel Nova regra devolve, antes de virar regra do exemplo ou pedido da API. */
+export interface RegraNova {
+  nome: string;
+  parametro: Parametro;
+  comparacao: Comparacao;
+  limite: number;
+  /** Como a pessoa digitou, com vírgula. */
+  limiteTexto: string;
+  porMinutos: number;
+  /** Código do experimento, ou `null` para todas as células. */
+  ondeVale: string | null;
+  gravidade: Gravidade;
+  email: boolean;
+}
+
+const PARAMETRO_DA_API: Record<Parametro, RegraApi["parametro"]> = { "Densidade óptica": "od", Temperatura: "temperatura", pH: "ph" };
+const ROTULO_DO_PARAMETRO: Record<RegraApi["parametro"], string> = { od: "OD", temperatura: "Temperatura", ph: "pH" };
+const CASAS: Record<RegraApi["parametro"], number> = { od: 2, temperatura: 1, ph: 2 };
+
+export function condicaoDaRegra(parametro: RegraApi["parametro"], comparacao: RegraApi["comparacao"], limite: number): string {
+  const valor = formatar.decimal(limite, CASAS[parametro]) + (parametro === "temperatura" ? " °C" : "");
+  return `${ROTULO_DO_PARAMETRO[parametro]} ${comparacao === "maior" ? "maior que" : "menor que"} ${valor}`;
+}
+
+export function regraDaApi(r: RegraApi): Regra {
+  return {
+    id: r.id_regra,
+    nome: r.nome,
+    descricao: `Criada por ${r.criada_por}.`,
+    condicao: condicaoDaRegra(r.parametro, r.comparacao, r.limite),
+    porMinutos: r.por_minutos,
+    ondeVale: r.codigo_experimento,
+    gravidade: r.gravidade,
+    email: false,
+    ativa: r.ativa,
+    criadaPor: r.criada_por,
+    podeAlterar: r.pode_alterar,
+    alertasAbertos: r.alertas_abertos,
+  };
+}
+
+export function regraParaApi(regra: RegraNova, idExperimento: number | undefined): NovaRegraApi {
+  return {
+    nome: regra.nome,
+    parametro: PARAMETRO_DA_API[regra.parametro],
+    comparacao: regra.comparacao === "Maior que" ? "maior" : "menor",
+    limite: regra.limite,
+    por_minutos: regra.porMinutos,
+    gravidade: regra.gravidade,
+    ...(idExperimento === undefined ? {} : { id_experimento: idExperimento }),
+  };
 }
 
 export const PARAMETROS: Parametro[] = ["Densidade óptica", "Temperatura", "pH"];

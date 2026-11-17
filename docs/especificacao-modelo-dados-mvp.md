@@ -1166,6 +1166,23 @@ Revê a P-2 ("rotas existentes continuam sem login"), depois que a interface pas
 | Teste | `test_todas_as_rotas_exigem_login_menos_saude_e_auth` percorre o `/openapi.json`: uma rota nova sem login faz o teste falhar |
 | Fora desta mudança | Senha no broker (`allow_anonymous true`) e a troca do `SEGREDO_SESSAO` e da senha do banco fora do desenvolvimento |
 
+### Regras de alerta criadas na tela (16/11/2026)
+
+| Ponto | Decisão |
+|---|---|
+| Tabela | `regra_alerta`: nome, `parametro` (`temperatura`, `od`, `ph`), `comparacao` (`maior`, `menor`), `limite`, `por_minutos` (1 a 1440), `id_experimento` (nulo: todas as células), `gravidade` (`aviso`, `critica`), `ativa`, `id_criada_por`, `criada_em`, `excluida_em` |
+| Alerta | Tipo novo `regra`, com `alerta.id_regra` (obrigatório nesse tipo e nulo nos outros). O índice único passa a ser por célula, tipo e regra: uma célula pode ter um alerta aberto de cada regra |
+| Onde vale | Sem experimento: todas as células, com todas as leituras. Com experimento: as células com cultivo aberto nele, só com as leituras desde o início do cultivo |
+| Quando abre | A última leitura da medida está fora do limite, nenhuma leitura dos últimos `por_minutos` ficou dentro dele e a última leitura de antes desse tempo já estava fora. Sem leitura anterior, não abre. Igual ao limite não conta como fora |
+| Quando fecha | A última leitura voltou ao limite, a célula saiu do experimento, ou a regra foi desligada ou excluída (nesses dois casos, na hora, sem esperar a rodada) |
+| Mensagem | `{nome}: {medida} em {valor}, acima (ou abaixo) de {limite} há mais de {por_minutos} min.`, atualizada a cada rodada com o valor medido |
+| Quem vê | As regras de todas as células e as dos experimentos que a pessoa vê |
+| Quem cria | Regra de todas as células: qualquer pessoa logada. Regra de experimento: responsável ou edição (404 sem acesso, 403 só leitura, 409 com o experimento encerrado ou cancelado) |
+| Quem altera | Quem criou, ou o responsável ou edição do experimento da regra. `PATCH` só muda `ativa`; para mudar o resto, exclui e cria outra |
+| Excluir | Marca `excluida_em` e desliga. A regra some das listas e os alertas antigos continuam apontando para ela, com o nome no histórico |
+| Gravidade | Guardada e mostrada na tela (selo "crítica"); ainda não muda o comportamento |
+| Fora desta mudança | Aviso por e-mail e o teste da regra com leituras antigas |
+
 ### Exportação de dados (16/11/2026)
 
 | Ponto | Decisão |

@@ -1797,7 +1797,7 @@ def test_todas_as_rotas_exigem_login_menos_saude_e_auth(ambiente, cenario, conta
     teste falhar."""
     e = _criar(contas[0])["id_experimento"]
     exemplos = {"id_celula": cenario.celulas[0], "id_experimento": e, "id_cultivo": 1, "id_pessoa": 1,
-                "id_pedido": "sp-00000000", "id_alerta": 1}
+                "id_pedido": "sp-00000000", "id_alerta": 1, "id_regra": 1}
     rotas = requests.get(f"{ambiente.url_api}/openapi.json", timeout=10).json()["paths"]
     conferidas = 0
     for caminho, metodos in rotas.items():
@@ -2245,3 +2245,169 @@ def test_exportar_por_celula_e_periodo(cenario, contas):
         assert resposta.status_code == status, (corpo, resposta.text)
         assert trecho in resposta.text, (corpo, resposta.text)
 
+
+# ------------------------------------------------------------------ regras de alerta criadas na tela
+
+REGRA = {"nome": "Temperatura alta", "parametro": "temperatura", "comparacao": "maior", "limite": 50.0,
+         "por_minutos": 2}
+
+
+@pytest.fixture
+def regras_da_tela(banco):
+    """Cria regras direto no banco e roda a verificação; no fim exclui as
+    regras, para não avaliarem as células dos outros testes."""
+    from app.regras.verificacoes import regras_configuradas
+
+    criadas = []
+
+    class Regras:
+        def criar(self, id_pessoa: int, **campos) -> int:
+            criadas.append(repo.criar_regra(banco, id_pessoa, **{**REGRA, **campos}))
+            return criadas[-1]
+
+        def rodar(self) -> None:
+            regras_configuradas(banco, _cfg())
+
+    yield Regras()
+    for id_regra in criadas:
+        repo.excluir_regra(banco, id_regra)
+
+
+def _ler(conn, id_celula: str, seq: int, minutos_atras: float, temperatura: float = 30.0, ph: float = 7.0) -> None:
+    repo.gravar_leitura(conn, id_celula, seq, datetime.now(timezone.utc) - timedelta(minutes=minutos_atras),
+                        temperatura, 1000.0, 0.45, ph, None)
+
+
+def _alertas_da_regra(conn, id_regra: int) -> list[dict]:
+    return conn.execute(
+        "SELECT id_celula, tipo, mensagem, fechado_em FROM alerta WHERE id_regra = %s ORDER BY id_alerta",
+        (id_regra,)).fetchall()
+
+
+def test_regra_da_tela_so_abre_depois_do_tempo_e_fecha_quando_volta(cenario, regras_da_tela):
+    conn = cenario.conn
+    recente, persistente, sem_passado = cenario.celulas
+    regra = regras_da_tela.criar(cenario.ana)
+    _ler(conn, recente, 0, 5)                         # dentro do limite antes da janela de 2 min
+    _ler(conn, recente, 1, 1, temperatura=60.0)       # passou do limite há 1 min: ainda não
+    _ler(conn, persistente, 0, 5, temperatura=60.0)   # fora do limite antes e durante a janela
+    _ler(conn, persistente, 1, 1, temperatura=61.0)
+    _ler(conn, sem_passado, 0, 1, temperatura=60.0)   # sem leitura de antes da janela
+
+    regras_da_tela.rodar()
+    regras_da_tela.rodar()   # idempotente: não abre de novo
+    alertas = _alertas_da_regra(conn, regra)
+    assert [(a["id_celula"], a["tipo"], a["fechado_em"]) for a in alertas] == [(persistente, "regra", None)]
+    assert alertas[0]["mensagem"] == "Temperatura alta: Temperatura em 61.0 °C, acima de 50.0 °C há mais de 2 min."
+
+    # Aberto, o alerta acompanha o valor medido; quando a leitura volta ao limite, fecha.
+    _ler(conn, persistente, 2, 0.1, temperatura=62.0)
+    regras_da_tela.rodar()
+    assert [a["mensagem"] for a in _alertas_da_regra(conn, regra)] == [
+        "Temperatura alta: Temperatura em 62.0 °C, acima de 50.0 °C há mais de 2 min."]
+    _ler(conn, persistente, 3, 0, temperatura=30.0)
+    regras_da_tela.rodar()
+    assert all(a["fechado_em"] for a in _alertas_da_regra(conn, regra))
+
+    # "Menor que", em outra medida: um alerta por regra, na mesma célula.
+    acido = regras_da_tela.criar(cenario.ana, nome="pH ácido", parametro="ph", comparacao="menor", limite=3.0)
+    _ler(conn, recente, 2, 0.5, ph=2.0)               # a leitura de 5 min atrás tinha pH 7
+    _ler(conn, sem_passado, 1, 0.5, ph=2.0)           # a de 1 min atrás também: nenhuma persistente
+    regras_da_tela.rodar()
+    assert _alertas_da_regra(conn, acido) == []
+
+
+def test_regra_da_tela_de_um_experimento_vale_so_para_as_celulas_dele(cenario, regras_da_tela):
+    conn = cenario.conn
+    dentro, fora = cenario.celulas[0], cenario.celulas[1]
+    cultivo = cenario.iniciar(0)
+    conn.execute("UPDATE cultivo SET iniciado_em = now() - interval '10 minutes' WHERE id_cultivo = %s",
+                 (cultivo["id_cultivo"],))
+    regra = regras_da_tela.criar(cenario.ana, id_experimento=cenario.experimento["id_experimento"])
+    for celula in (dentro, fora):
+        _ler(conn, celula, 0, 5, temperatura=60.0)
+        _ler(conn, celula, 1, 1, temperatura=60.0)
+
+    regras_da_tela.rodar()
+    abertos = lambda: [a["id_celula"] for a in _alertas_da_regra(conn, regra) if a["fechado_em"] is None]
+    assert abertos() == [dentro]
+
+    # Desligar fecha na hora; desligada, a regra não abre nada. Religada, abre de novo.
+    repo.ligar_regra(conn, regra, False)
+    assert abertos() == []
+    regras_da_tela.rodar()
+    assert abertos() == []
+    repo.ligar_regra(conn, regra, True)
+    regras_da_tela.rodar()
+    assert abertos() == [dentro] and len(_alertas_da_regra(conn, regra)) == 2
+
+    # A célula saiu do experimento: o alerta fecha.
+    repo.encerrar_cultivo(conn, cultivo["id_cultivo"], cenario.ana)
+    regras_da_tela.rodar()
+    assert abertos() == []
+
+    # Excluída, some das listas, mas os alertas antigos continuam apontando para ela.
+    repo.excluir_regra(conn, regra)
+    assert repo.buscar_regra(conn, regra, cenario.ana) is None
+    assert regra not in [r["id_regra"] for r in repo.listar_regras(conn, cenario.ana)]
+    assert len(_alertas_da_regra(conn, regra)) == 2
+    alerta = repo.listar_alertas(conn, somente_abertos=False, id_celula=dentro, tipo="regra")[0]
+    assert (alerta["id_regra"], alerta["regra_nome"], alerta["regra_gravidade"]) == (regra, "Temperatura alta", "aviso")
+
+
+def test_regras_pela_api(cenario, contas):
+    ana, henry, bia = contas
+    ids = lambda conta: [r["id_regra"] for r in conta.chamar("GET", "/regras").json()]
+
+    # Regra de todas as células: todo mundo vê, só quem criou altera.
+    criada = ana.chamar("POST", "/regras", {**REGRA, "nome": "  Temperatura alta  ", "gravidade": "critica"})
+    assert criada.status_code == 201, criada.text
+    geral = criada.json()
+    assert {k: geral[k] for k in ("nome", "parametro", "comparacao", "limite", "por_minutos", "id_experimento",
+                                  "codigo_experimento", "gravidade", "ativa", "criada_por", "alertas_abertos",
+                                  "pode_alterar")} == {
+        "nome": "Temperatura alta", "parametro": "temperatura", "comparacao": "maior", "limite": 50.0,
+        "por_minutos": 2, "id_experimento": None, "codigo_experimento": None, "gravidade": "critica",
+        "ativa": True, "criada_por": "Ana", "alertas_abertos": 0, "pode_alterar": True}
+    da_bia = next(r for r in bia.chamar("GET", "/regras").json() if r["id_regra"] == geral["id_regra"])
+    assert da_bia["pode_alterar"] is False
+    assert bia.chamar("PATCH", f"/regras/{geral['id_regra']}", {"ativa": False}).status_code == 403
+    assert bia.chamar("DELETE", f"/regras/{geral['id_regra']}").status_code == 403
+    desligada = ana.chamar("PATCH", f"/regras/{geral['id_regra']}", {"ativa": False})
+    assert desligada.status_code == 200 and desligada.json()["ativa"] is False
+
+    # Regra de um experimento: só o responsável ou quem pode modificar cria; quem não vê o experimento não a vê.
+    e = _criar(ana)["id_experimento"]
+    do_experimento = {**REGRA, "id_experimento": e}
+    assert bia.chamar("POST", "/regras", do_experimento).status_code == 404
+    assert ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": henry.email, "permissao": "leitura"}).status_code == 200
+    assert henry.chamar("POST", "/regras", do_experimento).status_code == 403
+    assert ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": henry.email, "permissao": "edicao"}).status_code == 200
+    do_henry = henry.chamar("POST", "/regras", do_experimento)
+    assert do_henry.status_code == 201, do_henry.text
+    id_do_henry = do_henry.json()["id_regra"]
+    assert (do_henry.json()["codigo_experimento"], do_henry.json()["experimento_nome"]) == (f"EXP-{e:02d}", FICHA["nome"])
+    assert id_do_henry in ids(ana) and id_do_henry not in ids(bia)
+    assert bia.chamar("PATCH", f"/regras/{id_do_henry}", {"ativa": False}).status_code == 404
+    # A responsável pelo experimento altera a regra que outra pessoa criou.
+    assert next(r for r in ana.chamar("GET", "/regras").json() if r["id_regra"] == id_do_henry)["pode_alterar"] is True
+    assert ana.chamar("PATCH", f"/regras/{id_do_henry}", {"ativa": False}).status_code == 200
+
+    # Experimento fechado não aceita regra nova.
+    fechado = _criar(ana)["id_experimento"]
+    assert ana.chamar("POST", f"/experimentos/{fechado}/cancelar", {"motivo": "teste"}).status_code == 200
+    recusada = ana.chamar("POST", "/regras", {**REGRA, "id_experimento": fechado})
+    assert recusada.status_code == 409 and "cancelado" in _detalhe(recusada)
+
+    for corpo in ({**REGRA, "nome": "  "}, {**REGRA, "por_minutos": 0}, {**REGRA, "por_minutos": 1441},
+                  {**REGRA, "parametro": "agitacao"}, {**REGRA, "comparacao": "igual"}, {**REGRA, "limite": "abc"},
+                  {**REGRA, "gravidade": "leve"}, {k: v for k, v in REGRA.items() if k != "limite"}):
+        assert ana.chamar("POST", "/regras", corpo).status_code == 422, corpo
+    assert ana.chamar("PATCH", "/regras/999999", {"ativa": True}).status_code == 404
+    assert ana.chamar("DELETE", "/regras/999999").status_code == 404
+
+    # Excluir tira a regra das listas; depois disso ela não existe mais para a API.
+    for id_regra in (geral["id_regra"], id_do_henry):
+        assert ana.chamar("DELETE", f"/regras/{id_regra}").status_code == 204
+        assert id_regra not in ids(ana)
+        assert ana.chamar("PATCH", f"/regras/{id_regra}", {"ativa": True}).status_code == 404

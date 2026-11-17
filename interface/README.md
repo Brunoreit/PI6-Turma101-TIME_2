@@ -26,7 +26,8 @@ Há duas fontes:
 
 O login é sempre pela API, nos dois modos. No modo `api`, nenhuma tela usa
 dados de exemplo: a lista de células do Historiador e do Exportar vem de
-`GET /celulas`, e a aba Regras dos Alertas mostra as regras fixas do backend.
+`GET /celulas`, e a aba Regras dos Alertas mostra as regras criadas na tela
+(`/regras`) e as verificações fixas do backend.
 O que falta na API está em "Ainda falta na API", abaixo.
 
 ```bash
@@ -66,9 +67,9 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 
 ### Ainda falta na API
 
-- **Regras de alerta configuráveis.** No modo `exemplo`, a aba Regras é a do
-  Figma, em memória. No modo `api`, ela mostra as cinco verificações fixas do
-  backend, e "Nova regra" fica indisponível.
+- **Aviso fora da tela e teste da regra.** No painel "Nova regra", o e-mail
+  e "Testar com as leituras das últimas 24 h" aparecem como indisponíveis: o
+  sistema não envia e-mail e a API não testa a regra com leituras antigas.
 - **Gráficos para publicação** (PNG, SVG, PDF) na tela Exportar: a API não
   gera gráficos, e o botão "Baixar gráfico" explica isso.
 - **Recuperar e trocar senha** e **convite para quem não tem conta**.
@@ -242,7 +243,26 @@ painel de alertas da célula.
 | `ph_fora_da_faixa` | pH fora da faixa do cultivo | Sim, quando o pH volta para a faixa. A mensagem traz a faixa e o valor atual |
 | `colisao_seq` | Leitura repetida com horário diferente | Não. A leitura original foi mantida; o botão "Fechar alerta" (aba Abertos) chama `POST /alertas/{id}/fechar`, e o Histórico mostra quem fechou |
 
+| `regra` | O nome que a pessoa deu à regra | Sim, quando a medida volta ao limite, quando a célula sai do experimento ou quando a regra é desligada ou excluída. A mensagem traz o valor atual |
+
 Um tipo que a interface não conhece aparece com o próprio nome.
+
+**Regras criadas na tela (aba Regras).** No modo `api`, "Nova regra" abre o
+painel do Figma e salva pelo `POST /regras`: uma medida (temperatura, OD ou
+pH) maior ou menor que um limite por N minutos seguidos, em todas as células
+ou num experimento aberto que a pessoa pode modificar. A regra passa a valer
+na próxima rodada do processo de regras e abre um alerta do tipo `regra` em
+cada célula fora do limite.
+
+- A tabela lista as regras de todas as células e as dos experimentos que a
+  pessoa vê (`GET /regras`), com quantos alertas cada uma tem abertos.
+- A chave liga e desliga (`PATCH /regras/{id}`); desligar fecha os alertas
+  da regra. "Excluir" pede confirmação (`DELETE /regras/{id}`).
+- Só quem criou a regra, ou o responsável e quem pode modificar o
+  experimento dela, liga, desliga e exclui (`pode_alterar`). Os outros veem
+  a regra sem o "Excluir", e a chave explica por que não muda.
+- Embaixo ficam as verificações do sistema, que não podem ser desligadas.
+- No modo `exemplo`, a aba continua como no Figma, com as regras na memória.
 
 O Histórico filtra por célula (ou "Sistema") e por tipo, pelos parâmetros
 `id_celula` e `tipo` do `GET /alertas`.
