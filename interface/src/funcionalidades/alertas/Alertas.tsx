@@ -38,6 +38,8 @@ interface AlertaFechado {
   fechadoEm: Date;
   /** Quem fechou à mão; sem nome, foi a regra que fechou. */
   fechadoPor?: string | null;
+  /** Alerta de uma regra de gravidade crítica. */
+  critico?: boolean;
 }
 
 interface FiltroDoHistorico {
@@ -54,17 +56,23 @@ const HISTORICO_EXEMPLO: AlertaFechado[] = [
   { id: 103, idCelula: "c11", titulo: "Setpoint sem confirmação", mensagem: "Setpoint sem confirmação: pedido de 37,0 °C", abertoEm: new Date(Date.now() - 50 * HORA), fechadoEm: new Date(Date.now() - 49 * HORA) },
 ];
 
+/** Quantos alertas o GET /alertas devolve sem `limite`. */
+const LIMITE_DA_API = 500;
+
 /** Alertas fechados, do mais novo ao mais antigo. `versao` muda quando um
  *  alerta é fechado à mão, para a lista buscar de novo. */
 function useHistorico(ativo: boolean, filtro: FiltroDoHistorico, versao: number) {
   const [historico, setHistorico] = useState<AlertaFechado[] | null>(FONTE_DADOS === "exemplo" ? HISTORICO_EXEMPLO : null);
   const [erro, setErro] = useState<string | null>(null);
+  // A API devolve até LIMITE_DA_API alertas (abertos e fechados): chegou nele, há mais antigos.
+  const [cortado, setCortado] = useState(false);
   useEffect(() => {
     if (!ativo || FONTE_DADOS === "exemplo") return;
     const controle = new AbortController();
     setErro(null);
     listarAlertas(controle.signal, false, { idCelula: filtro.idCelula || undefined, tipo: filtro.tipo || undefined })
-      .then((alertas) =>
+      .then((alertas) => {
+        setCortado(alertas.length >= LIMITE_DA_API);
         setHistorico(
           alertas
             .filter((a) => a.fechado_em)
@@ -76,13 +84,47 @@ function useHistorico(ativo: boolean, filtro: FiltroDoHistorico, versao: number)
               abertoEm: new Date(a.aberto_em),
               fechadoEm: new Date(a.fechado_em!),
               fechadoPor: a.fechado_por_nome,
+              critico: a.regra_gravidade === "critica",
             })),
-        ),
-      )
+        );
+      })
       .catch((e: Error) => e.name !== "AbortError" && setErro(e.message));
     return () => controle.abort();
   }, [ativo, filtro.idCelula, filtro.tipo, versao]);
-  return { historico, erro };
+  return { historico, erro, cortado };
+}
+
+/** "Hoje", "Ontem" ou "Sexta-feira, 14 de novembro" (com o ano, se não for o atual). */
+function rotuloDoDia(dia: Date, agora = new Date()): string {
+  const ontem = new Date(agora);
+  ontem.setDate(agora.getDate() - 1);
+  if (dia.toDateString() === agora.toDateString()) return "Hoje";
+  if (dia.toDateString() === ontem.toDateString()) return "Ontem";
+  const texto = dia.toLocaleDateString("pt-BR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: dia.getFullYear() === agora.getFullYear() ? undefined : "numeric",
+  });
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
+/** O histórico (já do mais novo ao mais antigo) em grupos pelo dia em que o alerta abriu. */
+function porDia(alertas: AlertaFechado[]): { chave: string; rotulo: string; alertas: AlertaFechado[] }[] {
+  const grupos: { chave: string; rotulo: string; alertas: AlertaFechado[] }[] = [];
+  for (const a of alertas) {
+    const chave = a.abertoEm.toDateString();
+    if (grupos.at(-1)?.chave !== chave) grupos.push({ chave, rotulo: rotuloDoDia(a.abertoEm), alertas: [] });
+    grupos.at(-1)!.alertas.push(a);
+  }
+  return grupos;
+}
+
+const horaCurta = (d: Date) => d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+/** "menos de 1 min", "42 min", "3 h 12 min". */
+function quantoDurou(a: AlertaFechado): string {
+  return a.fechadoEm.getTime() - a.abertoEm.getTime() < 60_000 ? "menos de 1 min" : formatar.duracao(a.abertoEm, a.fechadoEm);
 }
 
 /** Alertas que nenhuma regra fecha: a pessoa fecha depois de conferir. */
@@ -133,11 +175,13 @@ export function Alertas() {
   const [criando, setCriando] = useState(false);
   const [erroDasRegras, setErroDasRegras] = useState<string | null>(null);
   const [excluindo, setExcluindo] = useState<number | null>(null);
+  /** Nome da regra recém-criada, para o aviso quando a pessoa está em outra aba. */
+  const [criada, setCriada] = useState<string | null>(null);
   const [filtro, setFiltro] = useState<FiltroDoHistorico>({ idCelula: "", tipo: "" });
   const [fechados, setFechados] = useState(0);
   const [fechando, setFechando] = useState<number | null>(null);
   const [erroAoFechar, setErroAoFechar] = useState<string | null>(null);
-  const { historico, erro } = useHistorico(aba === "historico", filtro, fechados);
+  const { historico, erro, cortado } = useHistorico(aba === "historico", filtro, fechados);
   const abertos = dados?.alertas ?? [];
 
   function fechar(id: number) {
@@ -178,6 +222,7 @@ export function Alertas() {
       await carregarRegras();
       setDestacada(criada.id_regra);
       setCriando(false);
+      setCriada(regra.nome);
       return;
     }
     const id = Math.max(0, ...regras.map((r) => r.id)) + 1;
@@ -196,6 +241,7 @@ export function Alertas() {
     setRegras((lista) => [...lista, nova]);
     setDestacada(id);
     setCriando(false);
+    setCriada(regra.nome);
   }
 
   /** Liga ou desliga. No modo api, desligar fecha os alertas que a regra abriu. */
@@ -234,7 +280,7 @@ export function Alertas() {
         <Botao
           tipo="primario"
           onClick={() => {
-            setParametros({ aba: "regras" });
+            setCriada(null);
             setCriando(true);
           }}
         >
@@ -249,12 +295,40 @@ export function Alertas() {
             type="button"
             className={aba === a.valor ? estilos.abaAtiva : estilos.aba}
             aria-current={aba === a.valor ? "page" : undefined}
-            onClick={() => setParametros({ aba: a.valor })}
+            onClick={() => {
+              setCriada(null);
+              setParametros({ aba: a.valor });
+            }}
           >
             {a.rotulo}
           </button>
         ))}
       </nav>
+
+      {criando && <NovaRegra onSalvar={salvar} onCancelar={() => setCriando(false)} />}
+
+      {criada && (
+        <div className={estilos.avisoCriada} role="status">
+          <span>
+            Regra <strong>{criada}</strong> criada. Ela passa a valer na próxima verificação, em poucos segundos.
+          </span>
+          {aba !== "regras" && (
+            <button
+              type="button"
+              className={estilos.acaoAviso}
+              onClick={() => {
+                setCriada(null);
+                setParametros({ aba: "regras" });
+              }}
+            >
+              Ver regras
+            </button>
+          )}
+          <button type="button" className={estilos.fecharAviso} aria-label="Fechar aviso" onClick={() => setCriada(null)}>
+            ×
+          </button>
+        </div>
+      )}
 
       {aba === "regras" && erroDasRegras && (
         <p className={estilos.erro} role="alert">
@@ -322,7 +396,6 @@ export function Alertas() {
               <p className={estilos.vazio}>Nenhuma regra criada ainda. Use "Nova regra" para ser avisado quando uma medida passar de um limite.</p>
             )}
           </div>
-          {criando && <NovaRegra onSalvar={salvar} onCancelar={() => setCriando(false)} />}
         </div>
       )}
 
@@ -360,64 +433,97 @@ export function Alertas() {
       )}
 
       {aba === "historico" && (
-        <div className={estilos.lista}>
+        <div className={estilos.historico}>
           {FONTE_DADOS === "api" && (
-            <div className={estilos.filtros}>
-              <label className={estilos.campoSeletor}>
-                Célula
-                <select
-                  className={estilos.seletor}
-                  value={filtro.idCelula}
-                  onChange={(e) => setFiltro((f) => ({ ...f, idCelula: e.target.value }))}
-                >
-                  <option value="">Todas</option>
-                  <option value="sistema">Sistema</option>
-                  {idsDasCelulas.map((id) => (
-                    <option key={id} value={id}>
-                      {nomeDa(id)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={estilos.campoSeletor}>
-                Tipo
-                <select
-                  className={estilos.seletor}
-                  value={filtro.tipo}
-                  onChange={(e) => setFiltro((f) => ({ ...f, tipo: e.target.value }))}
-                >
-                  <option value="">Todos</option>
-                  {Object.entries(TITULO_DO_ALERTA).map(([tipo, { titulo }]) => (
-                    <option key={tipo} value={tipo}>
-                      {titulo}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          )}
-          {erro && <p className={estilos.erro}>{erro}</p>}
-          {historico === null && !erro && <p className={estilos.vazio}>Carregando…</p>}
-          {historico?.length === 0 && (
-            <p className={estilos.vazio}>
-              {filtro.idCelula || filtro.tipo ? "Nenhum alerta fechado com este filtro." : "Nenhum alerta fechado ainda."}
-            </p>
-          )}
-          {historico?.map((a) => (
-            <div key={a.id} className={estilos.alerta}>
-              <span className={estilos.pontoFechado} />
-              <div className={estilos.alertaTextos}>
-                <p className={estilos.alertaTitulo}>
-                  <span className={estilos.codigo}>{a.idCelula ? nomeDa(a.idCelula) : "Sistema"}</span> · {a.titulo}
-                </p>
-                <p className={estilos.descricao}>{a.mensagem}</p>
-                <p className={estilos.descricao}>
-                  Aberto em {formatar.diaHora(a.abertoEm)} · fechou depois de {formatar.duracao(a.abertoEm, a.fechadoEm)}
-                  {a.fechadoPor && ` · fechado por ${a.fechadoPor}`}
-                </p>
+            <div className={estilos.barraFiltros}>
+              <div className={estilos.filtros}>
+                <label className={estilos.campoSeletor}>
+                  Célula
+                  <select
+                    className={estilos.seletor}
+                    value={filtro.idCelula}
+                    onChange={(e) => setFiltro((f) => ({ ...f, idCelula: e.target.value }))}
+                  >
+                    <option value="">Todas</option>
+                    <option value="sistema">Sistema</option>
+                    {idsDasCelulas.map((id) => (
+                      <option key={id} value={id}>
+                        {nomeDa(id)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className={estilos.campoSeletor}>
+                  Tipo
+                  <select
+                    className={estilos.seletor}
+                    value={filtro.tipo}
+                    onChange={(e) => setFiltro((f) => ({ ...f, tipo: e.target.value }))}
+                  >
+                    <option value="">Todos</option>
+                    {Object.entries(TITULO_DO_ALERTA).map(([tipo, { titulo }]) => (
+                      <option key={tipo} value={tipo}>
+                        {titulo}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
+              {(filtro.idCelula || filtro.tipo) && (
+                <button type="button" className={estilos.limparFiltros} onClick={() => setFiltro({ idCelula: "", tipo: "" })}>
+                  Limpar filtros
+                </button>
+              )}
+              {historico && (
+                <span className={estilos.contagem}>
+                  {cortado
+                    ? `Os ${historico.length.toLocaleString("pt-BR")} alertas fechados mais recentes`
+                    : historico.length === 1
+                      ? "1 alerta fechado"
+                      : `${historico.length.toLocaleString("pt-BR")} alertas fechados`}
+                </span>
+              )}
             </div>
-          ))}
+          )}
+          <div className={estilos.lista}>
+            {erro && <p className={estilos.vazio}>{erro}</p>}
+            {historico === null && !erro && <p className={estilos.vazio}>Carregando…</p>}
+            {historico?.length === 0 && (
+              <p className={estilos.vazio}>
+                {filtro.idCelula || filtro.tipo ? "Nenhum alerta fechado com este filtro." : "Nenhum alerta fechado ainda."}
+              </p>
+            )}
+            {historico &&
+              porDia(historico).map((grupo) => (
+                <section key={grupo.chave} className={estilos.grupoDoDia} aria-label={grupo.rotulo}>
+                  <h3 className={estilos.dia}>
+                    {grupo.rotulo}
+                    <span>{grupo.alertas.length === 1 ? "1 alerta" : `${grupo.alertas.length} alertas`}</span>
+                  </h3>
+                  {grupo.alertas.map((a) => (
+                    <div key={a.id} className={estilos.linhaHistorico}>
+                      <span className={estilos.horaHistorico}>{horaCurta(a.abertoEm)}</span>
+                      <div className={estilos.alertaTextos}>
+                        <p className={estilos.tituloHistorico}>
+                          <span className={estilos.seloCelula}>{a.idCelula ? nomeDa(a.idCelula) : "Sistema"}</span>
+                          {a.titulo}
+                          {a.critico && <SeloCritico />}
+                        </p>
+                        <p className={estilos.descricao}>{a.mensagem}</p>
+                      </div>
+                      <div className={estilos.fechamento}>
+                        <span className={estilos.duracao}>durou {quantoDurou(a)}</span>
+                        <span className={estilos.descricao}>
+                          {a.fechadoPor
+                            ? `fechado por ${a.fechadoPor}`
+                            : `fechou sozinho ${a.fechadoEm.toDateString() === a.abertoEm.toDateString() ? `às ${horaCurta(a.fechadoEm)}` : `em ${formatar.diaHora(a.fechadoEm)}`}`}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              ))}
+          </div>
         </div>
       )}
     </div>

@@ -278,11 +278,17 @@ cada célula fora do limite.
   a regra sem o "Excluir", e a chave explica por que não muda.
 - Embaixo ficam as verificações do sistema, que não podem ser desligadas.
 - No modo `exemplo`, a aba continua como no Figma, com as regras na memória.
-- A janela fecha no X, no Esc, em Cancelar ou clicando fora, e começa fechada
-  nos dois modos (no Figma o painel fica aberto ao lado da tabela).
+- A janela abre na aba em que a pessoa está, sem trocar de aba, e fecha no X,
+  no Esc, em Cancelar ou clicando fora. Começa fechada nos dois modos (no
+  Figma o painel fica aberto ao lado da tabela). Ao salvar, um aviso verde
+  confirma a regra criada, com "Ver regras" quando a pessoa está em outra aba.
 
 O Histórico filtra por célula (ou "Sistema") e por tipo, pelos parâmetros
-`id_celula` e `tipo` do `GET /alertas`.
+`id_celula` e `tipo` do `GET /alertas`, numa barra acima da lista com
+"Limpar filtros" e a contagem. Os alertas aparecem agrupados pelo dia em que
+abriram (Hoje, Ontem, depois a data), com a hora, a célula num selo, quanto
+durou e se fechou sozinho ou quem fechou. A API devolve até 500 alertas; se
+chegar nisso, a contagem diz que são os mais recentes.
 
 ### Experimentos
 
