@@ -13,6 +13,7 @@ Documentação interativa em http://localhost:8000/docs
 
 import csv
 import io
+import itertools
 import logging
 import math
 import secrets
@@ -23,15 +24,16 @@ from typing import Annotated, Literal
 import paho.mqtt.client as mqtt
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.api import autenticacao
 from app.api.esquemas import (AlteracaoCelula, AlteracaoCultivo, AlteracaoExperimento, Cadastro, Entrada,
                               Motivo, MotivoOpcional, NovaCalibracao, NovoAcesso, NovoCultivo,
-                              NovoExperimento, NovoSetpoint, PontoCalibracao)
+                              NovaExportacao, NovoExperimento, NovoSetpoint, PontoCalibracao)
 from app.banco import repositorios as repo
 from app.calibracao import ajuste
+from app.exportacao import montagem
 from app.banco.conexao import criar_pool
 from app.config import config
 from contrato import PedidoSetpoint, topicos
@@ -711,3 +713,90 @@ def listar_leituras_do_cultivo(conn: Conexao, pessoa: PessoaLogada, id_cultivo: 
     """Leituras medidas no período do cultivo."""
     _exigir_cultivo(conn, id_cultivo, pessoa)
     return repo.listar_leituras_do_cultivo(conn, id_cultivo, desde, limite)
+
+
+# ------------------------------------------------------------------ exportação
+
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@app.post("/exportacoes")
+def exportar(conn: Conexao, pessoa: PessoaLogada, corpo: NovaExportacao):
+    """Devolve o arquivo (.xlsx ou .csv) com as leituras pedidas: por
+    experimento, cada célula no período do cultivo dela; por célula, o
+    período pedido. O Excel leva os anexos em abas; o CSV, só os dados."""
+    if not repo.fuso_existe(conn, corpo.fuso):
+        raise HTTPException(422, f"Fuso {corpo.fuso} desconhecido. Use um nome como America/Sao_Paulo.")
+    por_experimento = corpo.id_experimento is not None
+    if por_experimento:
+        _exigir_acesso(conn, corpo.id_experimento, pessoa)
+        cultivos = repo.cultivos_do_experimento(conn, corpo.id_experimento, corpo.fuso)
+        if corpo.celulas is not None:
+            de_fora = sorted(set(corpo.celulas) - {c["id_celula"] for c in cultivos})
+            if de_fora:
+                raise HTTPException(422, f"Estas células não fizeram parte do experimento: {', '.join(de_fora)}. "
+                                         "Tire-as da lista.")
+            cultivos = [c for c in cultivos if c["id_celula"] in corpo.celulas]
+        if not cultivos:
+            raise HTTPException(422, "Este experimento ainda não tem células. Atribua uma célula antes de exportar.")
+        alvos = [montagem.Alvo(c["id_celula"], c["inicio"], c["fim"], c["condicao"], c["replica"]) for c in cultivos]
+        origem = f"EXP-{corpo.id_experimento:02d}"
+    else:
+        celulas = sorted(set(corpo.celulas))
+        for id_celula in celulas:
+            _exigir_celula(conn, id_celula)
+        alvos = [montagem.Alvo(id_celula, corpo.desde, corpo.ate) for id_celula in celulas]
+        origem = "celulas_" + "-".join(celulas[:4]) + (f"-e-mais-{len(celulas) - 4}" if len(celulas) > 4 else "")
+
+    passo = montagem.passo_em_minutos(corpo.agrupamento, corpo.intervalo_min)
+    agrupado = passo is not None
+
+    # As leituras vêm por outra conexão do pool: no CSV, o envio continua
+    # depois que a requisição devolve a dela.
+    def dados():
+        with estado["pool"].connection() as leitor:
+            for alvo in alvos:
+                registros = (repo.iterar_leituras_agrupadas(leitor, alvo.id_celula, alvo.inicio, alvo.fim,
+                                                            corpo.fuso, passo) if agrupado
+                             else repo.iterar_leituras_do_periodo(leitor, alvo.id_celula, alvo.inicio, alvo.fim,
+                                                                  corpo.fuso))
+                for registro in registros:
+                    yield montagem.linha_dos_dados(alvo, registro, corpo.medidas, agrupado, por_experimento)
+
+    leituras = dados()
+    primeira = next(leituras, None)
+    if primeira is None:
+        raise HTTPException(404, "Nenhuma leitura das células escolhidas no período. Confira as células e o período.")
+    linhas = itertools.chain([montagem.cabecalho_dos_dados(corpo.medidas, agrupado, por_experimento), primeira],
+                             leituras)
+    nome = montagem.nome_do_arquivo(origem, corpo.agrupamento, corpo.intervalo_min, corpo.formato,
+                                    repo.hoje_no_fuso(conn, corpo.fuso))
+    cabecalhos = {"Content-Disposition": f'attachment; filename="{nome}"'}
+    if corpo.formato == "csv":
+        return StreamingResponse(montagem.escrever_csv(linhas), media_type="text/csv", headers=cabecalhos)
+
+    planilhas = [montagem.Planilha("Dados", linhas)]
+    periodos = [(a.id_celula, a.inicio, a.fim) for a in alvos]
+    if "contexto" in corpo.anexos:
+        if por_experimento:
+            planilhas.append(montagem.planilha_de_metadados(
+                repo.buscar_experimento(conn, corpo.id_experimento), cultivos, corpo.fuso,
+                repo.datas_do_experimento(conn, corpo.id_experimento, corpo.fuso)))
+        else:
+            planilhas.append(montagem.planilha_de_contexto(
+                repo.cultivos_dos_alvos(conn, periodos, corpo.fuso, pessoa["id_pessoa"]), corpo.fuso))
+    if "parametros" in corpo.anexos:
+        planilhas.append(montagem.planilha_de_parametros(repo.pedidos_dos_alvos(conn, periodos, corpo.fuso)))
+    if "alertas" in corpo.anexos:
+        planilhas.append(montagem.planilha_de_alertas(repo.alertas_dos_alvos(conn, periodos, corpo.fuso)))
+    if "calibracoes" in corpo.anexos:
+        planilhas.append(montagem.planilha_de_calibracoes(repo.calibracoes_dos_alvos(conn, periodos, corpo.fuso)))
+    try:
+        arquivo = montagem.escrever_xlsx(planilhas)
+    except montagem.ArquivoGrandeDemais:
+        raise HTTPException(
+            422, f"O arquivo passaria de {montagem.LIMITE_EXCEL:,} linhas, o limite de uma aba do Excel. "
+                 "Escolha um agrupamento, um período menor ou o formato CSV.".replace(",", ".", 2)) from None
+    finally:
+        leituras.close()
+    return Response(arquivo, media_type=_XLSX, headers=cabecalhos)

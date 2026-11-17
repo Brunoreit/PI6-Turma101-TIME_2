@@ -211,6 +211,46 @@ class AlteracaoCultivo(BaseModel):
     ph_ref_max: float | None = None
 
 
+class NovaExportacao(BaseModel):
+    """Exportação por experimento (id_experimento, e as células dele se não
+    forem todas) ou por célula e período (celulas, desde e ate)."""
+
+    id_experimento: int | None = Field(default=None, description="Exporta cada célula no período em que esteve no experimento")
+    celulas: list[str] | None = Field(default=None, max_length=64,
+                                      description="Por célula: obrigatório. Por experimento: só estas células dele")
+    desde: datetime | None = Field(default=None, description="Por célula: início do período, com fuso")
+    ate: datetime | None = Field(default=None, description="Por célula: fim do período, com fuso")
+    medidas: list[Literal["temperatura", "ph", "od", "od_bruta", "taxa"]] = Field(min_length=1)
+    agrupamento: Literal["brutos", "hora", "dia", "intervalo"] = "brutos"
+    intervalo_min: int | None = Field(default=None, ge=1, le=1440, description="Só com agrupamento intervalo")
+    formato: Literal["xlsx", "csv"] = "xlsx"
+    anexos: list[Literal["contexto", "parametros", "alertas", "calibracoes"]] = Field(
+        default_factory=list, description="Abas a mais do Excel. O CSV leva só os dados")
+    fuso: str = Field(default="America/Sao_Paulo", max_length=64,
+                      description="Fuso das datas do arquivo e do começo de cada dia")
+
+    @model_validator(mode="after")
+    def _coerente(self):
+        if self.id_experimento is None:
+            if not self.celulas:
+                raise ValueError("Informe id_experimento, ou celulas com desde e ate.")
+            if self.desde is None or self.ate is None:
+                raise ValueError("Na exportação por célula, informe desde e ate.")
+            if self.desde.tzinfo is None or self.ate.tzinfo is None:
+                raise ValueError("Envie desde e ate com fuso, como 2026-11-16T09:00:00-03:00.")
+            if self.desde >= self.ate:
+                raise ValueError("O período precisa ter desde antes de ate.")
+        elif self.desde is not None or self.ate is not None:
+            raise ValueError("Na exportação por experimento o período é o de cada célula no experimento. "
+                             "Tire desde e ate.")
+        if (self.agrupamento == "intervalo") != (self.intervalo_min is not None):
+            raise ValueError("intervalo_min vale só com agrupamento intervalo, e nesse caso é obrigatório.")
+        if self.agrupamento == "brutos" and set(self.medidas) == {"taxa"}:
+            raise ValueError("A taxa de crescimento só existe nos dados agrupados. "
+                             "Escolha um agrupamento ou outra medida.")
+        return self
+
+
 class NovoCultivo(BaseModel):
     id_celula: str
     condicao: str | None = Field(default=None, description='Rótulo do grupo, ex.: "30 °C"')

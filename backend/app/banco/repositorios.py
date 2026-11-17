@@ -873,3 +873,186 @@ def listar_leituras_do_cultivo(conn: psycopg.Connection, id_cultivo: int,
         """,
         (id_cultivo, desde, desde, limite),
     ).fetchall()[::-1]
+
+
+# ---------------------------------------------------------------- exportação
+#
+# Um "alvo" é uma célula num período: o cultivo dela no experimento, ou o
+# período pedido na exportação por célula. Fim None é "até agora".
+
+
+def fuso_existe(conn: psycopg.Connection, fuso: str) -> bool:
+    return conn.execute("SELECT 1 FROM pg_timezone_names WHERE name = %s", (fuso,)).fetchone() is not None
+
+
+def iterar_leituras_do_periodo(conn: psycopg.Connection, id_celula: str, inicio: datetime,
+                               fim: datetime | None, fuso: str):
+    """Leituras brutas da célula no período, em ordem, sem carregar tudo na
+    memória. data_hora sai no horário do fuso pedido, sem fuso."""
+    yield from conn.cursor().stream(
+        """
+        SELECT ts_origem AT TIME ZONE %(fuso)s AS data_hora, temperatura_c, ph, od, od_bruto
+          FROM leitura
+         WHERE id_celula = %(celula)s AND ts_origem >= %(inicio)s
+           AND (%(fim)s::timestamptz IS NULL OR ts_origem < %(fim)s)
+         ORDER BY ts_origem, seq
+        """,
+        {"celula": id_celula, "inicio": inicio, "fim": fim, "fuso": fuso},
+    )
+
+
+def iterar_leituras_agrupadas(conn: psycopg.Connection, id_celula: str, inicio: datetime,
+                              fim: datetime | None, fuso: str, passo_min: int):
+    """Média, mínimo e máximo de cada medida por intervalo de passo_min
+    minutos, contados a partir da meia-noite do fuso pedido. A taxa é a
+    inclinação de ln(OD) no tempo dentro do intervalo, em divisões por hora
+    (a mesma conta do painel de taxa de crescimento); fica vazia com menos
+    de duas leituras de OD positiva."""
+    yield from conn.cursor().stream(
+        """
+        SELECT date_bin(make_interval(mins => %(passo)s), ts_origem AT TIME ZONE %(fuso)s,
+                        TIMESTAMP '2000-01-01') AS data_hora,
+               count(*) AS leituras,
+               avg(temperatura_c) AS temperatura_c_media, min(temperatura_c) AS temperatura_c_min,
+               max(temperatura_c) AS temperatura_c_max,
+               avg(ph) AS ph_media, min(ph) AS ph_min, max(ph) AS ph_max,
+               avg(od) AS od_media, min(od) AS od_min, max(od) AS od_max,
+               avg(od_bruto) AS od_bruto_media, min(od_bruto) AS od_bruto_min, max(od_bruto) AS od_bruto_max,
+               regr_slope(ln(od), extract(epoch FROM ts_origem) / 3600.0) FILTER (WHERE od > 0) / ln(2.0)
+                   AS taxa_divisoes_por_hora
+          FROM leitura
+         WHERE id_celula = %(celula)s AND ts_origem >= %(inicio)s
+           AND (%(fim)s::timestamptz IS NULL OR ts_origem < %(fim)s)
+         GROUP BY 1
+         ORDER BY 1
+        """,
+        {"celula": id_celula, "inicio": inicio, "fim": fim, "fuso": fuso, "passo": passo_min},
+    )
+
+
+# Os anexos recebem os alvos como três listas paralelas, que viram uma
+# tabela dentro da consulta.
+_ALVOS = """alvo (id_celula, inicio, fim) AS (
+    SELECT * FROM unnest(%(celulas)s::text[], %(inicios)s::timestamptz[], %(fins)s::timestamptz[]))"""
+
+
+def _alvos(alvos: list[tuple[str, datetime, datetime | None]], fuso: str) -> dict:
+    return {"celulas": [a[0] for a in alvos], "inicios": [a[1] for a in alvos],
+            "fins": [a[2] for a in alvos], "fuso": fuso}
+
+
+def pedidos_dos_alvos(conn: psycopg.Connection, alvos: list[tuple], fuso: str) -> list[dict]:
+    """Pedidos de setpoint feitos em cada célula dentro do período dela."""
+    return conn.execute(
+        f"""
+        WITH {_ALVOS}
+        SELECT DISTINCT p.id_celula, p.solicitado_em AT TIME ZONE %(fuso)s AS solicitado_em, p.temperatura_c,
+               p.solicitado_por, p.estado, p.motivo,
+               p.recebido_em AT TIME ZONE %(fuso)s AS recebido_em,
+               p.aplicado_em AT TIME ZONE %(fuso)s AS aplicado_em,
+               p.atingido_em AT TIME ZONE %(fuso)s AS atingido_em
+          FROM pedido_setpoint p
+          JOIN alvo a ON a.id_celula = p.id_celula AND p.solicitado_em >= a.inicio
+                     AND (a.fim IS NULL OR p.solicitado_em < a.fim)
+         ORDER BY 2, 1
+        """,
+        _alvos(alvos, fuso),
+    ).fetchall()
+
+
+def alertas_dos_alvos(conn: psycopg.Connection, alvos: list[tuple], fuso: str) -> list[dict]:
+    """Alertas de cada célula que estiveram abertos em algum momento do período dela."""
+    return conn.execute(
+        f"""
+        WITH {_ALVOS}
+        SELECT DISTINCT al.id_alerta, al.id_celula, al.tipo, al.mensagem,
+               al.aberto_em AT TIME ZONE %(fuso)s AS aberto_em,
+               al.fechado_em AT TIME ZONE %(fuso)s AS fechado_em, p.nome AS fechado_por
+          FROM alerta al
+          JOIN alvo a ON a.id_celula = al.id_celula AND (a.fim IS NULL OR al.aberto_em < a.fim)
+                     AND (al.fechado_em IS NULL OR al.fechado_em >= a.inicio)
+          LEFT JOIN pessoa p ON p.id_pessoa = al.fechado_por
+         ORDER BY 5, 1
+        """,
+        _alvos(alvos, fuso),
+    ).fetchall()
+
+
+def calibracoes_dos_alvos(conn: psycopg.Connection, alvos: list[tuple], fuso: str) -> list[dict]:
+    """As curvas que converteram a OD das leituras de cada célula no período dela."""
+    return conn.execute(
+        f"""
+        WITH {_ALVOS}
+        SELECT c.id_celula, c.versao, c.a, c.b, c.r2, c.organismo, p.nome AS calibrado_por,
+               c.criada_em AT TIME ZONE %(fuso)s AS criada_em, c.ativa, c.id_calibracao,
+               count(*) AS leituras
+          FROM alvo a
+          JOIN leitura l ON l.id_celula = a.id_celula AND l.ts_origem >= a.inicio
+                        AND (a.fim IS NULL OR l.ts_origem < a.fim)
+          JOIN calibracao c ON c.id_calibracao = l.id_calibracao
+          LEFT JOIN pessoa p ON p.id_pessoa = c.id_pessoa
+         GROUP BY c.id_calibracao, p.nome
+         ORDER BY c.id_celula, c.versao
+        """,
+        _alvos(alvos, fuso),
+    ).fetchall()
+
+
+def cultivos_dos_alvos(conn: psycopg.Connection, alvos: list[tuple], fuso: str, id_pessoa: int) -> list[dict]:
+    """Cultivos em que cada célula esteve durante o período dela, só dos
+    experimentos que a pessoa pode ver (os outros não aparecem)."""
+    return conn.execute(
+        f"""
+        WITH {_ALVOS}
+        SELECT DISTINCT c.id_cultivo, c.id_celula, e.id_experimento, e.nome AS experimento, c.condicao, c.replica,
+               c.status, c.iniciado_em AT TIME ZONE %(fuso)s AS iniciado_em,
+               c.encerrado_em AT TIME ZONE %(fuso)s AS encerrado_em, c.motivo_encerramento
+          FROM cultivo c
+          JOIN alvo a ON a.id_celula = c.id_celula AND (a.fim IS NULL OR c.iniciado_em < a.fim)
+                     AND (c.encerrado_em IS NULL OR c.encerrado_em >= a.inicio)
+          JOIN experimento e USING (id_experimento)
+         WHERE e.id_responsavel = %(pessoa)s
+            OR EXISTS (SELECT 1 FROM experimento_acesso x
+                        WHERE x.id_experimento = e.id_experimento AND x.id_pessoa = %(pessoa)s)
+         ORDER BY 8, 2
+        """,
+        {**_alvos(alvos, fuso), "pessoa": id_pessoa},
+    ).fetchall()
+
+
+def cultivos_do_experimento(conn: psycopg.Connection, id_experimento: int, fuso: str) -> list[dict]:
+    """Os cultivos do experimento com o nome de quem pôs e de quem tirou a
+    célula, e as datas no fuso pedido (as originais ficam em inicio e fim)."""
+    return conn.execute(
+        """
+        SELECT c.id_cultivo, c.id_celula, c.condicao, c.replica, c.status,
+               c.iniciado_em AS inicio, c.encerrado_em AS fim,
+               c.iniciado_em AT TIME ZONE %(fuso)s AS iniciado_em,
+               c.encerrado_em AT TIME ZONE %(fuso)s AS encerrado_em,
+               c.motivo_encerramento, c.ph_ref_min, c.ph_ref_max, c.continua_de,
+               pi.nome AS iniciado_por, pe.nome AS encerrado_por
+          FROM cultivo c
+          LEFT JOIN pessoa pi ON pi.id_pessoa = c.id_iniciado_por
+          LEFT JOIN pessoa pe ON pe.id_pessoa = c.id_encerrado_por
+         WHERE c.id_experimento = %(experimento)s
+         ORDER BY c.iniciado_em, c.id_cultivo
+        """,
+        {"experimento": id_experimento, "fuso": fuso},
+    ).fetchall()
+
+
+def datas_do_experimento(conn: psycopg.Connection, id_experimento: int, fuso: str) -> dict:
+    """criado_em, iniciado_em e encerrado_em do experimento no fuso pedido, e a data de hoje nele."""
+    return conn.execute(
+        """
+        SELECT criado_em AT TIME ZONE %(fuso)s AS criado_em, iniciado_em AT TIME ZONE %(fuso)s AS iniciado_em,
+               encerrado_em AT TIME ZONE %(fuso)s AS encerrado_em
+          FROM experimento WHERE id_experimento = %(experimento)s
+        """,
+        {"experimento": id_experimento, "fuso": fuso},
+    ).fetchone()
+
+
+def hoje_no_fuso(conn: psycopg.Connection, fuso: str) -> str:
+    """A data de hoje no fuso pedido, como 2026-11-16."""
+    return conn.execute("SELECT to_char(now() AT TIME ZONE %s, 'YYYY-MM-DD') AS hoje", (fuso,)).fetchone()["hoje"]

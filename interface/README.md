@@ -62,15 +62,15 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 | `/experimentos/{código}` | Experimento EXP-01, · só leitura, · compartilhar, · mais ações, · só leitura · mais ações | Compartilhar e Duplicar no cabeçalho; Editar, Encerrar e Cancelar no menu "Mais ações", conforme o acesso. Pela API no modo `api` |
 | `/historiador?celulas=c04,c08` | Historiador | Gráfico das leituras pela API (no modo `api`) |
 | `/alertas` | Alertas · regras | Abertos e Histórico vêm da API (no modo `api`) |
-| `/exportar` | Exportar dados e · por célula e período | CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv` (baixado pela chamada com token, porque a rota exige login) |
+| `/exportar` | Exportar dados e · por célula e período | Excel ou CSV pelo `POST /exportacoes`, por experimento ou por célula e período (ver Exportar abaixo) |
 
 ### Ainda falta na API
 
 - **Regras de alerta configuráveis.** No modo `exemplo`, a aba Regras é a do
   Figma, em memória. No modo `api`, ela mostra as cinco verificações fixas do
   backend, e "Nova regra" fica indisponível.
-- **Exportação agrupada** (média por hora ou dia, intervalos, Excel, anexos).
-  Só sai o CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv`.
+- **Gráficos para publicação** (PNG, SVG, PDF) na tela Exportar: a API não
+  gera gráficos, e o botão "Baixar gráfico" explica isso.
 - **Recuperar e trocar senha** e **convite para quem não tem conta**.
 - **Dados da placa:** MAC, período de leitura, bombas e modo manutenção.
 
@@ -188,6 +188,32 @@ Em **Ajustes**, a versão em uso e as anteriores vêm de
 branco (tirado dos `pontos`, com b = b do banco + a · branco); nas antigas,
 sem ponto "branco", continua "od = a · bruto + b". O gráfico não destaca mais
 faixa nenhuma.
+
+### Exportar
+
+No modo `api`, a tela monta o pedido e baixa o arquivo do `POST /exportacoes`
+pela chamada com token (a rota exige login, então não dá para usar um link
+direto). O nome do arquivo vem da API.
+
+- **Por experimento:** manda `id_experimento` e, se não forem todas, as
+  células escolhidas. Cada célula sai no período em que esteve no
+  experimento, com a condição e a réplica.
+- **Por célula e período:** manda as células e `desde`/`ate`.
+- **Medidas:** temperatura, pH, OD, OD bruta e taxa de crescimento. A taxa é
+  calculada dentro de cada intervalo, então fica desabilitada em "Dados
+  brutos".
+- **Agrupamento:** dados brutos, média por hora, média por dia ou um
+  intervalo em minutos (1 a 1440).
+- **Formato:** Excel, com a aba Dados e uma aba por anexo marcado (Metadados
+  ou Contexto, Parâmetros, Alertas, Calibrações), ou CSV, com só os dados
+  num arquivo único; em CSV os anexos ficam desabilitados.
+- **Fuso:** as datas do arquivo saem no fuso do navegador.
+- **Exportações recentes:** as cinco últimas deste navegador
+  (`localStorage`, chave `tupa.exportacoes`). A API não guarda os arquivos:
+  "Baixar de novo" refaz o mesmo pedido, com os dados de agora.
+- O botão explica embaixo por que não exporta (nenhuma célula, nenhuma
+  medida, período invertido, intervalo inválido). No modo `exemplo` ele fica
+  indisponível, porque não há leituras para exportar.
 
 ### Apelido da célula
 

@@ -148,12 +148,33 @@ python -m simulador.semente --zerar
 **Apaga todos os dados do Docker Compose** (`down -v`: banco, broker e buffers das células) e então:
 
 1. sobe broker, banco, backend e a interface no modo api (http://localhost:8080);
-2. carrega o banco: 4 pessoas (`pedro.ximenes@cnpem.br`, `rogerio.medina@cnpem.br`, `henry.piozzi@cnpem.br`, `gabriel.bonatto@cnpem.br`, senha `cultura123`), as 16 células com a calibração v1, `EXP-01` a `EXP-04`, 14 cultivos abertos com faixa de pH e um pedido de setpoint por célula em cultivo;
-3. liga as 16 células. Na primeira subida, cada uma publica 24 h de leituras passadas (`HISTORICO_HORAS`) pelo MQTT, com `seq` contínuo, antes das leituras ao vivo.
+2. carrega o banco com o roteiro de 90 dias (`simulador/roteiro.py`): 4 pessoas (`pedro.ximenes@cnpem.br`, `rogerio.medina@cnpem.br`, `henry.piozzi@cnpem.br`, `gabriel.bonatto@cnpem.br`, senha `cultura123`), as 16 células com a calibração v1 (a c01 à c08 têm também a v2, em uso), 7 experimentos (`EXP-01` e `EXP-02` em andamento, `EXP-03` em stand by, `EXP-04`, `EXP-05` e `EXP-07` encerrados, `EXP-06` cancelado), 38 cultivos (14 abertos e 24 antigos), os pedidos de setpoint de cada cultivo e 7 alertas antigos já fechados;
+3. liga as 16 células. Na primeira subida, cada uma publica 90 dias de leituras passadas pelo MQTT, uma a cada 20 min (`HISTORICO_HORAS` e `HISTORICO_PASSO_MIN`), com `seq` contínuo, antes das leituras ao vivo. São cerca de 104 mil leituras, que chegam em uns 6 minutos;
+4. só então sobe as regras, para as leituras antigas não abrirem alertas de agora.
 
-Em segundos as regras abrem dois alertas de verdade: desvio de temperatura na c03 (perfil com +3,4 °C) e setpoint sem confirmação na c11 (ignora o pedido de 37 °C). A c04 fica livre para calibrar.
+Em segundos as regras abrem dois alertas de verdade: desvio de temperatura na c03 (perfil com +3,4 °C) e setpoint sem confirmação na c11 (ignora o pedido de 37 °C). A c04 e a c16 ficam livres; a c04 é a usada para calibrar.
 
-Opções: `--sem-celulas` não liga as células (para rodar `python -m simulador --historico 24` fora do Docker), `--historico 48` muda as horas de histórico. Sem `--zerar`, só carrega no banco que já está no ar. A carga não roda no init do PostgreSQL, porque o banco dos testes de integração precisa começar vazio.
+Opções: `--dias 7` publica menos histórico (carrega mais rápido), `--sem-celulas` não liga as células (para rodar `python -m simulador --historico 2160` fora do Docker). Se a máquina já usa a porta 5432, passe as portas e a URL do banco: `PORTA_BANCO=55432 python -m simulador.semente postgresql://evolver:evolver@localhost:55432/evolver --zerar`. Sem `--zerar`, só carrega no banco que já está no ar; isso só serve num banco vazio, porque o histórico das células começa no `seq` 0 e colidiria com leituras que já existissem. A carga não roda no init do PostgreSQL, porque o banco dos testes de integração precisa começar vazio.
+
+### Exportar os dados
+
+`POST /exportacoes` devolve o arquivo que a tela Exportar baixa. Por experimento, cada célula sai no período em que esteve nele; por célula, vale o período pedido:
+
+```bash
+curl -X POST localhost:8000/exportacoes -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"id_experimento": 1, "medidas": ["temperatura", "ph", "od", "taxa"], "agrupamento": "hora",
+          "formato": "xlsx", "anexos": ["contexto", "parametros", "alertas", "calibracoes"]}' -o EXP-01.xlsx
+
+curl -X POST localhost:8000/exportacoes -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"celulas": ["c01", "c02"], "desde": "2026-11-10T00:00:00-03:00", "ate": "2026-11-12T00:00:00-03:00",
+          "medidas": ["od"], "agrupamento": "brutos", "formato": "csv"}' -o celulas.csv
+```
+
+- `agrupamento`: `brutos`, `hora`, `dia` ou `intervalo` (com `intervalo_min`, de 1 a 1440). Os agrupados trazem média, mínimo e máximo de cada medida e o número de leituras do intervalo.
+- `taxa` é a taxa de crescimento em divisões por hora (inclinação de ln(OD) dentro do intervalo, dividida por ln 2). Só existe nos agrupados.
+- `formato`: `xlsx` (aba Dados e uma aba por anexo) ou `csv` (só os dados, com `;` e vírgula decimal, como o Excel em português lê).
+- `fuso` (padrão `America/Sao_Paulo`) vale para as datas do arquivo e para o começo de cada dia.
+- O Excel é recusado (422) acima de 1.000.000 de linhas; nesse caso agrupe, reduza o período ou use o CSV.
 
 ### Calibrar a OD com o simulador
 
@@ -277,5 +298,5 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 
 - Fechar o contrato de mensagens com o grupo do hardware (`docs/contrato-mqtt.md`)
 - Senha no broker, que ainda aceita conexão anônima
-- Endpoints de regras de alerta e de exportação agrupada, as duas partes da interface que ainda não têm API
+- Endpoint de regras de alerta configuráveis e gráficos para publicação, as partes da interface que ainda não têm API
 - Aviso fora da tela (e-mail) para os alertas, principalmente os de comunicação

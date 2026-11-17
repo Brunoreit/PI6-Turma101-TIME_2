@@ -1166,6 +1166,22 @@ Revê a P-2 ("rotas existentes continuam sem login"), depois que a interface pas
 | Teste | `test_todas_as_rotas_exigem_login_menos_saude_e_auth` percorre o `/openapi.json`: uma rota nova sem login faz o teste falhar |
 | Fora desta mudança | Senha no broker (`allow_anonymous true`) e a troca do `SEGREDO_SESSAO` e da senha do banco fora do desenvolvimento |
 
+### Exportação de dados (16/11/2026)
+
+| Ponto | Decisão |
+|---|---|
+| Rota | `POST /exportacoes` devolve o arquivo. É POST porque o pedido tem listas (células, medidas, anexos); nada é gravado |
+| Dois modos | Com `id_experimento`: cada célula sai no período do cultivo dela (`iniciado_em` até `encerrado_em`, ou até agora), com `condicao` e `replica`; `celulas` restringe às escolhidas. Sem ele: `celulas`, `desde` e `ate` obrigatórios |
+| Acesso | Por experimento, qualquer acesso (404 sem acesso). Por célula, basta estar logado, como nas outras rotas de célula |
+| Agrupamento | `brutos`, `hora`, `dia` ou `intervalo` (`intervalo_min` de 1 a 1440). Os intervalos são contados a partir da meia-noite do `fuso` (`date_bin`), com média, mínimo, máximo e número de leituras |
+| Taxa de crescimento | Inclinação de ln(OD) no tempo dentro do intervalo, dividida por ln 2 (divisões por hora), a mesma conta do painel. Vazia com menos de duas leituras de OD positiva. Não existe nos dados brutos: pedir só a taxa em `brutos` dá 422; junto de outras medidas, ela é ignorada |
+| Formatos | `xlsx`: aba Dados e uma aba por anexo (`contexto` vira Metadados no modo experimento e Contexto no modo célula; `parametros`, `alertas`, `calibracoes`). `csv`: só os dados, com BOM, `;` e vírgula decimal; os anexos são ignorados |
+| Datas | Saem no `fuso` pedido (padrão `America/Sao_Paulo`), sem fuso no arquivo. Fuso desconhecido dá 422 |
+| Limites | Excel acima de 1.000.000 de linhas de dados dá 422. O CSV é enviado em pedaços, sem limite. Sem nenhuma leitura no período, 404 |
+| Contexto | No modo célula, lista só os cultivos de experimentos que a pessoa pode ver; os outros não aparecem, para não revelar que existem |
+| Arredondamento | Temperatura e pH com 3 casas, OD e taxa com 4, OD bruta com 2. O banco não muda |
+| `GET /celulas/{id}/leituras.csv` | Continua existindo, mas a interface não o usa mais |
+
 ### Calibração de OD ao vivo, com branco (10/11/2026)
 
 Regras do orientador para a nova calibração de OD, que passa a ler o sensor ao vivo. **O esquema do banco não mudou**: nenhuma tabela nem coluna nova. Tudo cabe em `leitura` (`od_bruto` e `seq` de cada medida) e em `calibracao` (`a`, `b`, `pontos`, `r2`, `organismo`).

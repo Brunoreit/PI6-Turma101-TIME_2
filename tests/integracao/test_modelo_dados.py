@@ -2081,3 +2081,167 @@ def test_alterar_celula_pela_api(ambiente, cenario, contas):
     assert ana.chamar("PATCH", f"/celulas/{outra}", {"apelido": "  "}).status_code == 422
     assert ana.chamar("PATCH", "/celulas/nao-existe", {"apelido": "x"}).status_code == 404
     assert ana.chamar("PATCH", f"/celulas/{celula}", {"apelido": None}).json()["apelido"] is None
+
+
+# ------------------------------------------------------------------ API: exportação
+
+FUSO = "America/Sao_Paulo"
+BRT = timedelta(hours=-3)
+
+
+def _proxima_hora() -> datetime:
+    """Uma hora cheia no futuro: as leituras do teste caem dentro do cultivo que acabou de abrir."""
+    return datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+
+def _crescer(conn, celula: str, inicio: datetime, quantas: int = 6) -> None:
+    """Uma leitura a cada 20 min, com a OD dobrando a cada hora (taxa de 1 divisão por hora)."""
+    curva = repo.curva_ativa(conn, celula)
+    for n in range(quantas):
+        repo.gravar_leitura(conn, celula, n, inicio + n * timedelta(minutes=20), 30.0 + n, 1000.0 + n,
+                            0.1 * 2 ** (n / 3), 7.0, curva)
+
+
+def _exportar(conta: "Conta", **pedido) -> requests.Response:
+    return conta.chamar("POST", "/exportacoes", {"medidas": ["temperatura", "od", "taxa"], "fuso": FUSO, **pedido})
+
+
+def _abas(resposta: requests.Response) -> dict[str, list[list]]:
+    """As abas do Excel devolvido, cada uma como lista de linhas sem as células vazias do fim."""
+    import io
+
+    from openpyxl import load_workbook
+
+    assert resposta.status_code == 200, resposta.text
+    livro = load_workbook(io.BytesIO(resposta.content))
+    return {aba.title: [list(linha) for linha in aba.iter_rows(values_only=True)] for aba in livro}
+
+
+def _linhas_csv(resposta: requests.Response) -> list[list[str]]:
+    assert resposta.status_code == 200, resposta.text
+    texto = resposta.content.decode("utf-8")
+    assert texto.startswith("﻿")
+    return [linha.split(";") for linha in texto.lstrip("﻿").strip().split("\r\n")]
+
+
+def test_exportar_experimento_em_excel_agrupado_por_hora(cenario, contas):
+    ana, henry, bia = contas
+    conn, celula, outra = cenario.conn, cenario.celulas[0], cenario.celulas[1]
+    e = _criar(ana, temperatura_alvo_c=None)["id_experimento"]
+    assert _iniciar(ana, e, celula, condicao="30 °C", replica=2).status_code == 201
+    inicio = _proxima_hora()
+    _crescer(conn, celula, inicio)
+    repo.criar_pedido(conn, f"sp-{uuid.uuid4().hex[:8]}", celula, 31.0, "Ana", id_pessoa=ana.id)
+    repo.abrir_alerta(conn, celula, "desvio_temperatura", "Temperatura fora do alvo")
+
+    resposta = _exportar(ana, id_experimento=e, agrupamento="hora",
+                         anexos=["contexto", "parametros", "alertas", "calibracoes"])
+    abas = _abas(resposta)
+    assert resposta.headers["Content-Disposition"].startswith(f'attachment; filename="EXP-{e:02d}_media-por-hora_')
+    assert list(abas) == ["Dados", "Metadados", "Parâmetros", "Alertas", "Calibrações"]
+
+    cabecalho, primeira, segunda = abas["Dados"]
+    assert cabecalho == ["celula", "condicao", "replica", "inicio_do_intervalo", "leituras",
+                         "temperatura_c_media", "temperatura_c_min", "temperatura_c_max",
+                         "od_media", "od_min", "od_max", "taxa_divisoes_por_hora"]
+    local = (inicio + BRT).replace(tzinfo=None)
+    assert primeira[:8] == [celula, "30 °C", 2, local, 3, 31.0, 30.0, 32.0]
+    assert segunda[:8] == [celula, "30 °C", 2, local + timedelta(hours=1), 3, 34.0, 33.0, 35.0]
+    assert (primeira[9], primeira[10]) == (0.1, round(0.1 * 2 ** (2 / 3), 4))
+    # A OD dobra a cada hora: 1 divisão por hora, nos dois intervalos.
+    assert primeira[11] == pytest.approx(1.0, abs=1e-3) and segunda[11] == pytest.approx(1.0, abs=1e-3)
+
+    metadados = abas["Metadados"]
+    assert ["codigo", f"EXP-{e:02d}"] in [linha[:2] for linha in metadados]
+    assert ["organismo", "E. coli K-12"] in [linha[:2] for linha in metadados]
+    assert [celula, "30 °C", 2, "em_andamento"] in [linha[1:5] for linha in metadados]
+    assert [linha[:4] for linha in abas["Parâmetros"][1:]] == [[celula, abas["Parâmetros"][1][1], 31.0, "Ana"]]
+    assert [linha[:3] for linha in abas["Alertas"][1:]] == [[celula, "desvio_temperatura", "Temperatura fora do alvo"]]
+    assert [(linha[0], linha[9]) for linha in abas["Calibrações"][1:]] == [(celula, 6)]
+
+    # Sem anexos, só a aba Dados. O intervalo livre agrupa de 20 em 20 min: uma leitura em cada, sem taxa.
+    so_dados = _abas(_exportar(ana, id_experimento=e, agrupamento="intervalo", intervalo_min=20))
+    assert list(so_dados) == ["Dados"] and len(so_dados["Dados"]) == 7
+    assert {(linha[4], linha[11]) for linha in so_dados["Dados"][1:]} == {(1, None)}
+
+    # Quem tem acesso de leitura exporta; quem não vê o experimento recebe 404.
+    assert ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": henry.email, "permissao": "leitura"}).status_code == 200
+    assert _exportar(henry, id_experimento=e, agrupamento="dia").status_code == 200
+    assert _exportar(bia, id_experimento=e, agrupamento="dia").status_code == 404
+
+    de_fora = _exportar(ana, id_experimento=e, celulas=[celula, outra])
+    assert de_fora.status_code == 422 and outra in _detalhe(de_fora)
+    repo.fechar_alerta(conn, celula, "desvio_temperatura")
+
+
+def test_exportar_experimento_em_csv_bruto(cenario, contas):
+    ana = contas[0]
+    conn, celula = cenario.conn, cenario.celulas[0]
+    e = _criar(ana, temperatura_alvo_c=None)["id_experimento"]
+    assert _iniciar(ana, e, celula, condicao="30 °C").status_code == 201
+    inicio = _proxima_hora()
+    _crescer(conn, celula, inicio)
+
+    # O CSV leva só os dados (os anexos são ignorados) e a taxa não existe nos dados brutos.
+    resposta = _exportar(ana, id_experimento=e, formato="csv", anexos=["alertas"])
+    linhas = _linhas_csv(resposta)
+    assert resposta.headers["Content-Type"].startswith("text/csv")
+    assert f"EXP-{e:02d}_dados-brutos_" in resposta.headers["Content-Disposition"]
+    assert linhas[0] == ["celula", "condicao", "replica", "data_hora", "temperatura_c", "od"]
+    assert len(linhas) == 7
+    assert linhas[1] == [celula, "30 °C", "", (inicio + BRT).strftime("%Y-%m-%d %H:%M:%S"), "30,0", "0,1"]
+
+    # Experimento sem células e experimento sem leituras.
+    vazio = _criar(ana, temperatura_alvo_c=None)["id_experimento"]
+    sem_celulas = _exportar(ana, id_experimento=vazio)
+    assert sem_celulas.status_code == 422 and "ainda não tem células" in _detalhe(sem_celulas)
+    assert _iniciar(ana, vazio, cenario.celulas[1]).status_code == 201
+    sem_leituras = _exportar(ana, id_experimento=vazio)
+    assert sem_leituras.status_code == 404 and "Nenhuma leitura" in _detalhe(sem_leituras)
+
+
+def test_exportar_por_celula_e_periodo(cenario, contas):
+    ana, _, bia = contas
+    conn, celula, outra = cenario.conn, cenario.celulas[0], cenario.celulas[1]
+    e = _criar(ana, temperatura_alvo_c=None)["id_experimento"]
+    assert _iniciar(ana, e, celula).status_code == 201
+    inicio = _proxima_hora()
+    _crescer(conn, celula, inicio)
+    _crescer(conn, outra, inicio, quantas=2)
+    periodo = {"desde": inicio.isoformat(), "ate": (inicio + timedelta(hours=1)).isoformat()}
+
+    # Só a primeira hora, das duas células: 3 leituras de uma e 2 da outra, sem condição nem réplica.
+    resposta = _exportar(ana, celulas=[outra, celula, celula], formato="csv", medidas=["od_bruta", "ph"], **periodo)
+    linhas = _linhas_csv(resposta)
+    assert f'filename="celulas_{celula}-{outra}_dados-brutos_' in resposta.headers["Content-Disposition"]
+    assert linhas[0] == ["celula", "data_hora", "ph", "od_bruto"]
+    assert [linha[0] for linha in linhas[1:]] == [celula] * 3 + [outra] * 2
+    assert linhas[1][2:] == ["7,0", "1000,0"]
+
+    # Contexto: o experimento em que a célula estava aparece para quem pode vê-lo, e só para ele.
+    contexto = {"agrupamento": "hora", "anexos": ["contexto"], "celulas": [celula], **periodo}
+    da_ana = _abas(_exportar(ana, **contexto))["Contexto"]
+    assert da_ana[1][:2] == [celula, f"EXP-{e:02d} · {FICHA['nome']}"]
+    da_bia = _abas(_exportar(bia, **contexto))
+    assert len(da_bia["Dados"]) == 2
+    assert not any(linha[0] == celula for linha in da_bia["Contexto"][1:])
+
+    # Dia no fuso pedido: a mesma hora cai em dias diferentes em São Paulo e em Tóquio.
+    dia = lambda fuso: _abas(_exportar(ana, celulas=[celula], agrupamento="dia", **{**periodo, "fuso": fuso}))["Dados"][1][1]
+    assert dia(FUSO) == (inicio + BRT).replace(tzinfo=None, hour=0)
+    assert dia("Asia/Tokyo") == (inicio + timedelta(hours=9)).replace(tzinfo=None, hour=0)
+
+    for corpo, status, trecho in [
+        ({"celulas": ["nao-existe"], **periodo}, 404, "não encontrada"),
+        ({"celulas": [celula], **periodo, "fuso": "Marte/Olimpo"}, 422, "Fuso Marte/Olimpo desconhecido"),
+        ({"celulas": [celula], "desde": (inicio - 2 * DIA).isoformat(), "ate": (inicio - DIA).isoformat()},
+         404, "Nenhuma leitura"),
+        ({"celulas": [celula], "desde": periodo["ate"], "ate": periodo["desde"]}, 422, "desde antes de ate"),
+        ({"celulas": [celula], **periodo, "medidas": ["taxa"]}, 422, "só existe nos dados agrupados"),
+        ({"celulas": [celula], **periodo, "medidas": []}, 422, ""),
+        ({"celulas": [celula], **periodo, "agrupamento": "intervalo"}, 422, "intervalo_min"),
+    ]:
+        resposta = _exportar(ana, **corpo)
+        assert resposta.status_code == status, (corpo, resposta.text)
+        assert trecho in resposta.text, (corpo, resposta.text)
+

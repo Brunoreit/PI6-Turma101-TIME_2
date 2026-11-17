@@ -1,12 +1,13 @@
 // Telas "Exportar dados" e "Exportar dados · por célula e período" do Figma
 // (nós 86:1336 e 211:1928), escolhidas pelo seletor "O que exportar".
-// Hoje a API só exporta as leituras brutas de uma célula em CSV
-// (GET /celulas/{id}/leituras.csv). Os outros formatos e agrupamentos ficam
-// como no Figma, mas o botão explica que ainda não estão disponíveis.
+// O arquivo vem do POST /exportacoes: por experimento, cada célula no período
+// em que esteve nele; por célula, o período escolhido. A API agrupa, calcula
+// a taxa e monta o Excel (com os anexos em abas) ou o CSV (só os dados).
+// Gráficos para publicação ainda não existem na API.
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { baixarLeiturasCsv } from "@/api/cliente";
+import { exportarDados, type PedidoDeExportacao } from "@/api/cliente";
 import arquivo12 from "@/assets/icones/arquivo-12.svg";
 import arquivo16 from "@/assets/icones/arquivo-16.svg";
 import baixar from "@/assets/icones/baixar-16.svg";
@@ -17,10 +18,12 @@ import { Botao } from "@/compartilhado/componentes/Botao";
 import { CaixaDeSelecao } from "@/compartilhado/componentes/CaixaDeSelecao";
 import { Campo } from "@/compartilhado/componentes/Campo";
 import * as formatar from "@/compartilhado/formatar";
+import { FONTE_DADOS } from "@/dados/fonte";
 import { celulasIniciais, useCelulas } from "@/dados/useCelulas";
 import { useExperimentos } from "@/funcionalidades/experimentos/ExperimentosProvider";
 import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
 import { fechado, ROTULO_DO_STATUS } from "@/funcionalidades/experimentos/modelo";
+import { useSessao } from "@/sessao/SessaoProvider";
 import estilos from "./Exportar.module.css";
 
 type Modo = "experimento" | "celula";
@@ -40,6 +43,49 @@ const AGRUPAMENTOS: { valor: Exclude<Agrupamento, "intervalo">; titulo: string; 
 function paraEntrada(data: Date): string {
   const local = new Date(data.getTime() - data.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
+}
+
+/** Uma exportação já feita neste navegador, para baixar de novo. */
+interface Recente {
+  nome: string;
+  quando: string;
+  por: string;
+  pedido: PedidoDeExportacao;
+}
+
+const CHAVE_DAS_RECENTES = "tupa.exportacoes";
+const MAXIMO_DE_RECENTES = 5;
+
+// As do Figma, para o modo exemplo.
+const RECENTES_DE_EXEMPLO = [
+  { nome: "EXP-02 · média por hora · .xlsx", detalhe: "22/10 às 17:40 · Pedro Ximenes" },
+  { nome: "EXP-04 · dados brutos · .csv", detalhe: "30/09 às 09:12 · Henry Piozzi" },
+];
+
+function lerRecentes(): Recente[] {
+  try {
+    const guardadas = JSON.parse(localStorage.getItem(CHAVE_DAS_RECENTES) ?? "[]");
+    return Array.isArray(guardadas) ? guardadas : [];
+  } catch {
+    return [];
+  }
+}
+
+function guardarRecentes(recentes: Recente[]): void {
+  try {
+    localStorage.setItem(CHAVE_DAS_RECENTES, JSON.stringify(recentes));
+  } catch {
+    // Sem armazenamento (janela anônima, por exemplo): a lista vale só até fechar a tela.
+  }
+}
+
+function salvarArquivo(arquivo: Blob, nome: string): void {
+  const endereco = URL.createObjectURL(arquivo);
+  const link = document.createElement("a");
+  link.href = endereco;
+  link.download = nome;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(endereco), 1000);
 }
 
 function listaDeCelulas(ids: string[]): string {
@@ -65,12 +111,14 @@ export function Exportar() {
   // A lista da API não traz as células; o detalhe do experimento escolhido traz.
   const experimentos = lista.map((e) => buscar(e.codigo) ?? e);
   const { ids: todasAsCelulas, nome } = useCelulas();
+  const { usuario } = useSessao();
   const [parametros] = useSearchParams();
   const agora = useMemo(() => new Date(), []);
   const [modo, setModo] = useState<Modo>(parametros.get("celulas") ? "celula" : "experimento");
   const [codigo, setCodigo] = useState(parametros.get("experimento") ?? experimentos[0]?.codigo ?? "");
   const experimento = experimentos.find((e) => e.codigo === codigo);
-  const celulasDoExperimento = experimento?.celulas.map((c) => c.id) ?? [];
+  // Uma célula que voltou ao experimento tem dois cultivos, mas aparece uma vez só.
+  const celulasDoExperimento = [...new Set(experimento?.celulas.map((c) => c.id) ?? [])];
   const [doExperimento, setDoExperimento] = useState<string[] | "todas">("todas");
   // `null`: ainda não mexeu, vale a escolha inicial (que depende das células carregadas).
   const [escolhaAvulsa, setAvulsas] = useState<string[] | null>(parametros.get("celulas")?.split(",") ?? null);
@@ -89,6 +137,7 @@ export function Exportar() {
   const [grafico, setGrafico] = useState<"png" | "svg" | "pdf">("svg");
   const [baixando, setBaixando] = useState(false);
   const [erroDoDownload, setErroDoDownload] = useState<string | null>(null);
+  const [recentes, setRecentes] = useState<Recente[]>(lerRecentes);
 
   const escolhidas = modo === "experimento" ? (doExperimento === "todas" ? celulasDoExperimento : doExperimento) : avulsas;
 
@@ -112,31 +161,87 @@ export function Exportar() {
     ...(anexos.calibracoes ? ["Calibrações"] : []),
   ];
 
-  // O que a API já sabe fazer: leituras brutas em CSV, um arquivo por célula.
-  const disponivel = formato === "csv" && agrupamento === "brutos";
-  const motivo = disponivel
-    ? undefined
-    : "Ainda não disponível: a API só exporta as leituras brutas em CSV. Escolha Dados brutos e CSV.";
+  // A taxa é a inclinação de ln(OD) dentro de cada intervalo: não existe numa leitura só.
+  const brutos = agrupamento === "brutos";
+  const medidasDoPedido: PedidoDeExportacao["medidas"] = [
+    ...(medidas.temperatura ? (["temperatura"] as const) : []),
+    ...(medidas.ph ? (["ph"] as const) : []),
+    ...(medidas.od ? (["od"] as const) : []),
+    ...(medidas.odBruta ? (["od_bruta"] as const) : []),
+    ...(medidas.taxa && !brutos ? (["taxa"] as const) : []),
+  ];
+  const intervaloValido = Number.isInteger(Number(intervalo)) && Number(intervalo) >= 1 && Number(intervalo) <= 1440;
+
+  // Por que o botão não exporta, se for o caso.
+  const motivo =
+    FONTE_DADOS !== "api"
+      ? "O modo exemplo não tem leituras para exportar. Suba a interface com VITE_FONTE_DADOS=api."
+      : escolhidas.length === 0
+        ? "Escolha pelo menos uma célula."
+        : medidasDoPedido.length === 0
+          ? medidas.taxa
+            ? "A taxa de crescimento só entra nos arquivos agrupados. Escolha outra medida ou um agrupamento."
+            : "Escolha pelo menos uma medida."
+          : modo === "celula" && !(inicio.getTime() < fim.getTime())
+            ? "O período precisa terminar depois de começar."
+            : agrupamento === "intervalo" && !intervaloValido
+              ? "O intervalo vai de 1 a 1440 minutos, sem casas decimais."
+              : undefined;
+
+  const semAnexos = formato === "csv" ? "Os anexos são abas do Excel. O CSV leva só os dados." : undefined;
+
+  function montarPedido(): PedidoDeExportacao {
+    return {
+      ...(modo === "experimento"
+        ? { id_experimento: experimento?.id, ...(doExperimento === "todas" ? {} : { celulas: escolhidas }) }
+        : { celulas: escolhidas, desde: inicio.toISOString(), ate: fim.toISOString() }),
+      medidas: medidasDoPedido,
+      agrupamento,
+      ...(agrupamento === "intervalo" ? { intervalo_min: Number(intervalo) } : {}),
+      formato,
+      // O CSV leva só os dados; os anexos são abas do Excel.
+      anexos:
+        formato === "csv"
+          ? []
+          : (["contexto", "parametros", "alertas", "calibracoes"] as const).filter((anexo) => anexos[anexo]),
+      // As datas do arquivo saem no fuso deste computador.
+      fuso: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo",
+    };
+  }
 
   // A rota exige login: o arquivo vem pela chamada com token e o navegador
-  // salva o que chegou.
-  async function exportar() {
+  // salva o que chegou. `rotulo` é o nome na lista de recentes; sem ele, é
+  // um "baixar de novo", que não entra na lista outra vez.
+  async function baixarArquivo(pedido: PedidoDeExportacao, rotulo?: string) {
+    if (baixando) return;
     setErroDoDownload(null);
     setBaixando(true);
     try {
-      for (const id of escolhidas) {
-        const endereco = URL.createObjectURL(await baixarLeiturasCsv(id));
-        const link = document.createElement("a");
-        link.href = endereco;
-        link.download = `${id}.csv`;
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(endereco), 1000);
+      const { arquivo, nome: nomeDoArquivo } = await exportarDados(pedido);
+      salvarArquivo(arquivo, nomeDoArquivo);
+      if (rotulo) {
+        const novas = [
+          { nome: rotulo, quando: new Date().toISOString(), por: usuario?.nome ?? "", pedido },
+          ...recentes.filter((r) => r.nome !== rotulo),
+        ].slice(0, MAXIMO_DE_RECENTES);
+        setRecentes(novas);
+        guardarRecentes(novas);
       }
     } catch (falha) {
       setErroDoDownload(mensagemDoErro(falha));
     } finally {
       setBaixando(false);
     }
+  }
+
+  function exportar() {
+    const origem =
+      modo === "experimento"
+        ? `${codigo}${doExperimento === "todas" ? "" : ` · ${escolhidas.length} de ${celulasDoExperimento.length} células`}`
+        : escolhidas.length <= 3
+          ? escolhidas.map(nome).join(", ")
+          : `${escolhidas.length} células`;
+    return baixarArquivo(montarPedido(), `${origem} · ${rotuloAgrupamento} · .${formato}`);
   }
 
   function alternarDoExperimento(id: string) {
@@ -256,7 +361,14 @@ export function Exportar() {
                 <CaixaDeSelecao marcada={medidas.temperatura} onChange={(v) => setMedidas({ ...medidas, temperatura: v })}>Temperatura</CaixaDeSelecao>
                 <CaixaDeSelecao marcada={medidas.ph} onChange={(v) => setMedidas({ ...medidas, ph: v })}>pH</CaixaDeSelecao>
                 <CaixaDeSelecao marcada={medidas.od} onChange={(v) => setMedidas({ ...medidas, od: v })}>Densidade óptica</CaixaDeSelecao>
-                <CaixaDeSelecao marcada={medidas.taxa} onChange={(v) => setMedidas({ ...medidas, taxa: v })}>Taxa de crescimento</CaixaDeSelecao>
+                <CaixaDeSelecao
+                  marcada={medidas.taxa && !brutos}
+                  desabilitada={brutos}
+                  titulo={brutos ? "A taxa é calculada dentro de cada intervalo: só entra nos arquivos agrupados." : undefined}
+                  onChange={(v) => setMedidas({ ...medidas, taxa: v })}
+                >
+                  {brutos ? "Taxa de crescimento · só nos agrupados" : "Taxa de crescimento"}
+                </CaixaDeSelecao>
                 <CaixaDeSelecao marcada={medidas.odBruta} onChange={(v) => setMedidas({ ...medidas, odBruta: v })}>OD bruta do sensor</CaixaDeSelecao>
                 <CaixaDeSelecao marcada={false} desabilitada titulo="A placa ainda não manda esses dados.">
                   Agitação e volume · em breve
@@ -303,20 +415,22 @@ export function Exportar() {
               <Opcao ativa={formato === "csv"} onClick={() => setFormato("csv")}>CSV</Opcao>
             </div>
             <div className={estilos.grupo}>
-              <span className={estilos.rotulo}>Incluir no arquivo</span>
+              <span className={estilos.rotulo}>
+                {formato === "csv" ? "Incluir no arquivo · só no Excel, o CSV leva só os dados" : "Incluir no arquivo"}
+              </span>
               <div className={estilos.anexos}>
-                <CaixaDeSelecao marcada={anexos.contexto} onChange={(v) => setAnexos({ ...anexos, contexto: v })}>
+                <CaixaDeSelecao marcada={anexos.contexto && formato === "xlsx"} desabilitada={formato === "csv"} titulo={semAnexos} onChange={(v) => setAnexos({ ...anexos, contexto: v })}>
                   {modo === "experimento"
                     ? "Metadados do experimento (organismo, meio, volume, fases)"
                     : "Experimentos em que as células estavam no período, se houver"}
                 </CaixaDeSelecao>
-                <CaixaDeSelecao marcada={anexos.parametros} onChange={(v) => setAnexos({ ...anexos, parametros: v })}>
+                <CaixaDeSelecao marcada={anexos.parametros && formato === "xlsx"} desabilitada={formato === "csv"} titulo={semAnexos} onChange={(v) => setAnexos({ ...anexos, parametros: v })}>
                   Histórico de parâmetros: quem mudou, quando e para quanto
                 </CaixaDeSelecao>
-                <CaixaDeSelecao marcada={anexos.alertas} onChange={(v) => setAnexos({ ...anexos, alertas: v })}>
+                <CaixaDeSelecao marcada={anexos.alertas && formato === "xlsx"} desabilitada={formato === "csv"} titulo={semAnexos} onChange={(v) => setAnexos({ ...anexos, alertas: v })}>
                   Alertas do período
                 </CaixaDeSelecao>
-                <CaixaDeSelecao marcada={anexos.calibracoes} onChange={(v) => setAnexos({ ...anexos, calibracoes: v })}>
+                <CaixaDeSelecao marcada={anexos.calibracoes && formato === "xlsx"} desabilitada={formato === "csv"} titulo={semAnexos} onChange={(v) => setAnexos({ ...anexos, calibracoes: v })}>
                   Calibrações de OD usadas
                 </CaixaDeSelecao>
               </div>
@@ -350,7 +464,7 @@ export function Exportar() {
               </div>
               <div>
                 <dt>Formato</dt>
-                <dd>{formato === "xlsx" ? `Excel, ${abas.length} abas` : `CSV, ${escolhidas.length} ${escolhidas.length === 1 ? "arquivo" : "arquivos"}`}</dd>
+                <dd>{formato === "xlsx" ? `Excel, ${abas.length} ${abas.length === 1 ? "aba" : "abas"}` : "CSV, 1 arquivo"}</dd>
               </div>
             </dl>
             {formato === "xlsx" && (
@@ -367,11 +481,12 @@ export function Exportar() {
               tipo="primario"
               cheio
               ocupado={baixando}
-              indisponivel={escolhidas.length === 0 ? "Escolha pelo menos uma célula." : motivo}
+              indisponivel={motivo}
               onClick={exportar}
             >
               {baixando ? "Baixando..." : formato === "xlsx" ? "Exportar Excel" : "Exportar CSV"}
             </Botao>
+            {motivo && <p className={estilos.ajuda}>{motivo}</p>}
             {erroDoDownload && (
               <p className={estilos.erroDoDownload} role="alert">
                 {erroDoDownload}
@@ -381,7 +496,7 @@ export function Exportar() {
               <img src={iconeInfo} width={14} height={14} alt="" />
               <p>
                 {modo === "experimento"
-                  ? "Dados com mais de 4 meses vêm do arquivo no servidor e podem demorar alguns minutos. Nesse caso, você recebe um e-mail quando o arquivo ficar pronto."
+                  ? "Cada célula sai no período em que esteve no experimento. As datas do arquivo ficam no horário deste computador."
                   : "As medições vêm direto do historiador, sem depender de experimento. Bom para a engenharia avaliar o equipamento."}
               </p>
             </div>
@@ -414,21 +529,39 @@ export function Exportar() {
 
           <section className={estilos.painel}>
             <h2 className={estilos.painelTitulo}>Exportações recentes</h2>
-            {[
-              { nome: "EXP-02 · média por hora · .xlsx", detalhe: "22/10 às 17:40 · Pedro Ximenes" },
-              { nome: "EXP-04 · dados brutos · .csv", detalhe: "30/09 às 09:12 · Henry Piozzi" },
-            ].map((r) => (
-              <div key={r.nome} className={estilos.recente}>
-                <img src={arquivo16} width={16} height={16} alt="" />
-                <span className={estilos.recenteTextos}>
-                  <span className={estilos.recenteNome}>{r.nome}</span>
-                  <span>{r.detalhe}</span>
-                </span>
-                <button type="button" className={estilos.baixar} title="Ainda não disponível: a API não guarda as exportações." aria-disabled>
-                  <img src={baixar} width={16} height={16} alt="Baixar de novo" />
-                </button>
-              </div>
-            ))}
+            {FONTE_DADOS !== "api" ? (
+              RECENTES_DE_EXEMPLO.map((r) => (
+                <div key={r.nome} className={estilos.recente}>
+                  <img src={arquivo16} width={16} height={16} alt="" />
+                  <span className={estilos.recenteTextos}>
+                    <span className={estilos.recenteNome}>{r.nome}</span>
+                    <span>{r.detalhe}</span>
+                  </span>
+                  <button type="button" className={estilos.baixar} title="O modo exemplo não tem leituras para exportar." aria-disabled>
+                    <img src={baixar} width={16} height={16} alt="Baixar de novo" />
+                  </button>
+                </div>
+              ))
+            ) : recentes.length === 0 ? (
+              <p className={estilos.ajuda}>Nenhuma exportação feita neste navegador ainda.</p>
+            ) : (
+              // A API não guarda os arquivos: baixar de novo refaz o mesmo pedido, com os dados de agora.
+              recentes.map((r) => (
+                <div key={r.nome} className={estilos.recente}>
+                  <img src={arquivo16} width={16} height={16} alt="" />
+                  <span className={estilos.recenteTextos}>
+                    <span className={estilos.recenteNome}>{r.nome}</span>
+                    <span>
+                      {formatar.diaHora(new Date(r.quando))}
+                      {r.por && ` · ${r.por}`}
+                    </span>
+                  </span>
+                  <button type="button" className={estilos.baixar} title="Baixar de novo, com os dados de agora" onClick={() => baixarArquivo(r.pedido)}>
+                    <img src={baixar} width={16} height={16} alt="Baixar de novo" />
+                  </button>
+                </div>
+              ))
+            )}
           </section>
         </aside>
       </div>

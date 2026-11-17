@@ -267,13 +267,34 @@ export function cancelarCultivo(id: number, motivo: string): Promise<CultivoApi>
   return enviar(`/cultivos/${id}/cancelar`, { motivo });
 }
 
-/** Leituras medidas no período do cultivo, da mais nova para a mais antiga. */
-/** O CSV com todas as leituras da célula. Vem pela chamada com token, e não
- *  por um link direto, porque a rota exige login. */
-export async function baixarLeiturasCsv(idCelula: string): Promise<Blob> {
-  return (await requisitar(`/celulas/${encodeURIComponent(idCelula)}/leituras.csv`)).blob();
+/** O que a tela Exportar pede ao POST /exportacoes. Por experimento, cada
+ *  célula sai no período em que esteve nele; por célula, vale desde e ate. */
+export interface PedidoDeExportacao {
+  id_experimento?: number;
+  celulas?: string[];
+  desde?: string;
+  ate?: string;
+  medidas: ("temperatura" | "ph" | "od" | "od_bruta" | "taxa")[];
+  agrupamento: "brutos" | "hora" | "dia" | "intervalo";
+  intervalo_min?: number;
+  formato: "xlsx" | "csv";
+  anexos: ("contexto" | "parametros" | "alertas" | "calibracoes")[];
+  fuso: string;
 }
 
+/** O arquivo da exportação e o nome que a API deu a ele. Vem pela chamada
+ *  com token, e não por um link direto, porque a rota exige login. */
+export async function exportarDados(pedido: PedidoDeExportacao): Promise<{ arquivo: Blob; nome: string }> {
+  const resposta = await requisitar("/exportacoes", undefined, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(pedido),
+  });
+  const nome = /filename="([^"]+)"/.exec(resposta.headers.get("Content-Disposition") ?? "")?.[1];
+  return { arquivo: await resposta.blob(), nome: nome ?? `exportacao.${pedido.formato}` };
+}
+
+/** Leituras medidas no período do cultivo, da mais nova para a mais antiga. */
 export function listarLeiturasDoCultivo(
   id: number, opcoes: { desde?: Date; limite?: number } = {}, sinal?: AbortSignal,
 ): Promise<LeituraApi[]> {
