@@ -137,7 +137,7 @@ Para cada falha simulada, o relatório traz:
 - as leituras medidas durante a falha, e quantas chegaram depois, guardadas pela célula ou pelo broker;
 - os `seq` que faltam.
 
-Depois vêm todos os alertas do período e a integridade por célula. A etapa 16 do ponta a ponta gera o mesmo relatório para as falhas do roteiro e falha se alguma não der OK.
+Depois vêm todos os alertas do período e a integridade por célula. A última etapa do ponta a ponta gera o mesmo relatório para as falhas do roteiro e falha se alguma não der OK.
 
 ### Zerar e começar com dados de demonstração
 
@@ -183,13 +183,16 @@ Como a curva é calculada: o branco não é ponto da reta, só é descontado (x 
 
 | Alerta | Como provocar | Quando abre e fecha |
 |---|---|---|
-| `desvio_temperatura` | `temp 38.5` numa célula com setpoint atingido (c01, 30 °C) | abre em ~10 s; `auto` volta e fecha |
-| `ph_fora_da_faixa` | `ph 5.5` numa célula com **cultivo aberto** (c01: faixa 6,6 a 7,2) | abre em ~10 s; `auto` fecha |
+| `desvio_temperatura` | `temp 38.5` numa célula com setpoint atingido (c01, 30 °C) | abre em ~1 min, depois de `ALERTA_PERSISTENCIA_S` (60 s) sem nenhuma leitura perto do alvo; `auto` volta e fecha |
+| `desvio_temperatura` (setpoint não atingido) | `cenario falha_aquecimento` e um setpoint novo pela interface | a célula aplica, a temperatura não chega e o alerta abre após `SETPOINT_ATINGIR_S` (15 min); `cenario normal` conserta e fecha |
+| `ph_fora_da_faixa` | `ph 5.5` numa célula com **cultivo aberto** (c01: faixa 6,6 a 7,2) | abre em ~1 min (`ALERTA_PERSISTENCIA_S`); `auto` fecha |
 | `setpoint_sem_confirmacao` | `cenario ignorar_setpoint` e um setpoint novo pela interface | abre após `SETPOINT_TIMEOUT_S` (120 s); fecha quando um pedido mais novo é confirmado |
 | `sem_comunicacao` | `rede 120` (corta a rede por 120 s, sem aviso ao broker) | abre em ~45 s, quando o broker declara a célula offline; fecha quando a rede volta, e as leituras guardadas são reenviadas |
-| `colisao_seq` | `colisao` (o último seq de novo, com outro horário) | abre na hora; não fecha sozinho |
+| `colisao_seq` | `colisao` (o último seq de novo, com outro horário) | abre na hora; não fecha sozinho: o botão "Fechar alerta" da tela Alertas fecha e grava quem fechou |
 | `broker_inacessivel` (sistema) | `servidor 120` ou `broker 60` | abre em ~20 s (broker parado) ou ~1 min (rede cortada); fecha quando o consumidor reconecta |
 | `consumidor_parado` (sistema) | `consumidor 60` | abre em ~30 s; fecha quando ele volta |
+
+Temperatura e pH só abrem alerta quando nenhuma leitura dos últimos `ALERTA_PERSISTENCIA_S` esteve dentro da faixa, então uma leitura ruidosa sozinha não abre nada (`ALERTA_PERSISTENCIA_S=0` no `.env` volta a abrir pela última leitura, útil para demonstrar). Com o alerta aberto, a mensagem acompanha o valor medido.
 
 Com a rede cortada a célula não ouve o broker, por isso ela volta sozinha depois do tempo pedido. Para ver as células responderem a uma mudança, mande um setpoint pela interface: o pedido passa por solicitado, recebido, aplicado e, quando a temperatura chega, atingido.
 
@@ -226,7 +229,8 @@ Use `MANTER_AMBIENTE=1` para não apagar o ambiente e os logs ao final.
 | 13 | A c01 num cultivo com faixa de pH que exclui o pH simulado | O alerta de pH abre, fecha quando a faixa muda e fecha ao encerrar o cultivo |
 | 14 | Cultivo na c02 iniciado pela API, em experimento com temperatura alvo de 33 °C | O pedido de setpoint sai com o nome de quem iniciou e chega a aplicado |
 | 15 | O broker para e alguém inicia um cultivo com temperatura alvo | A API recusa (503) sem gravar nada; sem temperatura alvo, o cultivo começa |
-| 16 | Conferência final | Para cada célula, total = seq distintos = esperado |
+| 16 | A c01 aplica um setpoint de 42 °C com o aquecedor sem funcionar | O pedido fica em aplicado e abre `desvio_temperatura` dizendo que a temperatura não chegou; consertado, o pedido vira atingido e o alerta fecha |
+| 17 | Conferência final e relatório de falhas | Para cada célula, total = seq distintos = esperado; cada falha do roteiro abriu e fechou o alerta certo |
 
 A conferência de integridade é esta consulta:
 

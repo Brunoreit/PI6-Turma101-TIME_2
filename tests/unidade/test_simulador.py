@@ -1,6 +1,8 @@
 import json
 from unittest.mock import MagicMock
 
+import pytest
+
 from simulador.buffer import Buffer
 from simulador.celula import Celula
 from simulador.modelo import ModeloCultivo
@@ -245,3 +247,71 @@ def test_enlace_repassa_nos_dois_sentidos_e_fecha_junto():
         enlace.close()
 
     asyncio.run(roteiro())
+
+
+# ------------------------------------------------------------------ roteiro de 90 dias
+
+
+def test_roteiro_nao_tem_cultivos_sobrepostos_na_mesma_celula():
+    from simulador import roteiro
+
+    por_celula: dict[str, list] = {}
+    for c in roteiro.CULTIVOS:
+        por_celula.setdefault(c.celula, []).append(c)
+    for cultivos in por_celula.values():
+        cultivos.sort(key=lambda c: -c.inicio)
+        assert all(a.fim is not None and a.fim >= b.inicio for a, b in zip(cultivos, cultivos[1:]))
+    experimentos = {e.id: e for e in roteiro.EXPERIMENTOS}
+    assert len(experimentos) == 7
+    for c in roteiro.CULTIVOS:
+        e = experimentos[c.experimento]
+        assert e.inicio >= c.inicio and (e.fim or 0) <= (c.fim or 0), (e.nome, c.celula)
+        assert (c.fim is None) == (e.status == "em_andamento")
+
+
+def test_roteiro_emenda_no_perfil_e_fica_na_faixa_de_ph():
+    from simulador import roteiro
+    from simulador.perfis import PERFIS_PADRAO
+
+    # Agora: cada célula em cultivo está na OD e no pH do perfil dela.
+    for c in roteiro.CULTIVOS:
+        if c.fim is None:
+            perfil = PERFIS_PADRAO[c.celula]
+            _, od, _ = roteiro.valores(c.celula, 1e-6)
+            assert od == pytest.approx(perfil.od_inicial, rel=0.03), c.celula
+
+    # Fora dos eventos, o pH de cada cultivo fica dentro da faixa do experimento.
+    experimentos = {e.id: e for e in roteiro.EXPERIMENTOS}
+    eventos = [(e.celula, e.inicio, e.inicio - e.duracao_h / 24) for e in roteiro.EVENTOS if e.grandeza == "ph"]
+    for passo in range(1, roteiro.DIAS * 6):
+        dias = passo / 6
+        for id_celula in PERFIS_PADRAO:
+            c = roteiro.cultivo_em(id_celula, dias)
+            temperatura, od, ph = roteiro.valores(id_celula, dias)
+            assert 0 < od < 2.0 and 20 <= temperatura <= 46
+            if c and not any(cel == id_celula and ini >= dias > fim for cel, ini, fim in eventos):
+                e = experimentos[c.experimento]
+                assert e.ph_min <= ph <= e.ph_max, (id_celula, dias, ph)
+
+
+def test_roteiro_mostra_os_eventos_nas_leituras():
+    from simulador import roteiro
+
+    normal, _, _ = roteiro.valores("c14", 50.5)
+    no_evento, _, _ = roteiro.valores("c14", 49.95)
+    assert no_evento - normal == pytest.approx(3.2, abs=0.01)
+    _, _, ph = roteiro.valores("c06", 56.9)
+    assert ph < 6.5
+
+
+def test_historico_de_90_dias_segue_o_roteiro(tmp_path):
+    from contrato import Leitura
+
+    c = Celula(id_celula="c01", buffer_dir=tmp_path, historico_horas=90 * 24, historico_passo_min=20)
+    assert c._gerar_historico() == 6480
+    leituras = [Leitura.de_json(p) for _, p in c.buffer.pendentes()]
+    assert [l.seq for l in leituras] == list(range(6480))
+    # Há 36 dias a c01 estava no EXP-06, a 42 °C; há 80, no EXP-04, a 30 °C.
+    ha = lambda dias: leituras[6480 - int(dias * 72)]
+    assert ha(36).temperatura_c == pytest.approx(42, abs=0.5)
+    assert ha(80).temperatura_c == pytest.approx(30, abs=0.5)

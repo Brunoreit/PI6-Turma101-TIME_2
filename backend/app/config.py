@@ -26,6 +26,13 @@ class Config:
     setpoint_timeout_s: float = _float("SETPOINT_TIMEOUT_S", 120)
     tolerancia_atingido_c: float = _float("TOLERANCIA_ATINGIDO_C", 0.5)
     desvio_max_c: float = _float("DESVIO_MAX_C", 2.0)
+    # Depois de aplicado, o setpoint tem este tempo para a temperatura chegar
+    # perto do alvo. Passado ele, vale a regra de desvio de temperatura.
+    setpoint_atingir_s: float = _float("SETPOINT_ATINGIR_S", 900)
+    # Temperatura e pH só abrem alerta se nenhuma leitura dos últimos
+    # ALERTA_PERSISTENCIA_S esteve dentro da faixa. Uma leitura ruidosa
+    # sozinha não abre. 0 volta a olhar só a última leitura.
+    alerta_persistencia_s: float = _float("ALERTA_PERSISTENCIA_S", 60)
 
     # Sinal de vida. O consumidor grava a cada SINAL_VIDA_S; sem sinal há
     # mais de SINAL_VIDA_LIMITE_S ele é dado como parado (alerta

@@ -107,8 +107,21 @@ export function listarCelulas(sinal?: AbortSignal): Promise<CelulaApi[]> {
   return buscar("/celulas", sinal);
 }
 
-export function listarAlertas(sinal?: AbortSignal, abertos = true): Promise<AlertaApi[]> {
-  return buscar(`/alertas?abertos=${abertos}`, sinal);
+/** `idCelula` "sistema" traz os alertas sem célula (consumidor e broker). */
+export function listarAlertas(
+  sinal?: AbortSignal,
+  abertos = true,
+  filtros: { idCelula?: string; tipo?: string } = {},
+): Promise<AlertaApi[]> {
+  const parametros = new URLSearchParams({ abertos: String(abertos) });
+  if (filtros.idCelula) parametros.set("id_celula", filtros.idCelula);
+  if (filtros.tipo) parametros.set("tipo", filtros.tipo);
+  return buscar(`/alertas?${parametros}`, sinal);
+}
+
+/** Só para o alerta que nenhuma regra fecha (colisao_seq); os outros dão 409. */
+export function fecharAlerta(id: number): Promise<AlertaApi> {
+  return enviar(`/alertas/${id}/fechar`, {});
 }
 
 export function listarLeituras(

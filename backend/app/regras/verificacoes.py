@@ -25,10 +25,15 @@ def _consumidor(conn: psycopg.Connection, cfg: Config) -> dict | None:
                -- mandar algo depois da volta.
                broker_conectado
                AND broker_desde >= now() - make_interval(secs => %s) AS reconectou_agora,
-               broker_conectado
+               broker_conectado,
+               -- As regras acabaram de subir: o sinal que está no banco pode
+               -- ser de antes de o sistema parar, e o consumidor ainda não
+               -- teve tempo de gravar o primeiro.
+               COALESCE((SELECT iniciado_em FROM processo WHERE nome = 'regras')
+                        > now() - make_interval(secs => %s), false) AS regras_subiram_agora
           FROM processo WHERE nome = 'consumidor'
         """,
-        (cfg.sinal_vida_limite_s, cfg.broker_inacessivel_s, cfg.sem_comunicacao_s),
+        (cfg.sinal_vida_limite_s, cfg.broker_inacessivel_s, cfg.sem_comunicacao_s, cfg.sinal_vida_limite_s),
     ).fetchone()
 
 
@@ -40,6 +45,9 @@ def comunicacao_do_servidor(conn: psycopg.Connection, cfg: Config) -> None:
     if c is None:
         return
     if c["parado"]:
+        if c["regras_subiram_agora"]:
+            # Subida do sistema: espera SINAL_VIDA_LIMITE_S antes de acusar.
+            return
         if repo.abrir_alerta(conn, None, "consumidor_parado",
                              "O consumidor parou: as leituras não estão sendo gravadas. "
                              "Elas ficam guardadas no broker até ele voltar."):
@@ -84,27 +92,31 @@ def sem_comunicacao(conn: psycopg.Connection, cfg: Config) -> None:
 
 
 def setpoint_sem_confirmacao(conn: psycopg.Connection, cfg: Config) -> None:
-    """O último pedido de setpoint da célula não foi confirmado em
-    SETPOINT_TIMEOUT_S. Só o último conta: um pedido antigo que a célula
+    """O último pedido de setpoint da célula não foi aplicado em
+    SETPOINT_TIMEOUT_S: ela não respondeu (solicitado) ou disse que recebeu
+    e parou aí (recebido). Só o último conta: um pedido antigo que a célula
     ignorou fica como solicitado para sempre, mas deixa de valer quando um
     pedido mais novo é confirmado."""
     atrasadas = {
-        linha["id_celula"]: linha["temperatura_c"]
+        linha["id_celula"]: linha
         for linha in conn.execute(
             """
-            SELECT id_celula, temperatura_c
+            SELECT id_celula, temperatura_c, estado
               FROM (SELECT DISTINCT ON (id_celula) id_celula, temperatura_c, estado, solicitado_em
                       FROM pedido_setpoint
                      ORDER BY id_celula, solicitado_em DESC) ultimo
-             WHERE estado = 'solicitado'
+             WHERE estado IN ('solicitado', 'recebido')
                AND solicitado_em < now() - make_interval(secs => %s)
             """,
             (cfg.setpoint_timeout_s,),
         ).fetchall()
     }
-    for id_celula, valor in atrasadas.items():
-        if repo.abrir_alerta(conn, id_celula, "setpoint_sem_confirmacao",
-                             f"A célula não confirmou o setpoint de {valor:.1f} °C."):
+    for id_celula, pedido in atrasadas.items():
+        if pedido["estado"] == "recebido":
+            mensagem = f"A célula recebeu o setpoint de {pedido['temperatura_c']:.1f} °C, mas não confirmou que aplicou."
+        else:
+            mensagem = f"A célula não confirmou o setpoint de {pedido['temperatura_c']:.1f} °C."
+        if repo.abrir_alerta(conn, id_celula, "setpoint_sem_confirmacao", mensagem, atualizar=True):
             log.warning("alerta aberto: %s não confirmou setpoint", id_celula)
     for c in conn.execute(
         "SELECT id_celula FROM alerta WHERE tipo = 'setpoint_sem_confirmacao' AND fechado_em IS NULL"
@@ -133,26 +145,63 @@ def setpoint_atingido(conn: psycopg.Connection, cfg: Config) -> None:
 
 
 def desvio_temperatura(conn: psycopg.Connection, cfg: Config) -> None:
-    """Depois de atingir o setpoint, a temperatura se afastou mais de DESVIO_MAX_C."""
+    """A temperatura está a mais de DESVIO_MAX_C do alvo do último setpoint
+    que a célula aplicou. Vale em dois casos:
+
+    - o setpoint já tinha sido atingido e a temperatura se afastou;
+    - o setpoint foi aplicado há mais de SETPOINT_ATINGIR_S e a temperatura
+      não chegou (aquecimento com defeito). Antes desse prazo a célula está
+      a caminho do alvo novo, e um alerta do alvo antigo é fechado.
+
+    Só abre se nenhuma leitura dos últimos ALERTA_PERSISTENCIA_S esteve perto
+    do alvo: uma leitura ruidosa sozinha não abre. Aberto, o alerta fica
+    enquanto a última leitura estiver longe, e a mensagem acompanha a
+    temperatura medida. Fecha quando a última leitura volta para perto do alvo."""
+    abertos = _abertos(conn, "desvio_temperatura")
+    fora = set()
     for c in conn.execute(
         """
-        SELECT p.id_celula, p.temperatura_c AS alvo, u.temperatura_c AS medida
-          FROM (SELECT DISTINCT ON (id_celula) id_celula, temperatura_c, estado
+        SELECT p.id_celula, p.temperatura_c AS alvo, p.estado, u.temperatura_c AS medida,
+               extract(epoch FROM now() - p.aplicado_em)::float AS aplicado_ha_s,
+               NOT EXISTS (
+                SELECT 1 FROM leitura d
+                 WHERE d.id_celula = p.id_celula
+                   -- Com persistência 0 vale só a última leitura, mesmo
+                   -- que o relógio da célula esteja adiantado.
+                   AND %(persistencia)s > 0
+                   AND d.ts_origem >= now() - make_interval(secs => %(persistencia)s)
+                   AND abs(d.temperatura_c - p.temperatura_c) <= %(desvio)s) AS persistente
+          FROM (SELECT DISTINCT ON (id_celula) id_celula, temperatura_c, estado, aplicado_em
                   FROM pedido_setpoint
                  WHERE estado IN ('aplicado', 'atingido')
                  ORDER BY id_celula, solicitado_em DESC) p
           JOIN LATERAL (
                 SELECT temperatura_c FROM leitura l
                  WHERE l.id_celula = p.id_celula ORDER BY seq DESC LIMIT 1) u ON true
-         WHERE p.estado = 'atingido'
-        """
+         WHERE abs(u.temperatura_c - p.temperatura_c) > %(desvio)s
+           AND (p.estado = 'atingido' OR p.aplicado_em < now() - make_interval(secs => %(atingir)s))
+        """,
+        {"desvio": cfg.desvio_max_c, "atingir": cfg.setpoint_atingir_s,
+         "persistencia": cfg.alerta_persistencia_s},
     ).fetchall():
-        if abs(c["medida"] - c["alvo"]) > cfg.desvio_max_c:
-            if repo.abrir_alerta(conn, c["id_celula"], "desvio_temperatura",
-                                 f"Temperatura em {c['medida']:.1f} °C, alvo de {c['alvo']:.1f} °C."):
-                log.warning("alerta aberto: desvio de temperatura em %s", c["id_celula"])
-        else:
-            repo.fechar_alerta(conn, c["id_celula"], "desvio_temperatura")
+        fora.add(c["id_celula"])
+        if not c["persistente"] and c["id_celula"] not in abertos:
+            continue
+        mensagem = f"Temperatura em {c['medida']:.1f} °C, alvo de {c['alvo']:.1f} °C."
+        if c["estado"] == "aplicado":
+            mensagem += (f" O setpoint foi aplicado há {c['aplicado_ha_s'] / 60:.0f} min "
+                         "e a temperatura não chegou ao alvo.")
+        if repo.abrir_alerta(conn, c["id_celula"], "desvio_temperatura", mensagem, atualizar=True):
+            log.warning("alerta aberto: desvio de temperatura em %s", c["id_celula"])
+    for id_celula in abertos - fora:
+        if repo.fechar_alerta(conn, id_celula, "desvio_temperatura"):
+            log.info("alerta fechado: temperatura de %s voltou ao alvo ou o setpoint mudou", id_celula)
+
+
+def _abertos(conn: psycopg.Connection, tipo: str) -> set[str]:
+    """Células com alerta aberto do tipo."""
+    return {a["id_celula"] for a in conn.execute(
+        "SELECT id_celula FROM alerta WHERE tipo = %s AND fechado_em IS NULL", (tipo,)).fetchall()}
 
 
 def _faixa(minimo: float | None, maximo: float | None) -> str:
@@ -164,12 +213,24 @@ def _faixa(minimo: float | None, maximo: float | None) -> str:
 def ph_fora_da_faixa(conn: psycopg.Connection, cfg: Config) -> None:
     """Célula com cultivo aberto cuja última leitura de pH do período do
     cultivo (a de maior ts_origem) está fora da faixa de referência dele.
-    Fecha o alerta quando o pH volta, quando o cultivo não tem leitura de pH
-    no período e quando a célula fica sem cultivo aberto ou sem faixa."""
+    Só abre se nenhuma leitura de pH do cultivo nos últimos
+    ALERTA_PERSISTENCIA_S esteve dentro da faixa; aberto, a mensagem
+    acompanha o pH medido. Fecha o alerta quando o pH volta, quando o
+    cultivo não tem leitura de pH no período e quando a célula fica sem
+    cultivo aberto ou sem faixa."""
+    abertos = _abertos(conn, "ph_fora_da_faixa")
     fora = set()
     for c in conn.execute(
         """
-        SELECT c.id_celula, c.ph_ref_min, c.ph_ref_max, u.ph
+        SELECT c.id_celula, c.ph_ref_min, c.ph_ref_max, u.ph,
+               NOT EXISTS (
+                SELECT 1 FROM leitura d
+                 WHERE d.id_celula = c.id_celula AND d.ph IS NOT NULL
+                   AND d.ts_origem >= c.iniciado_em
+                   AND %(persistencia)s > 0
+                   AND d.ts_origem >= now() - make_interval(secs => %(persistencia)s)
+                   AND (c.ph_ref_min IS NULL OR d.ph >= c.ph_ref_min)
+                   AND (c.ph_ref_max IS NULL OR d.ph <= c.ph_ref_max)) AS persistente
           FROM cultivo c
           JOIN LATERAL (
                 SELECT ph FROM leitura l
@@ -179,19 +240,20 @@ def ph_fora_da_faixa(conn: psycopg.Connection, cfg: Config) -> None:
          WHERE c.status = 'em_andamento'
            AND (c.ph_ref_min IS NOT NULL OR c.ph_ref_max IS NOT NULL)
            AND (u.ph < c.ph_ref_min OR u.ph > c.ph_ref_max)
-        """
+        """,
+        {"persistencia": cfg.alerta_persistencia_s},
     ).fetchall():
         fora.add(c["id_celula"])
+        if not c["persistente"] and c["id_celula"] not in abertos:
+            continue
         if repo.abrir_alerta(conn, c["id_celula"], "ph_fora_da_faixa",
                              f"pH em {c['ph']:.2f}, fora da faixa de referência "
-                             f"({_faixa(c['ph_ref_min'], c['ph_ref_max'])})."):
+                             f"({_faixa(c['ph_ref_min'], c['ph_ref_max'])}).", atualizar=True):
             log.warning("alerta aberto: pH fora da faixa em %s", c["id_celula"])
-    for c in conn.execute(
-        "SELECT id_celula FROM alerta WHERE tipo = 'ph_fora_da_faixa' AND fechado_em IS NULL"
-    ).fetchall():
-        if c["id_celula"] not in fora and repo.fechar_alerta(conn, c["id_celula"], "ph_fora_da_faixa"):
-            log.info("alerta fechado: pH de %s voltou à faixa ou o cultivo mudou", c["id_celula"])
+    for id_celula in abertos - fora:
+        if repo.fechar_alerta(conn, id_celula, "ph_fora_da_faixa"):
+            log.info("alerta fechado: pH de %s voltou à faixa ou o cultivo mudou", id_celula)
 
 
-TODAS = [comunicacao_do_servidor, sem_comunicacao,setpoint_sem_confirmacao, setpoint_atingido, desvio_temperatura,
+TODAS = [comunicacao_do_servidor, sem_comunicacao, setpoint_sem_confirmacao, setpoint_atingido, desvio_temperatura,
          ph_fora_da_faixa]

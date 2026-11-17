@@ -40,9 +40,10 @@ from pathlib import Path
 import paho.mqtt.client as mqtt
 
 from contrato import Estado, Leitura, PedidoSetpoint, RespostaSetpoint, topicos
+from simulador import roteiro
 from simulador.buffer import Buffer
 from simulador.modelo import ModeloCultivo
-from simulador.perfis import obter_perfil
+from simulador.perfis import PERFIS_PADRAO, obter_perfil
 
 TEMP_MIN_C, TEMP_MAX_C = 20.0, 45.0
 SENSORES = ["temperatura", "od", "ph"]
@@ -292,14 +293,37 @@ class Celula:
         n = int(self.historico_horas / passo_h)
         agora = datetime.now(timezone.utc)
         horas_atuais = self.modelo._horas
+        # As 16 células da demonstração seguem o roteiro (simulador/roteiro.py):
+        # cada período tem as curvas do cultivo que a carga criou no banco.
+        # Outra célula segue a curva de crescimento do próprio modelo.
+        no_roteiro = self.id in PERFIS_PADRAO
         try:
-            for k in range(n, 0, -1):
-                self.modelo._horas = horas_atuais - k * passo_h
-                self._medir(ts=agora - timedelta(hours=k * passo_h))
+            with self.buffer.lote():
+                for k in range(n, 0, -1):
+                    ts = agora - timedelta(hours=k * passo_h)
+                    if no_roteiro:
+                        self._medir_do_roteiro(ts, k * passo_h / 24)
+                    else:
+                        self.modelo._horas = horas_atuais - k * passo_h
+                        self._medir(ts=ts)
         finally:
             self.modelo._horas = horas_atuais
         self.log.info("histórico gerado: %d leituras das últimas %.0f h", n, self.historico_horas)
         return n
+
+    def _medir_do_roteiro(self, ts: datetime, dias_atras: float) -> None:
+        """Leitura do histórico pelo roteiro, com o ruído e a conversão do
+        sensor simulado (bruto = 2000 * OD + 100)."""
+        temperatura, od, ph = roteiro.valores(self.id, dias_atras)
+        m, rng = self.modelo, self.modelo._rng
+        seq = self.buffer.proximo_seq()
+        leitura = Leitura(
+            seq=seq, ts=ts,
+            temperatura_c=round(temperatura + rng.gauss(0, m.ruido_temp), 2),
+            od_bruto=round(2000 * od + 100 + rng.gauss(0, m.ruido_od), 1),
+            ph=round(ph + rng.gauss(0, m.ruido_ph), 2),
+        )
+        self.buffer.guardar(seq, leitura.para_json())
 
     def _enviar_pendentes(self) -> None:
         # Tira do buffer o que o broker já confirmou.

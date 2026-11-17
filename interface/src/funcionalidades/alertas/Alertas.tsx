@@ -2,10 +2,12 @@
 // os alertas que o backend abre, com o título e a ajuda de cada tipo. A aba
 // Regras é a do Figma no modo exemplo; no modo api, a API ainda não tem regras
 // configuráveis, então ela mostra as regras fixas do backend, sem editar.
+// O Histórico filtra por célula e tipo, e o alerta que nenhuma regra fecha
+// (colisao_seq) ganha o botão Fechar alerta.
 
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { listarAlertas } from "@/api/cliente";
+import { fecharAlerta, listarAlertas } from "@/api/cliente";
 import chaveDesligada from "@/assets/icones/chave-desligada.svg";
 import chaveLigada from "@/assets/icones/chave-ligada.svg";
 import iconeEmail from "@/assets/icones/email-15.svg";
@@ -29,6 +31,15 @@ interface AlertaFechado {
   mensagem: string;
   abertoEm: Date;
   fechadoEm: Date;
+  /** Quem fechou à mão; sem nome, foi a regra que fechou. */
+  fechadoPor?: string | null;
+}
+
+interface FiltroDoHistorico {
+  /** "" para todas; "sistema" para os alertas sem célula. */
+  idCelula: string;
+  /** "" para todos. */
+  tipo: string;
 }
 
 const HORA = 3_600_000;
@@ -38,13 +49,16 @@ const HISTORICO_EXEMPLO: AlertaFechado[] = [
   { id: 103, idCelula: "c11", titulo: "Setpoint sem confirmação", mensagem: "Setpoint sem confirmação: pedido de 37,0 °C", abertoEm: new Date(Date.now() - 50 * HORA), fechadoEm: new Date(Date.now() - 49 * HORA) },
 ];
 
-function useHistorico(ativo: boolean) {
+/** Alertas fechados, do mais novo ao mais antigo. `versao` muda quando um
+ *  alerta é fechado à mão, para a lista buscar de novo. */
+function useHistorico(ativo: boolean, filtro: FiltroDoHistorico, versao: number) {
   const [historico, setHistorico] = useState<AlertaFechado[] | null>(FONTE_DADOS === "exemplo" ? HISTORICO_EXEMPLO : null);
   const [erro, setErro] = useState<string | null>(null);
   useEffect(() => {
     if (!ativo || FONTE_DADOS === "exemplo") return;
     const controle = new AbortController();
-    listarAlertas(controle.signal, false)
+    setErro(null);
+    listarAlertas(controle.signal, false, { idCelula: filtro.idCelula || undefined, tipo: filtro.tipo || undefined })
       .then((alertas) =>
         setHistorico(
           alertas
@@ -56,14 +70,18 @@ function useHistorico(ativo: boolean) {
               mensagem: a.mensagem,
               abertoEm: new Date(a.aberto_em),
               fechadoEm: new Date(a.fechado_em!),
+              fechadoPor: a.fechado_por_nome,
             })),
         ),
       )
       .catch((e: Error) => e.name !== "AbortError" && setErro(e.message));
     return () => controle.abort();
-  }, [ativo]);
+  }, [ativo, filtro.idCelula, filtro.tipo, versao]);
   return { historico, erro };
 }
+
+/** Alertas que nenhuma regra fecha: a pessoa fecha depois de conferir. */
+const FECHA_A_MAO = new Set(["colisao_seq"]);
 
 function Chave({ ligada, onClick, nome }: { ligada: boolean; onClick: () => void; nome: string }) {
   return (
@@ -98,15 +116,31 @@ function RegrasDoBackend() {
 }
 
 export function Alertas() {
-  const { dados } = useDados();
-  const nomeDa = useCelulas().nome;
+  const { dados, recarregar } = useDados();
+  const { ids: idsDasCelulas, nome: nomeDa } = useCelulas();
   const [parametros, setParametros] = useSearchParams();
   const aba = (parametros.get("aba") as Aba | null) ?? (FONTE_DADOS === "api" ? "abertos" : "regras");
   const [regras, setRegras] = useState(REGRAS_EXEMPLO);
   const [destacada, setDestacada] = useState<number | null>(6);
   const [criando, setCriando] = useState(true);
-  const { historico, erro } = useHistorico(aba === "historico");
+  const [filtro, setFiltro] = useState<FiltroDoHistorico>({ idCelula: "", tipo: "" });
+  const [fechados, setFechados] = useState(0);
+  const [fechando, setFechando] = useState<number | null>(null);
+  const [erroAoFechar, setErroAoFechar] = useState<string | null>(null);
+  const { historico, erro } = useHistorico(aba === "historico", filtro, fechados);
   const abertos = dados?.alertas ?? [];
+
+  function fechar(id: number) {
+    setFechando(id);
+    setErroAoFechar(null);
+    fecharAlerta(id)
+      .then(() => {
+        setFechados((n) => n + 1);
+        recarregar();
+      })
+      .catch((e: Error) => setErroAoFechar(e.message))
+      .finally(() => setFechando(null));
+  }
 
   const abas: { valor: Aba; rotulo: string }[] = [
     { valor: "abertos", rotulo: `Abertos ${abertos.length}` },
@@ -204,6 +238,7 @@ export function Alertas() {
 
       {aba === "abertos" && (
         <div className={estilos.lista}>
+          {erroAoFechar && <p className={estilos.erro}>{erroAoFechar}</p>}
           {abertos.length === 0 && <p className={estilos.vazio}>Nenhum alerta aberto. Tudo dentro do esperado.</p>}
           {abertos.map((a) => (
             <div key={a.id} className={estilos.alerta}>
@@ -216,6 +251,11 @@ export function Alertas() {
                 {a.ajuda && <p className={estilos.ajudaAlerta}>{a.ajuda}</p>}
               </div>
               <span className={estilos.alertaTempo}>aberto {formatar.tempoDecorrido(a.abertoEm)}</span>
+              {FONTE_DADOS === "api" && a.tipo && FECHA_A_MAO.has(a.tipo) && (
+                <Botao ocupado={fechando === a.id} onClick={() => fechar(a.id)}>
+                  Fechar alerta
+                </Botao>
+              )}
               {a.idCelula && (
                 <Link to={`/celulas/${a.idCelula}`} className={estilos.link}>
                   Abrir célula
@@ -228,9 +268,48 @@ export function Alertas() {
 
       {aba === "historico" && (
         <div className={estilos.lista}>
+          {FONTE_DADOS === "api" && (
+            <div className={estilos.filtros}>
+              <label className={estilos.campoSeletor}>
+                Célula
+                <select
+                  className={estilos.seletor}
+                  value={filtro.idCelula}
+                  onChange={(e) => setFiltro((f) => ({ ...f, idCelula: e.target.value }))}
+                >
+                  <option value="">Todas</option>
+                  <option value="sistema">Sistema</option>
+                  {idsDasCelulas.map((id) => (
+                    <option key={id} value={id}>
+                      {nomeDa(id)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={estilos.campoSeletor}>
+                Tipo
+                <select
+                  className={estilos.seletor}
+                  value={filtro.tipo}
+                  onChange={(e) => setFiltro((f) => ({ ...f, tipo: e.target.value }))}
+                >
+                  <option value="">Todos</option>
+                  {Object.entries(TITULO_DO_ALERTA).map(([tipo, { titulo }]) => (
+                    <option key={tipo} value={tipo}>
+                      {titulo}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
           {erro && <p className={estilos.erro}>{erro}</p>}
           {historico === null && !erro && <p className={estilos.vazio}>Carregando…</p>}
-          {historico?.length === 0 && <p className={estilos.vazio}>Nenhum alerta fechado ainda.</p>}
+          {historico?.length === 0 && (
+            <p className={estilos.vazio}>
+              {filtro.idCelula || filtro.tipo ? "Nenhum alerta fechado com este filtro." : "Nenhum alerta fechado ainda."}
+            </p>
+          )}
           {historico?.map((a) => (
             <div key={a.id} className={estilos.alerta}>
               <span className={estilos.pontoFechado} />
@@ -241,6 +320,7 @@ export function Alertas() {
                 <p className={estilos.descricao}>{a.mensagem}</p>
                 <p className={estilos.descricao}>
                   Aberto em {formatar.diaHora(a.abertoEm)} · fechou depois de {formatar.duracao(a.abertoEm, a.fechadoEm)}
+                  {a.fechadoPor && ` · fechado por ${a.fechadoPor}`}
                 </p>
               </div>
             </div>

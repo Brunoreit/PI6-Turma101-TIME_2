@@ -387,7 +387,47 @@ def test_15_broker_parado_recusa_cultivo_com_temperatura_alvo(ambiente, banco):
     esperar(lambda: historico_completo(banco), 20, "histórico completo após o broker voltar")
 
 
-def test_16_integridade_final(ambiente, banco, login):
+def comando_do_simulador(ambiente, id_celula: str, comando: dict) -> None:
+    """Muda o comportamento da célula simulada, como a CLI do simulador faz."""
+    import json
+
+    import paho.mqtt.client as mqtt
+
+    cliente = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="teste-comando")
+    cliente.connect(ambiente.host_mqtt, ambiente.porta_mqtt)
+    cliente.loop_start()
+    cliente.publish(f"evolver/simulador/{id_celula}/comando", json.dumps(comando), qos=1).wait_for_publish(5)
+    cliente.loop_stop()
+    cliente.disconnect()
+
+
+def test_16_aquecimento_que_nao_chega_ao_alvo_abre_alerta(ambiente, banco, login):
+    """A c01 aplica o setpoint, mas o aquecedor não funciona: o pedido fica
+    em aplicado e, passado SETPOINT_ATINGIR_S, abre desvio_temperatura.
+    Consertado o aquecedor, a temperatura chega, o pedido vira atingido e o
+    alerta fecha."""
+    api = ambiente.url_api
+
+    def desvio_aberto() -> str | None:
+        linha = banco.execute("SELECT mensagem FROM alerta WHERE id_celula = 'c01' "
+                              "AND tipo = 'desvio_temperatura' AND fechado_em IS NULL").fetchone()
+        return linha and linha["mensagem"]
+
+    comando_do_simulador(ambiente, "c01", {"cenario": "falha_aquecimento"})
+    resposta = requests.post(f"{api}/celulas/c01/setpoint", json={"temperatura_c": 42.0}, headers=login, timeout=10)
+    assert resposta.status_code == 202, resposta.text
+    id_pedido = resposta.json()["id_pedido"]
+    estado = lambda: requests.get(f"{api}/setpoints/{id_pedido}", headers=login, timeout=5).json()["estado"]
+    esperar(lambda: estado() == "aplicado", 15, "c01 aplicar o setpoint de 42 °C")
+    esperar(lambda: "não chegou ao alvo" in (desvio_aberto() or ""), 40, "alerta de setpoint aplicado e não atingido")
+    assert estado() == "aplicado"
+
+    comando_do_simulador(ambiente, "c01", {"cenario": "normal"})
+    esperar(lambda: estado() == "atingido", 60, "c01 atingir 42 °C com o aquecedor consertado")
+    esperar(lambda: desvio_aberto() is None, 15, "alerta de desvio fechado")
+
+
+def test_17_integridade_final(ambiente, banco, login):
     """Histórico completo, e o relatório de falhas do roteiro: cada falha
     provocada (rede da c02, consumidor e broker duas vezes) abriu o alerta
     certo, fechou depois, não culpou ninguém por engano e não perdeu leitura.

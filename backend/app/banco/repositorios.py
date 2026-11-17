@@ -337,15 +337,32 @@ def listar_pedidos(conn: psycopg.Connection, id_celula: str) -> list[dict]:
 # ---------------------------------------------------------------- alertas
 
 
-def abrir_alerta(conn: psycopg.Connection, id_celula: str | None, tipo: str, mensagem: str) -> bool:
-    """id_celula None só nos alertas do sistema (consumidor_parado e broker_inacessivel)."""
-    return conn.execute(
+def abrir_alerta(conn: psycopg.Connection, id_celula: str | None, tipo: str, mensagem: str,
+                 atualizar: bool = False) -> bool:
+    """Devolve True só quando abriu um alerta novo. id_celula None só nos
+    alertas do sistema (consumidor_parado e broker_inacessivel).
+
+    Com atualizar, o alerta que já está aberto troca de mensagem quando ela
+    muda (o valor medido agora, não o do momento em que abriu)."""
+    if not atualizar:
+        return conn.execute(
+            """
+            INSERT INTO alerta (id_celula, tipo, mensagem) VALUES (%s, %s, %s)
+            ON CONFLICT (id_celula, tipo) WHERE fechado_em IS NULL DO NOTHING
+            """,
+            (id_celula, tipo, mensagem),
+        ).rowcount == 1
+    linha = conn.execute(
         """
         INSERT INTO alerta (id_celula, tipo, mensagem) VALUES (%s, %s, %s)
-        ON CONFLICT (id_celula, tipo) WHERE fechado_em IS NULL DO NOTHING
+        ON CONFLICT (id_celula, tipo) WHERE fechado_em IS NULL
+        DO UPDATE SET mensagem = EXCLUDED.mensagem
+            WHERE alerta.mensagem IS DISTINCT FROM EXCLUDED.mensagem
+        RETURNING (xmax = 0) AS novo
         """,
         (id_celula, tipo, mensagem),
-    ).rowcount == 1
+    ).fetchone()
+    return bool(linha and linha["novo"])
 
 
 def fechar_alerta(conn: psycopg.Connection, id_celula: str | None, tipo: str) -> bool:
@@ -387,15 +404,40 @@ def listar_processos(conn: psycopg.Connection) -> list[dict]:
     ).fetchall()
 
 
-def listar_alertas(conn: psycopg.Connection, somente_abertos: bool = True) -> list[dict]:
+_ALERTA = """a.id_alerta, a.id_celula, a.tipo, a.mensagem, a.aberto_em, a.fechado_em,
+             a.fechado_por, p.nome AS fechado_por_nome"""
+
+
+def listar_alertas(conn: psycopg.Connection, somente_abertos: bool = True, id_celula: str | None = None,
+                   tipo: str | None = None, limite: int = 500) -> list[dict]:
+    """Do mais novo ao mais antigo. id_celula 'sistema' traz os alertas sem célula."""
     return conn.execute(
-        """
-        SELECT * FROM alerta
-         WHERE NOT %s OR fechado_em IS NULL
-         ORDER BY aberto_em DESC LIMIT 500
+        f"""
+        SELECT {_ALERTA}
+          FROM alerta a LEFT JOIN pessoa p ON p.id_pessoa = a.fechado_por
+         WHERE (NOT %(abertos)s OR a.fechado_em IS NULL)
+           AND (%(celula)s::text IS NULL OR a.id_celula = %(celula)s
+                OR (%(celula)s = 'sistema' AND a.id_celula IS NULL))
+           AND (%(tipo)s::text IS NULL OR a.tipo = %(tipo)s)
+         ORDER BY a.aberto_em DESC, a.id_alerta DESC LIMIT %(limite)s
         """,
-        (somente_abertos,),
+        {"abertos": somente_abertos, "celula": id_celula, "tipo": tipo, "limite": limite},
     ).fetchall()
+
+
+def buscar_alerta(conn: psycopg.Connection, id_alerta: int) -> dict | None:
+    return conn.execute(
+        f"SELECT {_ALERTA} FROM alerta a LEFT JOIN pessoa p ON p.id_pessoa = a.fechado_por WHERE a.id_alerta = %s",
+        (id_alerta,),
+    ).fetchone()
+
+
+def fechar_alerta_a_mao(conn: psycopg.Connection, id_alerta: int, id_pessoa: int) -> bool:
+    """Fecha um alerta aberto e grava quem fechou. False se já estava fechado."""
+    return conn.execute(
+        "UPDATE alerta SET fechado_em = now(), fechado_por = %s WHERE id_alerta = %s AND fechado_em IS NULL",
+        (id_pessoa, id_alerta),
+    ).rowcount == 1
 
 
 # ---------------------------------------------------------------- relatório de falhas

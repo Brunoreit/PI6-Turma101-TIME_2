@@ -35,19 +35,19 @@ export const TITULO_DO_ALERTA: Record<TipoAlerta, { titulo: string; ajuda: strin
   },
   setpoint_sem_confirmacao: {
     titulo: "Setpoint sem confirmação",
-    ajuda: "A célula não confirmou o pedido de temperatura no prazo. Fecha sozinho quando ela confirmar.",
+    ajuda: "A célula não respondeu ao pedido de temperatura no prazo, ou disse que recebeu e não confirmou que aplicou. Fecha sozinho quando ela confirmar, ou quando um pedido mais novo for confirmado.",
   },
   desvio_temperatura: {
     titulo: "Desvio de temperatura",
-    ajuda: "A temperatura está longe do alvo. Fecha sozinho quando ela voltar para perto do alvo.",
+    ajuda: "A temperatura está longe do alvo do último setpoint aplicado: ela se afastou depois de chegar, ou o setpoint foi aplicado e a temperatura não chegou no prazo (aquecimento com defeito). Uma leitura fora sozinha não abre o alerta. A mensagem mostra a temperatura atual. Fecha sozinho quando ela voltar para perto do alvo.",
   },
   ph_fora_da_faixa: {
     titulo: "pH fora da faixa do cultivo",
-    ajuda: "O último pH ficou fora da faixa de referência do cultivo (a faixa e o valor estão na mensagem). Fecha sozinho quando o pH volta para a faixa.",
+    ajuda: "O pH ficou fora da faixa de referência do cultivo (a faixa e o valor atual estão na mensagem). Uma leitura fora sozinha não abre o alerta. Fecha sozinho quando o pH volta para a faixa.",
   },
   colisao_seq: {
     titulo: "Leitura repetida com horário diferente",
-    ajuda: "Chegou uma leitura com o mesmo número de outra, mas com outro horário. A leitura original foi mantida e a nova, descartada. Este alerta não fecha sozinho.",
+    ajuda: "Chegou uma leitura com o mesmo número de outra, mas com outro horário. A leitura original foi mantida e a nova, descartada. Este alerta não fecha sozinho: depois de conferir, feche em Alertas.",
   },
   consumidor_parado: {
     titulo: "Consumidor parado",

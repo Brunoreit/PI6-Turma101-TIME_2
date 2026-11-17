@@ -24,7 +24,7 @@ export function Alertas({ dados }: { dados: DetalheDaCelula }) {
           <p className={estilos.semAlertasDetalhe}>
             {experimento
               ? `A ${dados.id} está dentro das faixas do ${experimento.codigo}.`
-              : `Sem experimento, a ${dados.id} só gera alertas de comunicação.`}
+              : `Sem experimento, a ${dados.id} gera alertas de comunicação e de temperatura; o de pH depende da faixa do cultivo.`}
           </p>
         </div>
       ) : (

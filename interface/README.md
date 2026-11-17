@@ -71,8 +71,7 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
   backend, e "Nova regra" fica indisponível.
 - **Exportação agrupada** (média por hora ou dia, intervalos, Excel, anexos).
   Só sai o CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv`.
-- **Recuperar e trocar senha**, **convite para quem não tem conta** e **fechar
-  o alerta `colisao_seq`**.
+- **Recuperar e trocar senha** e **convite para quem não tem conta**.
 - **Dados da placa:** MAC, período de leitura, bombas e modo manutenção.
 
 No modo `exemplo`, as mudanças (novo experimento, compartilhar, encerrar,
@@ -212,12 +211,15 @@ painel de alertas da célula.
 | Tipo | Título | Fecha sozinho? |
 |---|---|---|
 | `sem_comunicacao` | Sem comunicação | Sim, quando a célula volta |
-| `setpoint_sem_confirmacao` | Setpoint sem confirmação | Sim, quando a célula confirma |
-| `desvio_temperatura` | Desvio de temperatura | Sim, quando a temperatura volta para perto do alvo |
-| `ph_fora_da_faixa` | pH fora da faixa do cultivo | Sim, quando o pH volta para a faixa. A mensagem traz a faixa e o último valor |
-| `colisao_seq` | Leitura repetida com horário diferente | Não. A leitura original foi mantida; não há rota para fechar, então não há botão |
+| `setpoint_sem_confirmacao` | Setpoint sem confirmação | Sim, quando a célula confirma que aplicou, ou quando um pedido mais novo é confirmado |
+| `desvio_temperatura` | Desvio de temperatura | Sim, quando a temperatura volta para perto do alvo. Também abre quando o setpoint foi aplicado e a temperatura não chegou no prazo. A mensagem traz a temperatura atual |
+| `ph_fora_da_faixa` | pH fora da faixa do cultivo | Sim, quando o pH volta para a faixa. A mensagem traz a faixa e o valor atual |
+| `colisao_seq` | Leitura repetida com horário diferente | Não. A leitura original foi mantida; o botão "Fechar alerta" (aba Abertos) chama `POST /alertas/{id}/fechar`, e o Histórico mostra quem fechou |
 
 Um tipo que a interface não conhece aparece com o próprio nome.
+
+O Histórico filtra por célula (ou "Sistema") e por tipo, pelos parâmetros
+`id_celula` e `tipo` do `GET /alertas`.
 
 ### Experimentos
 

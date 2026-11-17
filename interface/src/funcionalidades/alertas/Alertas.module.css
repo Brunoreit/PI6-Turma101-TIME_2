@@ -390,3 +390,11 @@
   font-style: italic;
   color: var(--texto\/secundario);
 }
+
+/* ---------- filtros do histórico */
+
+.filtros {
+  display: flex;
+  gap: 12px;
+  max-width: 520px;
+}

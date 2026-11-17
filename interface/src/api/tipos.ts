@@ -46,6 +46,9 @@ export interface AlertaApi {
   mensagem: string;
   aberto_em: string;
   fechado_em: string | null;
+  /** Quem fechou à mão (só o colisao_seq). Nulo quando a regra fechou. */
+  fechado_por: number | null;
+  fechado_por_nome: string | null;
 }
 
 export interface LeituraApi {

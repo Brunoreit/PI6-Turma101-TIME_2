@@ -436,8 +436,31 @@ def cadastrar_calibracao(conn: Conexao, pessoa: PessoaLogada, id_celula: str, co
 
 
 @app.get("/alertas")
-def listar_alertas(conn: Conexao, _pessoa: PessoaLogada, abertos: bool = True):
-    return repo.listar_alertas(conn, somente_abertos=abertos)
+def listar_alertas(conn: Conexao, _pessoa: PessoaLogada, abertos: bool = True,
+                   id_celula: str | None = None, tipo: str | None = None,
+                   limite: int = Query(500, ge=1, le=5000)):
+    """Do mais novo ao mais antigo. Com abertos=false vêm também os fechados.
+    id_celula=sistema traz os alertas sem célula (consumidor e broker)."""
+    return repo.listar_alertas(conn, somente_abertos=abertos, id_celula=id_celula, tipo=tipo, limite=limite)
+
+
+# Alertas que nenhuma regra fecha. Os outros fecham sozinhos quando a
+# condição acaba; fechados à mão, a regra abriria de novo na rodada seguinte.
+_FECHA_A_MAO = ("colisao_seq",)
+
+
+@app.post("/alertas/{id_alerta}/fechar")
+def fechar_alerta(id_alerta: int, conn: Conexao, pessoa: PessoaLogada):
+    """Fecha um alerta que não fecha sozinho e grava quem fechou."""
+    alerta = repo.buscar_alerta(conn, id_alerta)
+    if alerta is None:
+        raise HTTPException(404, "Alerta não encontrado. Atualize a lista de alertas.")
+    if alerta["tipo"] not in _FECHA_A_MAO:
+        raise HTTPException(409, "Este alerta fecha sozinho quando a condição que o abriu acabar. "
+                                 "Só o alerta de leitura repetida (colisao_seq) é fechado à mão.")
+    if not repo.fechar_alerta_a_mao(conn, id_alerta, pessoa["id_pessoa"]):
+        raise HTTPException(409, "Este alerta já estava fechado. Atualize a lista de alertas.")
+    return repo.buscar_alerta(conn, id_alerta)
 
 
 @app.get("/integridade")

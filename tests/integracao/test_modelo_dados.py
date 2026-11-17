@@ -14,6 +14,7 @@ Rodar:
   pytest tests/integracao/test_modelo_dados.py -v
 """
 
+import dataclasses
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -800,19 +801,27 @@ def _ph_aberto(conn, id_celula: str) -> bool:
     return any(a["fechado_em"] is None for a in _alertas_ph(conn, id_celula))
 
 
+def _cfg(**mudancas):
+    """Config com os tempos do processo de regras do ambiente de teste
+    (ambiente.AMBIENTE_RAPIDO), para os dois decidirem igual."""
+    from app.config import config
+
+    return dataclasses.replace(config, **{"alerta_persistencia_s": 0, "setpoint_atingir_s": 15, **mudancas})
+
+
 @pytest.fixture
 def regra_ph(banco):
-    from app.config import config
     from app.regras.verificacoes import ph_fora_da_faixa
 
-    return lambda: ph_fora_da_faixa(banco, config)
+    return lambda: ph_fora_da_faixa(banco, _cfg())
 
 
 def test_setpoint_sem_confirmacao_fecha_quando_um_pedido_mais_novo_e_confirmado(banco, celula):
     """A célula ignorou o pedido de 36 °C e confirmou o de 37 °C depois. O
     pedido de 36 continua solicitado, mas o alerta tem de fechar."""
-    from app.config import config
     from app.regras.verificacoes import setpoint_sem_confirmacao
+
+    config = _cfg()
 
     def aberto() -> bool:
         return banco.execute(
@@ -843,8 +852,9 @@ def test_servidor_sem_receber_abre_alerta_do_sistema_e_nao_culpa_as_celulas(banc
 
     Roda numa transação desfeita: o consumidor do ambiente, que grava o
     próprio sinal a cada segundo, espera ela acabar."""
-    from app.config import config
     from app.regras.verificacoes import comunicacao_do_servidor, sem_comunicacao
+
+    config = _cfg()
 
     def consumidor(sinal: str, conectado: bool, desde: str) -> None:
         banco.execute(
@@ -865,6 +875,11 @@ def test_servidor_sem_receber_abre_alerta_do_sistema_e_nao_culpa_as_celulas(banc
         banco.execute("UPDATE alerta SET fechado_em = now() WHERE id_celula IS NULL AND fechado_em IS NULL")
         banco.execute("INSERT INTO celula (id_celula, estado, ultimo_contato) "
                       "VALUES ('calada', 'online', now() - interval '1 hour'), ('caida', 'offline', now())")
+        # As regras do ambiente podem ter subido há pouco, e recém-subidas
+        # elas não acusam o consumidor (teste seguinte).
+        banco.execute("""INSERT INTO processo (nome, iniciado_em, ultimo_sinal)
+                         VALUES ('regras', now() - interval '1 hour', now())
+                         ON CONFLICT (nome) DO UPDATE SET iniciado_em = EXCLUDED.iniciado_em""")
 
         consumidor("now() - interval '1 hour'", True, "now() - interval '2 hours'")
         assert abertos() == {(None, "consumidor_parado")}
@@ -884,6 +899,218 @@ def test_servidor_sem_receber_abre_alerta_do_sistema_e_nao_culpa_as_celulas(banc
         banco.execute("UPDATE celula SET ultimo_contato = now(), estado = 'online' WHERE id_celula IN ('calada', 'caida')")
         consumidor("now() - interval '1 hour'", True, "now() - interval '2 hours'")
         assert abertos() == {(None, "consumidor_parado")}, "voltou a falar: fecha mesmo com o consumidor parado"
+
+
+def test_regras_recem_subidas_nao_acusam_o_consumidor_pelo_sinal_antigo(banco):
+    """Na subida do sistema o sinal do consumidor que está no banco é de
+    antes da parada. As regras esperam SINAL_VIDA_LIMITE_S antes de acusar."""
+    from app.regras.verificacoes import comunicacao_do_servidor
+
+    def parado_com_regras_desde(desde: str) -> bool:
+        banco.execute(f"""INSERT INTO processo (nome, iniciado_em, ultimo_sinal) VALUES ('regras', {desde}, now())
+                          ON CONFLICT (nome) DO UPDATE SET iniciado_em = EXCLUDED.iniciado_em""")
+        comunicacao_do_servidor(banco, _cfg())
+        return banco.execute(
+            "SELECT 1 FROM alerta WHERE tipo = 'consumidor_parado' AND fechado_em IS NULL").fetchone() is not None
+
+    with banco.transaction(force_rollback=True):
+        banco.execute("UPDATE alerta SET fechado_em = now() WHERE id_celula IS NULL AND fechado_em IS NULL")
+        banco.execute("""INSERT INTO processo (nome, iniciado_em, ultimo_sinal, broker_conectado, broker_desde)
+                         VALUES ('consumidor', now() - interval '2 days', now() - interval '1 day', true,
+                                 now() - interval '2 days')
+                         ON CONFLICT (nome) DO UPDATE SET ultimo_sinal = EXCLUDED.ultimo_sinal""")
+        assert not parado_com_regras_desde("now()")
+        assert parado_com_regras_desde("now() - interval '1 hour'")
+
+
+# ------------------------------------------------------------------ regra desvio_temperatura
+#
+# Tudo numa transação desfeita, que o processo de regras do ambiente não vê:
+# ele roda com outros tempos e mexeria nos mesmos alertas. Dentro dela o
+# now() do banco fica parado no início da transação, então os horários são
+# dados em "há quantos segundos".
+
+
+def _pedido(conn, id_celula: str, temperatura: float, estado: str, solicitado_ha_s: float,
+            aplicado_ha_s: float | None = None) -> str:
+    id_pedido = f"sp-{uuid.uuid4().hex[:8]}"
+    repo.criar_pedido(conn, id_pedido, id_celula, temperatura, "Ana")
+    for passo in ("recebido", "aplicado", "atingido"):
+        repo.avancar_pedido(conn, id_pedido, passo)
+        if passo == estado:
+            break
+    conn.execute(
+        """UPDATE pedido_setpoint SET solicitado_em = now() - make_interval(secs => %s),
+                  aplicado_em = CASE WHEN aplicado_em IS NULL THEN NULL ELSE now() - make_interval(secs => %s) END
+            WHERE id_pedido = %s""",
+        (solicitado_ha_s, aplicado_ha_s if aplicado_ha_s is not None else solicitado_ha_s, id_pedido))
+    return id_pedido
+
+
+def _temperatura(conn, id_celula: str, seq: int, temperatura: float, ha_s: float = 0) -> None:
+    agora = conn.execute("SELECT now() AS agora").fetchone()["agora"]
+    repo.gravar_leitura(conn, id_celula, seq, agora - timedelta(seconds=ha_s), temperatura, 1000.0, 0.45, 7.0, None)
+
+
+def _alertas_de(conn, id_celula: str, tipo: str) -> list[dict]:
+    return conn.execute(
+        "SELECT mensagem, fechado_em FROM alerta WHERE id_celula = %s AND tipo = %s ORDER BY id_alerta",
+        (id_celula, tipo)).fetchall()
+
+
+@pytest.fixture
+def desvio(banco):
+    from app.regras.verificacoes import desvio_temperatura
+
+    with banco.transaction(force_rollback=True):
+        id_celula = f"d{uuid.uuid4().hex[:6]}"
+        repo.registrar_celula(banco, id_celula, "online")
+
+        def rodar(**cfg) -> list[dict]:
+            desvio_temperatura(banco, _cfg(**cfg))
+            return _alertas_de(banco, id_celula, "desvio_temperatura")
+
+        yield banco, id_celula, rodar
+
+
+def test_setpoint_aplicado_que_nao_chega_abre_desvio_depois_do_prazo(desvio):
+    """Aquecimento com defeito: a célula aplica o setpoint e a temperatura
+    não sai do lugar. Dentro de SETPOINT_ATINGIR_S ela ainda está a caminho."""
+    conn, celula, rodar = desvio
+    pedido = _pedido(conn, celula, 37.0, "aplicado", solicitado_ha_s=5)
+    _temperatura(conn, celula, 0, 30.0)
+    assert rodar() == []
+
+    conn.execute("UPDATE pedido_setpoint SET aplicado_em = now() - interval '2 minutes' WHERE id_pedido = %s", (pedido,))
+    (alerta,) = rodar()
+    assert alerta["fechado_em"] is None
+    assert alerta["mensagem"] == ("Temperatura em 30.0 °C, alvo de 37.0 °C. "
+                                  "O setpoint foi aplicado há 2 min e a temperatura não chegou ao alvo.")
+
+    _temperatura(conn, celula, 1, 36.2)
+    (alerta,) = rodar()
+    assert alerta["fechado_em"] is not None
+
+
+def test_setpoint_novo_fecha_o_desvio_do_alvo_antigo(desvio):
+    """Antes, o alerta ficava aberto com a mensagem do alvo antigo até o
+    pedido novo ser atingido."""
+    conn, celula, rodar = desvio
+    _pedido(conn, celula, 30.0, "atingido", solicitado_ha_s=3600)
+    _temperatura(conn, celula, 0, 34.0)
+    assert [a["fechado_em"] for a in rodar()] == [None]
+
+    _pedido(conn, celula, 34.5, "aplicado", solicitado_ha_s=2)
+    (alerta,) = rodar()
+    assert alerta["fechado_em"] is not None
+
+
+def test_desvio_espera_a_persistencia_e_a_mensagem_acompanha_a_medida(desvio):
+    conn, celula, rodar = desvio
+    _pedido(conn, celula, 30.0, "atingido", solicitado_ha_s=3600)
+    _temperatura(conn, celula, 0, 30.1, ha_s=30)
+    _temperatura(conn, celula, 1, 34.0)
+    assert rodar(alerta_persistencia_s=60) == [], "uma leitura perto do alvo há 30 s: ainda não abre"
+    assert len(rodar(alerta_persistencia_s=20)) == 1, "nenhuma leitura perto do alvo nos últimos 20 s"
+
+    # Aberto, o alerta fica e a mensagem troca, sem abrir outro.
+    _temperatura(conn, celula, 2, 35.5)
+    (alerta,) = rodar(alerta_persistencia_s=60)
+    assert (alerta["mensagem"], alerta["fechado_em"]) == ("Temperatura em 35.5 °C, alvo de 30.0 °C.", None)
+
+    # Voltou e saiu de novo logo depois: fechou, e o pico sozinho não reabre.
+    _temperatura(conn, celula, 3, 30.2)
+    assert rodar(alerta_persistencia_s=60)[0]["fechado_em"] is not None
+    _temperatura(conn, celula, 4, 34.0)
+    assert len(rodar(alerta_persistencia_s=60)) == 1
+
+
+def test_setpoint_recebido_e_nao_aplicado_abre_alerta(banco):
+    from app.regras.verificacoes import setpoint_sem_confirmacao
+
+    with banco.transaction(force_rollback=True):
+        id_celula = f"d{uuid.uuid4().hex[:6]}"
+        repo.registrar_celula(banco, id_celula, "online")
+        _pedido(banco, id_celula, 36.0, "recebido", solicitado_ha_s=3600)
+        setpoint_sem_confirmacao(banco, _cfg())
+        (alerta,) = _alertas_de(banco, id_celula, "setpoint_sem_confirmacao")
+        assert alerta["mensagem"] == "A célula recebeu o setpoint de 36.0 °C, mas não confirmou que aplicou."
+
+
+def test_ph_espera_a_persistencia_e_a_mensagem_acompanha_a_medida(cenario):
+    from app.regras.verificacoes import ph_fora_da_faixa
+
+    conn, celula = cenario.conn, cenario.celulas[0]
+    cultivo = cenario.iniciar(0, cenario.novo_experimento(cenario.ana, ph_ref_min=6.5, ph_ref_max=7.5))
+
+    def rodar(persistencia: float) -> list[dict]:
+        ph_fora_da_faixa(conn, _cfg(alerta_persistencia_s=persistencia))
+        return _alertas_ph(conn, celula)
+
+    with conn.transaction(force_rollback=True):
+        agora = conn.execute("SELECT now() AS agora").fetchone()["agora"]
+        conn.execute("UPDATE cultivo SET iniciado_em = now() - interval '1 hour' WHERE id_cultivo = %s",
+                     (cultivo["id_cultivo"],))
+        _medir(conn, celula, 0, 7.0, agora - timedelta(seconds=30))
+        _medir(conn, celula, 1, 8.0, agora)
+        assert rodar(60) == [], "pH dentro da faixa há 30 s: ainda não abre"
+        assert len(rodar(20)) == 1
+
+        _medir(conn, celula, 2, 8.4, agora + timedelta(milliseconds=1))
+        (alerta,) = rodar(60)
+        assert (alerta["mensagem"], alerta["fechado_em"]) == (
+            "pH em 8.40, fora da faixa de referência (de 6.50 a 7.50).", None)
+
+
+# ------------------------------------------------------------------ API: alertas
+
+
+def _colisao(banco, id_celula: str) -> None:
+    repo.gravar_leitura(banco, id_celula, 0, T0, 30.0, 1000.0, 0.45, 7.0, None)
+    assert repo.gravar_leitura(banco, id_celula, 0, T0 + DIA, 31.0, 1000.0, 0.45, 7.0, None) == "colisao"
+
+
+def test_fechar_colisao_a_mao_grava_quem_fechou(ambiente, banco, celula):
+    ana = Conta(ambiente, "Ana")
+    _colisao(banco, celula)
+    (alerta,) = ana.chamar("GET", f"/alertas?id_celula={celula}").json()
+    assert (alerta["tipo"], alerta["fechado_em"], alerta["fechado_por"]) == ("colisao_seq", None, None)
+
+    fechado = ana.chamar("POST", f"/alertas/{alerta['id_alerta']}/fechar")
+    assert fechado.status_code == 200, fechado.text
+    assert fechado.json()["fechado_em"] and (fechado.json()["fechado_por"], fechado.json()["fechado_por_nome"]) == (
+        ana.id, "Ana")
+    assert ana.chamar("GET", f"/alertas?id_celula={celula}").json() == []
+    (historico,) = ana.chamar("GET", f"/alertas?abertos=false&id_celula={celula}&tipo=colisao_seq").json()
+    assert historico["fechado_por_nome"] == "Ana"
+
+    de_novo = ana.chamar("POST", f"/alertas/{alerta['id_alerta']}/fechar")
+    assert de_novo.status_code == 409 and "já estava fechado" in de_novo.json()["detail"]
+
+
+def test_alerta_que_fecha_sozinho_nao_e_fechado_a_mao(ambiente, banco, celula):
+    ana = Conta(ambiente, "Ana")
+    id_alerta = banco.execute(
+        "INSERT INTO alerta (id_celula, tipo, mensagem) VALUES (%s, 'desvio_temperatura', 'x') RETURNING id_alerta",
+        (celula,)).fetchone()["id_alerta"]
+    resposta = ana.chamar("POST", f"/alertas/{id_alerta}/fechar")
+    assert resposta.status_code == 409 and "fecha sozinho" in resposta.json()["detail"]
+    assert banco.execute("SELECT fechado_por FROM alerta WHERE id_alerta = %s", (id_alerta,)).fetchone()["fechado_por"] is None
+    assert ana.chamar("POST", "/alertas/0/fechar").status_code == 404
+
+
+def test_lista_de_alertas_filtra_por_celula_tipo_e_limite(ambiente, banco, celula):
+    ana = Conta(ambiente, "Ana")
+    _colisao(banco, celula)
+    banco.execute("INSERT INTO alerta (id_celula, tipo, mensagem, fechado_em) VALUES (%s, 'ph_fora_da_faixa', 'x', now())",
+                  (celula,))
+    todos = ana.chamar("GET", f"/alertas?abertos=false&id_celula={celula}").json()
+    assert {a["tipo"] for a in todos} == {"colisao_seq", "ph_fora_da_faixa"}
+    assert [a["tipo"] for a in ana.chamar("GET", f"/alertas?abertos=false&id_celula={celula}&tipo=ph_fora_da_faixa").json()] == [
+        "ph_fora_da_faixa"]
+    assert len(ana.chamar("GET", f"/alertas?abertos=false&id_celula={celula}&limite=1").json()) == 1
+    assert all(a["id_celula"] is None for a in ana.chamar("GET", "/alertas?abertos=false&id_celula=sistema").json())
+    assert ana.chamar("GET", "/alertas?limite=0").status_code == 422
 
 
 def test_saude_traz_o_sinal_de_vida_do_consumidor_e_das_regras(ambiente):
@@ -1570,7 +1797,7 @@ def test_todas_as_rotas_exigem_login_menos_saude_e_auth(ambiente, cenario, conta
     teste falhar."""
     e = _criar(contas[0])["id_experimento"]
     exemplos = {"id_celula": cenario.celulas[0], "id_experimento": e, "id_cultivo": 1, "id_pessoa": 1,
-                "id_pedido": "sp-00000000"}
+                "id_pedido": "sp-00000000", "id_alerta": 1}
     rotas = requests.get(f"{ambiente.url_api}/openapi.json", timeout=10).json()["paths"]
     conferidas = 0
     for caminho, metodos in rotas.items():

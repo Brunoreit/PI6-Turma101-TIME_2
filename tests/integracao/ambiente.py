@@ -34,6 +34,11 @@ AMBIENTE_RAPIDO = {
     "REGRAS_INTERVALO_S": "1",
     "SEM_COMUNICACAO_S": "8",
     "SETPOINT_TIMEOUT_S": "6",
+    "SETPOINT_ATINGIR_S": "15",
+    # 0: os testes de pH chamam a regra direto e o processo de regras do
+    # ambiente tem de chegar ao mesmo resultado. A persistência é testada
+    # numa transação desfeita, que ele não vê.
+    "ALERTA_PERSISTENCIA_S": "0",
     "SINAL_VIDA_S": "1",
     "SINAL_VIDA_LIMITE_S": "4",
     "BROKER_INACESSIVEL_S": "2",

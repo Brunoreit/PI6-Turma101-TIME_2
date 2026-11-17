@@ -152,6 +152,9 @@ ALTER TABLE alerta ADD CONSTRAINT alerta_celula_check CHECK (
     (id_celula IS NULL) = (tipo IN ('consumidor_parado', 'broker_inacessivel')));
 DROP INDEX IF EXISTS alerta_um_aberto;
 CREATE UNIQUE INDEX alerta_um_aberto ON alerta (id_celula, tipo) NULLS NOT DISTINCT WHERE fechado_em IS NULL;
+-- Quem fechou à mão. Só o colisao_seq, que nenhuma regra fecha, pode ser
+-- fechado assim; nos outros fica nulo.
+ALTER TABLE alerta ADD COLUMN IF NOT EXISTS fechado_por INTEGER REFERENCES pessoa;
 
 -- Sinal de vida dos processos do backend. O consumidor grava a cada
 -- SINAL_VIDA_S e também quando conecta ou desconecta do broker; as regras
