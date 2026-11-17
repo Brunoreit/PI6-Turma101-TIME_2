@@ -185,6 +185,16 @@ CREATE UNIQUE INDEX alerta_um_aberto ON alerta (id_celula, tipo, id_regra) NULLS
 -- fechado assim; nos outros fica nulo.
 ALTER TABLE alerta ADD COLUMN IF NOT EXISTS fechado_por INTEGER REFERENCES pessoa;
 
+-- Aviso por e-mail. A regra marcada com email avisa quem criou (regra de
+-- todas as células) ou o responsável e quem tem edição no experimento. O
+-- processo de regras envia o e-mail de cada alerta aberto uma vez só:
+-- email_enviado_em marca o envio; com falha no servidor de e-mail, tenta de
+-- novo depois de EMAIL_REPETIR_S (email_tentado_em, email_erro).
+ALTER TABLE regra_alerta ADD COLUMN IF NOT EXISTS email BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE alerta ADD COLUMN IF NOT EXISTS email_enviado_em TIMESTAMPTZ;
+ALTER TABLE alerta ADD COLUMN IF NOT EXISTS email_tentado_em TIMESTAMPTZ;
+ALTER TABLE alerta ADD COLUMN IF NOT EXISTS email_erro TEXT;
+
 -- Sinal de vida dos processos do backend. O consumidor grava a cada
 -- SINAL_VIDA_S e também quando conecta ou desconecta do broker; as regras
 -- gravam a cada rodada. Sem isso, consumidor parado parece célula muda.

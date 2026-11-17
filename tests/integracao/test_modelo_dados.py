@@ -2411,3 +2411,109 @@ def test_regras_pela_api(cenario, contas):
         assert ana.chamar("DELETE", f"/regras/{id_regra}").status_code == 204
         assert id_regra not in ids(ana)
         assert ana.chamar("PATCH", f"/regras/{id_regra}", {"ativa": True}).status_code == 404
+
+
+def test_testar_regra_com_as_leituras_antigas(cenario, contas):
+    """POST /regras/testar mostra o que a regra teria feito, sem gravar nada."""
+    ana, _henry, bia = contas
+    conn = cenario.conn
+    celula, outra = cenario.celulas[0], cenario.celulas[1]
+    # 30 °C, depois 3 h atrás fica 20 min acima de 50 °C, e 1 h atrás só 1 min.
+    leituras = [(0, 200, 30.0), (1, 180, 60.0), (2, 175, 65.0), (3, 170, 61.0), (4, 160, 30.0),
+                (5, 61, 70.0), (6, 60, 30.0), (7, 10, 55.0), (8, 1, 56.0)]
+    for seq, minutos, temperatura in leituras:
+        _ler(conn, celula, seq, minutos, temperatura=temperatura)
+    _ler(conn, outra, 0, 30, temperatura=30.0)
+    # O processo de regras do ambiente pode abrir outros alertas nestas células
+    # (sem_comunicacao); o teste só não pode criar alerta de regra.
+    alertas_de_regra = lambda: conn.execute(
+        "SELECT count(*) AS n FROM alerta WHERE tipo = 'regra' AND id_celula = ANY(%s)",
+        ([celula, outra],)).fetchone()["n"]
+
+    teste = ana.chamar("POST", "/regras/testar", {"parametro": "temperatura", "comparacao": "maior",
+                                                   "limite": 50, "por_minutos": 5})
+    assert teste.status_code == 200, teste.text
+    corpo = teste.json()
+    da_celula = [a for a in corpo["alertas"] if a["id_celula"] == celula]
+    agora = datetime.fromisoformat(corpo["ate"])
+    minutos = lambda iso: round((agora - datetime.fromisoformat(iso)).total_seconds() / 60)
+    # Trecho de 20 min: abre 5 min depois do início e fecha quando volta. O de
+    # 1 min não chega a abrir. O de agora está fora há 10 min: aberto.
+    assert [(minutos(a["abriria_em"]), a["fecharia_em"] and minutos(a["fecharia_em"]), a["pior"], a["leituras_fora"])
+            for a in da_celula] == [(175, 160, 65.0, 3), (5, None, 56.0, 2)]
+    assert not any(a["aberto_antes"] for a in da_celula)
+    assert corpo["celulas"] >= 2 and corpo["leituras"] >= len(leituras) + 1
+    assert alertas_de_regra() == 0
+    assert not [r for r in repo.listar_regras(conn, cenario.ana) if r["parametro"] == "temperatura" and r["limite"] == 50
+                and r["por_minutos"] == 5]
+
+    # Mais tempo pedido: o trecho de 20 min some.
+    longo = ana.chamar("POST", "/regras/testar", {"parametro": "temperatura", "comparacao": "maior",
+                                                   "limite": 50, "por_minutos": 30}).json()
+    assert [a for a in longo["alertas"] if a["id_celula"] == celula] == []
+
+    # De um experimento: só as células com cultivo aberto nele, e só quem vê o experimento.
+    e = _criar(ana)["id_experimento"]
+    assert _iniciar(ana, e, outra).status_code == 201
+    do_experimento = {"parametro": "temperatura", "comparacao": "maior", "limite": 50, "por_minutos": 5,
+                      "id_experimento": e}
+    so_dele = ana.chamar("POST", "/regras/testar", do_experimento)
+    assert so_dele.status_code == 200 and so_dele.json()["alertas"] == []
+    assert bia.chamar("POST", "/regras/testar", do_experimento).status_code == 404
+
+    for invalido in ({**do_experimento, "por_minutos": 0}, {**do_experimento, "horas": 200},
+                     {**do_experimento, "parametro": "agitacao"}):
+        assert ana.chamar("POST", "/regras/testar", invalido).status_code == 422
+
+
+def _emails_do_mailpit(ambiente, trecho_do_assunto: str) -> list[dict]:
+    mensagens = requests.get(f"{ambiente.url_mailpit}/api/v1/messages?limit=500", timeout=10).json()["messages"]
+    return [m for m in mensagens if trecho_do_assunto in m["Subject"]]
+
+
+def test_regra_com_email_avisa_uma_vez_pelo_mailpit(ambiente, cenario, contas):
+    """O processo de regras do ambiente abre o alerta e manda o e-mail ao
+    responsável e a quem tem edição, uma vez só."""
+    if ambiente.url_mailpit is None:
+        pytest.skip("o modo local não tem Mailpit; o envio é testado no modo Compose")
+    ana, henry, bia = contas
+    conn = cenario.conn
+    celula = cenario.celulas[2]
+    e = _criar(ana)["id_experimento"]
+    for conta, permissao in ((henry, "edicao"), (bia, "leitura")):
+        assert ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": conta.email, "permissao": permissao}).status_code == 200
+    assert _iniciar(ana, e, celula).status_code == 201
+    conn.execute("UPDATE cultivo SET iniciado_em = now() - interval '10 minutes' WHERE id_celula = %s AND status = 'em_andamento'",
+                 (celula,))
+
+    sem_email = ana.chamar("POST", "/regras", {**REGRA, "nome": "Sem e-mail", "id_experimento": e})
+    assert sem_email.status_code == 201 and sem_email.json()["email"] is False
+    regra = ana.chamar("POST", "/regras", {**REGRA, "nome": f"Quente {celula}", "id_experimento": e,
+                                            "gravidade": "critica", "email": True})
+    assert regra.status_code == 201, regra.text
+    assert (regra.json()["email"], regra.json()["gravidade"]) == (True, "critica")
+    id_regra = regra.json()["id_regra"]
+    try:
+        _ler(conn, celula, 0, 5, temperatura=60.0)
+        _ler(conn, celula, 1, 1, temperatura=61.0)
+
+        assunto = f"Quente {celula} · célula {celula}"
+        fim = time.time() + 30
+        while not (emails := _emails_do_mailpit(ambiente, assunto)):
+            assert time.time() < fim, "o e-mail do alerta não chegou ao Mailpit em 30 s"
+            time.sleep(0.5)
+        [email] = emails
+        assert email["Subject"] == f"[T.U.P.A] [CRÍTICO] {assunto}"
+        assert sorted(d["Address"] for d in email["To"]) == sorted([ana.email, henry.email])
+        alerta = conn.execute("SELECT email_enviado_em, email_erro FROM alerta WHERE id_regra = %s AND fechado_em IS NULL",
+                              (id_regra,)).fetchone()
+        assert alerta["email_enviado_em"] is not None and alerta["email_erro"] is None
+
+        # As rodadas seguintes (uma por segundo no ambiente) não mandam de novo.
+        time.sleep(3)
+        assert len(_emails_do_mailpit(ambiente, assunto)) == 1
+        # A regra sem e-mail também abriu alerta, mas não mandou nada.
+        assert _emails_do_mailpit(ambiente, f"Sem e-mail · célula {celula}") == []
+    finally:
+        for id_r in (id_regra, sem_email.json()["id_regra"]):
+            repo.excluir_regra(conn, id_r)

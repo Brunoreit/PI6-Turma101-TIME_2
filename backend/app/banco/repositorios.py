@@ -1071,7 +1071,8 @@ def hoje_no_fuso(conn: psycopg.Connection, fuso: str) -> str:
 
 _REGRA = """
     SELECT r.id_regra, r.nome, r.parametro, r.comparacao, r.limite, r.por_minutos, r.id_experimento,
-           e.nome AS experimento_nome, r.gravidade, r.ativa, r.id_criada_por, p.nome AS criada_por, r.criada_em,
+           e.nome AS experimento_nome, r.gravidade, r.email, r.ativa, r.id_criada_por, p.nome AS criada_por,
+           r.criada_em,
            (SELECT count(*) FROM alerta a WHERE a.id_regra = r.id_regra AND a.fechado_em IS NULL) AS alertas_abertos,
            coalesce(r.id_criada_por = %(pessoa)s OR e.id_responsavel = %(pessoa)s OR x.permissao = 'edicao',
                     false) AS pode_alterar
@@ -1102,6 +1103,117 @@ def criar_regra(conn: psycopg.Connection, id_pessoa: int, **campos) -> int:
         """,
         (id_pessoa, *campos.values()),
     ).fetchone()["id_regra"]
+
+
+# Teste de regra com leituras antigas (POST /regras/testar). Como na
+# verificação real, a coluna e o operador vêm destas tabelas fixas, nunca do
+# que a pessoa digitou.
+_COLUNA_DA_REGRA = {"temperatura": "temperatura_c", "od": "od", "ph": "ph"}
+_OPERADOR_DA_REGRA = {"maior": ">", "menor": "<"}
+
+# Células que a regra avalia, como em verificacoes._fora_do_limite: todas, ou
+# as com cultivo aberto no experimento, a partir do início do cultivo. Das
+# leituras, as do período e a última de antes dele, para saber se o trecho
+# fora do limite já vinha de antes.
+_LEITURAS_DA_REGRA = """
+    WITH alvo AS (
+        SELECT id_celula, NULL::timestamptz AS desde FROM celula WHERE %(experimento)s::int IS NULL
+        UNION ALL
+        SELECT id_celula, iniciado_em FROM cultivo
+         WHERE id_experimento = %(experimento)s AND status = 'em_andamento'),
+    l AS (
+        SELECT l.id_celula, l.ts_origem, l.{coluna} AS valor, (l.{coluna} {operador} %(limite)s) AS fora,
+               l.ts_origem >= %(desde)s AS no_periodo
+          FROM alvo a
+          JOIN leitura l ON l.id_celula = a.id_celula
+         WHERE l.{coluna} IS NOT NULL
+           AND (a.desde IS NULL OR l.ts_origem >= a.desde)
+           AND l.ts_origem >= coalesce((
+                SELECT max(p.ts_origem) FROM leitura p
+                 WHERE p.id_celula = a.id_celula AND p.{coluna} IS NOT NULL AND p.ts_origem < %(desde)s
+                   AND (a.desde IS NULL OR p.ts_origem >= a.desde)), %(desde)s)
+           AND l.ts_origem <= now())
+"""
+
+
+def trechos_fora_do_limite(conn: psycopg.Connection, parametro: str, comparacao: str, limite: float,
+                           id_experimento: int | None, desde: datetime) -> list[dict]:
+    """Sequências de leituras seguidas fora do limite, por célula, de `desde`
+    até agora: o início, a primeira leitura de volta (None se ainda está
+    fora), quantas leituras e o pior valor. Não grava nada."""
+    coluna, operador = _COLUNA_DA_REGRA[parametro], _OPERADOR_DA_REGRA[comparacao]
+    pior = "max" if comparacao == "maior" else "min"
+    return conn.execute(
+        _LEITURAS_DA_REGRA.format(coluna=coluna, operador=operador) + f"""
+        , ilhas AS (
+            SELECT *, row_number() OVER (PARTITION BY id_celula ORDER BY ts_origem)
+                    - row_number() OVER (PARTITION BY id_celula, fora ORDER BY ts_origem) AS ilha
+              FROM l)
+        , trechos AS (
+            SELECT id_celula, min(ts_origem) AS inicio, max(ts_origem) AS ultima,
+                   count(*) AS leituras, {pior}(valor) AS pior
+              FROM ilhas WHERE fora GROUP BY id_celula, ilha)
+        SELECT t.id_celula, t.inicio, t.leituras, t.pior,
+               (SELECT min(x.ts_origem) FROM l x
+                 WHERE x.id_celula = t.id_celula AND x.ts_origem > t.ultima AND NOT x.fora) AS voltou_em
+          FROM trechos t
+         ORDER BY t.id_celula, t.inicio
+        """,
+        {"experimento": id_experimento, "limite": limite, "desde": desde},
+    ).fetchall()
+
+
+def leituras_testadas(conn: psycopg.Connection, parametro: str, id_experimento: int | None,
+                      desde: datetime) -> dict:
+    """Quantas células e leituras da medida o teste da regra olhou, de `desde` até agora."""
+    coluna = _COLUNA_DA_REGRA[parametro]
+    return conn.execute(
+        _LEITURAS_DA_REGRA.format(coluna=coluna, operador=">") + """
+        SELECT count(DISTINCT id_celula) AS celulas, count(*) AS leituras FROM l WHERE no_periodo
+        """,
+        {"experimento": id_experimento, "limite": 0, "desde": desde},
+    ).fetchone()
+
+
+def emails_pendentes(conn: psycopg.Connection, repetir_s: float) -> list[dict]:
+    """Alertas abertos de regras com e-mail que ainda não foram avisados, com
+    os destinatários: quem criou a regra, se ela vale para todas as células,
+    ou o responsável e quem tem edição no experimento. Os que falharam só
+    voltam depois de `repetir_s`. Alertas de mais de um dia não são avisados:
+    ligar o e-mail não manda a fila antiga."""
+    return conn.execute(
+        """
+        SELECT a.id_alerta, a.id_celula, a.mensagem, a.aberto_em,
+               r.id_regra, r.nome AS regra_nome, r.gravidade, r.id_experimento, e.nome AS experimento_nome,
+               ARRAY(
+                   SELECT DISTINCT d.email FROM pessoa d
+                    WHERE (r.id_experimento IS NULL AND d.id_pessoa = r.id_criada_por)
+                       OR d.id_pessoa = e.id_responsavel
+                       OR d.id_pessoa IN (SELECT x.id_pessoa FROM experimento_acesso x
+                                           WHERE x.id_experimento = r.id_experimento AND x.permissao = 'edicao')
+                    ORDER BY d.email) AS destinatarios
+          FROM alerta a
+          JOIN regra_alerta r ON r.id_regra = a.id_regra
+          LEFT JOIN experimento e ON e.id_experimento = r.id_experimento
+         WHERE a.tipo = 'regra' AND a.fechado_em IS NULL AND r.email
+           AND a.email_enviado_em IS NULL
+           AND a.aberto_em > now() - interval '1 day'
+           AND (a.email_tentado_em IS NULL OR a.email_tentado_em < now() - make_interval(secs => %s))
+         ORDER BY a.aberto_em, a.id_alerta
+        """,
+        (repetir_s,),
+    ).fetchall()
+
+
+def marcar_email(conn: psycopg.Connection, id_alerta: int, erro: str | None) -> None:
+    """Sem erro, o e-mail do alerta foi enviado e não sai de novo. Com erro,
+    fica a tentativa, para repetir mais tarde."""
+    if erro is None:
+        conn.execute("UPDATE alerta SET email_enviado_em = now(), email_tentado_em = now(), email_erro = NULL "
+                     "WHERE id_alerta = %s", (id_alerta,))
+    else:
+        conn.execute("UPDATE alerta SET email_tentado_em = now(), email_erro = %s WHERE id_alerta = %s",
+                     (erro[:500], id_alerta))
 
 
 def _fechar_alertas_da_regra(conn: psycopg.Connection, id_regra: int) -> None:

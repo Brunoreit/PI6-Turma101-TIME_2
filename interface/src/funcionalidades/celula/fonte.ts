@@ -29,7 +29,7 @@ import { TIPO } from "@/funcionalidades/experimentos/api";
 import { gerarExemploDaCelula } from "./exemplo";
 import { alertaDaApi, FONTE_DADOS } from "@/dados/fonte";
 import * as formatar from "@/compartilhado/formatar";
-import type { SituacaoCelula } from "@/dados/modelo";
+import { ordenarAlertas, type SituacaoCelula } from "@/dados/modelo";
 import type { DetalheDaCelula, EtapaDoCaminho, ExperimentoDaCelula, PedidoDeSetpoint, Periodo, Series } from "./modelo";
 
 const MINUTO = 60 * 1000;
@@ -387,7 +387,7 @@ async function carregarDaApi(id: string, periodo: Periodo, idPessoa: number | nu
     ph: celula.ph,
     ultimaLeituraEm,
     pedido: ultimo ? pedidoDaApi(ultimo) : null,
-    alertas: daCelula.map(alertaDaApi),
+    alertas: ordenarAlertas(daCelula.map(alertaDaApi)),
     series: mediasPorIntervalo(leituras, inicio, duracaoMs, quantidade),
     calibracao: calibracaoDaApi(calibracoes),
     bombas: null,

@@ -12,6 +12,7 @@ import * as formatar from "@/compartilhado/formatar";
 import { gerarExemplo } from "./exemplo";
 import {
   HORAS_DE_HISTORICO,
+  ordenarAlertas,
   type AlertaResumo,
   type Experimento,
   type CelulaResumo,
@@ -106,7 +107,7 @@ async function carregarDaApi(sinal?: AbortSignal): Promise<VisaoGeral> {
 
   return {
     celulas: celulas.map((c, i) => celulaDaApi(c, leituras[i], alertas, inicio, experimentos, agora)),
-    alertas: alertas.map(alertaDaApi),
+    alertas: ordenarAlertas(alertas.map(alertaDaApi)),
     sistema: sistemaDaApi(saude, agora),
     setpointsAguardando: setpointsAguardando(pedidos.map((lista) => lista[0]).filter(Boolean)),
     leituras24h: { total, perdidas },
@@ -130,6 +131,7 @@ function celulaDaApi(
     apelido: celula.apelido,
     situacao,
     alertasAbertos: celula.alertas_abertos,
+    alertaCritico: daCelula.some((a) => a.regra_gravidade === "critica"),
     experimento: experimentoDaCelula(celula, experimentos, agora),
     temperaturaC: celula.temperatura_c,
     ph: celula.ph,
@@ -216,5 +218,6 @@ export function alertaDaApi(alerta: AlertaApi): AlertaResumo {
     ...infoDoAlerta(alerta.tipo, alerta.regra_nome),
     mensagem: alerta.mensagem,
     abertoEm: new Date(alerta.aberto_em),
+    critico: alerta.regra_gravidade === "critica",
   };
 }

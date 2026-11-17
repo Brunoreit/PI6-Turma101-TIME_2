@@ -260,12 +260,26 @@ class NovaRegra(BaseModel):
     limite: float = Field(allow_inf_nan=False)
     por_minutos: int = Field(ge=1, le=1440, description="Minutos seguidos fora do limite antes de avisar")
     id_experimento: int | None = Field(default=None, description="Sem ele, a regra vale para todas as células")
-    gravidade: Literal["aviso", "critica"] = "aviso"
+    gravidade: Literal["aviso", "critica"] = Field(
+        default="aviso", description="critica aparece primeiro e em destaque na tela")
+    email: bool = Field(default=False, description="Avisa por e-mail quem criou a regra (todas as células) "
+                                                   "ou o responsável e quem tem edição no experimento")
 
     @field_validator("nome")
     @classmethod
     def _nome(cls, nome: str) -> str:
         return _texto_obrigatorio(nome, "Dê um nome à regra.")
+
+
+class TesteDeRegra(BaseModel):
+    """Regra ainda não salva, para ver o que ela teria feito com as leituras antigas."""
+
+    parametro: Literal["temperatura", "od", "ph"]
+    comparacao: Literal["maior", "menor"]
+    limite: float = Field(allow_inf_nan=False)
+    por_minutos: int = Field(ge=1, le=1440, description="Minutos seguidos fora do limite antes de avisar")
+    id_experimento: int | None = Field(default=None, description="Sem ele, testa em todas as células")
+    horas: int = Field(default=24, ge=1, le=168, description="Quantas horas para trás testar")
 
 
 class AlteracaoRegra(BaseModel):

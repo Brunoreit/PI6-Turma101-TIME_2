@@ -436,3 +436,35 @@
   font-size: 12px;
   color: var(--status\/alerta);
 }
+
+/* Resultado de "Testar com as leituras das últimas 24 h". */
+.resultadoTeste {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+  font-size: 12px;
+  color: var(--texto\/principal);
+}
+
+.resultadoTeste ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.resultadoTeste strong {
+  font-family: var(--fonte-mono);
+  font-weight: 600;
+}
+
+/* Alerta de regra crítica: vem primeiro (ordenarAlertas) e com fundo e faixa vermelhos. */
+.alertaCritico {
+  background: var(--status\/alerta-fundo);
+  box-shadow: inset 3px 0 0 var(--status\/alerta);
+}

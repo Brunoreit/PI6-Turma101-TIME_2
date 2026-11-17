@@ -102,7 +102,28 @@ services:
 
   regras:
     <<: *backend
+    environment:
+      <<: *env-backend
+      # E-mail dos alertas. O padrão é o Mailpit abaixo, que não entrega a
+      # ninguém e mostra os e-mails em http://localhost:8025. Para um servidor
+      # de verdade, troque estas variáveis no .env.
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORTA: ${SMTP_PORTA:-1025}
+      SMTP_USUARIO: ${SMTP_USUARIO:-}
+      SMTP_SENHA: ${SMTP_SENHA:-}
+      SMTP_SEGURANCA: ${SMTP_SEGURANCA:-nenhuma}
+      EMAIL_REMETENTE: ${EMAIL_REMETENTE:-T.U.P.A <alertas@tupa.local>}
+      INTERFACE_URL: ${INTERFACE_URL:-http://localhost:8080}
+      EMAIL_REPETIR_S: ${EMAIL_REPETIR_S:-300}
+      EMAIL_FUSO: ${EMAIL_FUSO:-America/Sao_Paulo}
     command: ["python", "-m", "app.regras.main"]
+
+  # Caixa de e-mail de desenvolvimento: recebe os e-mails dos alertas e os
+  # mostra em http://localhost:8025. Nada sai da máquina.
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    restart: unless-stopped
+    ports: ["${PORTA_MAILPIT:-8025}:8025"]
 
   api:
     <<: *backend

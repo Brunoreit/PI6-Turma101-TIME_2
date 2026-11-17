@@ -19,7 +19,8 @@ function descricaoDoExperimento(experimento: Experimento): string {
 
 export function CardDeCelula({ celula, agora }: { celula: CelulaResumo; agora: Date }) {
   const offline = celula.situacao === "offline";
-  const classes = [estilos.card, estilos[celula.situacao]].join(" ");
+  const critico = celula.situacao === "alerta" && celula.alertaCritico;
+  const classes = [estilos.card, estilos[celula.situacao], critico ? estilos.critico : ""].join(" ");
 
   let subtitulo: string;
   if (celula.experimento === null) subtitulo = "Livre · sem experimento";
@@ -41,7 +42,8 @@ export function CardDeCelula({ celula, agora }: { celula: CelulaResumo; agora: D
           <SeloDeStatus
             situacao={celula.situacao}
             rotulo={
-              celula.situacao === "alerta" && celula.alertasAbertos && celula.alertasAbertos > 1
+              critico ? (celula.alertasAbertos && celula.alertasAbertos > 1 ? `${celula.alertasAbertos} alertas, crítico` : "Alerta crítico")
+                : celula.situacao === "alerta" && celula.alertasAbertos && celula.alertasAbertos > 1
                 ? `${celula.alertasAbertos} alertas`
                 : undefined
             }

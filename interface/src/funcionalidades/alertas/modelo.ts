@@ -4,7 +4,7 @@
 // este mesmo formato (regraDaApi); as verificações fixas do backend aparecem
 // numa lista à parte.
 
-import type { NovaRegraApi, RegraApi } from "@/api/tipos";
+import type { NovaRegraApi, RegraApi, TesteDeRegraApi } from "@/api/tipos";
 import * as formatar from "@/compartilhado/formatar";
 
 export type Gravidade = "aviso" | "critica";
@@ -66,7 +66,7 @@ export function regraDaApi(r: RegraApi): Regra {
     porMinutos: r.por_minutos,
     ondeVale: r.codigo_experimento,
     gravidade: r.gravidade,
-    email: false,
+    email: r.email,
     ativa: r.ativa,
     criadaPor: r.criada_por,
     podeAlterar: r.pode_alterar,
@@ -82,8 +82,21 @@ export function regraParaApi(regra: RegraNova, idExperimento: number | undefined
     limite: regra.limite,
     por_minutos: regra.porMinutos,
     gravidade: regra.gravidade,
+    email: regra.email,
     ...(idExperimento === undefined ? {} : { id_experimento: idExperimento }),
   };
+}
+
+/** A regra do painel, ainda não salva, para o POST /regras/testar. */
+export function testeParaApi(regra: RegraNova, idExperimento: number | undefined): TesteDeRegraApi {
+  const { parametro, comparacao, limite, por_minutos, id_experimento } = regraParaApi(regra, idExperimento);
+  return { parametro, comparacao, limite, por_minutos, ...(id_experimento === undefined ? {} : { id_experimento }) };
+}
+
+/** "0,932", "61,2 °C", "6,85": o valor de uma medida da regra. */
+export function valorDaMedida(parametro: Parametro, valor: number): string {
+  const api = PARAMETRO_DA_API[parametro];
+  return formatar.decimal(valor, api === "od" ? 3 : CASAS[api]) + (api === "temperatura" ? " °C" : "");
 }
 
 export const PARAMETROS: Parametro[] = ["Densidade óptica", "Temperatura", "pH"];

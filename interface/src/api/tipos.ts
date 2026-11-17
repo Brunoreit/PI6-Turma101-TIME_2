@@ -68,6 +68,8 @@ export interface RegraApi {
   codigo_experimento: string | null;
   experimento_nome: string | null;
   gravidade: "aviso" | "critica";
+  /** Avisa por e-mail quem criou (todas as células) ou o responsável e quem tem edição. */
+  email: boolean;
   ativa: boolean;
   criada_por: string;
   criada_em: string;
@@ -76,9 +78,36 @@ export interface RegraApi {
   pode_alterar: boolean;
 }
 
-export type NovaRegraApi = Pick<RegraApi, "nome" | "parametro" | "comparacao" | "limite" | "por_minutos" | "gravidade"> & {
+export type NovaRegraApi = Pick<RegraApi, "nome" | "parametro" | "comparacao" | "limite" | "por_minutos" | "gravidade" | "email"> & {
   id_experimento?: number;
 };
+
+/** POST /regras/testar: a regra ainda não salva. */
+export type TesteDeRegraApi = Pick<RegraApi, "parametro" | "comparacao" | "limite" | "por_minutos"> & {
+  id_experimento?: number;
+  /** Quantas horas para trás; 24 por padrão. */
+  horas?: number;
+};
+
+/** O que a regra teria feito no período, sem gravar nada. */
+export interface ResultadoDoTesteApi {
+  desde: string;
+  ate: string;
+  /** Células e leituras da medida olhadas no período. */
+  celulas: number;
+  leituras: number;
+  alertas: {
+    id_celula: string;
+    abriria_em: string;
+    /** null: ainda estaria aberto agora. */
+    fecharia_em: string | null;
+    /** Já estaria aberto no início do período. */
+    aberto_antes: boolean;
+    leituras_fora: number;
+    /** O valor mais longe do limite. */
+    pior: number;
+  }[];
+}
 
 export interface LeituraApi {
   seq: number;

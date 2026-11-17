@@ -67,9 +67,24 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 
 ### Ainda falta na API
 
-- **Aviso fora da tela e teste da regra.** No painel "Nova regra", o e-mail
-  e "Testar com as leituras das últimas 24 h" aparecem como indisponíveis: o
-  sistema não envia e-mail e a API não testa a regra com leituras antigas.
+- **E-mail dos alertas fixos.** Só as regras criadas na tela avisam por
+  e-mail; os alertas de comunicação, temperatura e pH aparecem só na tela.
+
+"Testar com as leituras das últimas 24 h", no painel "Nova regra", chama o
+`POST /regras/testar` e mostra, sem salvar nada, quantos alertas a regra
+teria aberto, em quais células, das que horas às que horas e o pior valor de
+cada um. Mudar qualquer campo da regra apaga o resultado. No modo exemplo o
+botão explica que não há leituras para testar.
+
+**Gravidade e e-mail da regra.** Uma regra *crítica* não muda quando o alerta
+abre ou fecha; muda o destaque: o alerta dela vem primeiro em todas as listas
+(tela Alertas, Visão geral e painel da célula), com fundo vermelho e o selo
+"crítico" (`compartilhado/componentes/SeloCritico.tsx`); o contador de
+Alertas da barra lateral fica vermelho cheio; e o card da célula ganha borda
+vermelha e o selo "Alerta crítico". A caixa *E-mail* do painel manda um
+e-mail por alerta, quando ele abre: para você, na regra de todas as células,
+ou para o responsável e quem pode modificar o experimento. No Docker Compose
+os e-mails ficam no Mailpit, em http://localhost:8025.
 - **Gráficos para publicação** (PNG, SVG, PDF) na tela Exportar: a API não
   gera gráficos, e o botão "Baixar gráfico" explica isso.
 - **Recuperar e trocar senha** e **convite para quem não tem conta**.

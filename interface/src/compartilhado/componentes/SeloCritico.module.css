@@ -1,0 +1,15 @@
+.selo {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--status\/alerta);
+  font-family: var(--fonte-sans, inherit);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--fundo\/pagina);
+  vertical-align: 1px;
+  white-space: nowrap;
+}

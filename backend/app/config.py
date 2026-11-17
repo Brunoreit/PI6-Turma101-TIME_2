@@ -43,6 +43,22 @@ class Config:
     sinal_vida_limite_s: float = _float("SINAL_VIDA_LIMITE_S", 30)
     broker_inacessivel_s: float = _float("BROKER_INACESSIVEL_S", 20)
 
+    # Aviso por e-mail das regras marcadas com e-mail (só o processo de regras
+    # envia). Sem SMTP_HOST, nada é enviado: o alerta só aparece na tela. No
+    # Compose, o SMTP_HOST é o Mailpit, que guarda os e-mails numa página local.
+    smtp_host: str = os.environ.get("SMTP_HOST", "")
+    smtp_porta: int = int(os.environ.get("SMTP_PORTA", 25))
+    smtp_usuario: str = os.environ.get("SMTP_USUARIO", "")
+    smtp_senha: str = os.environ.get("SMTP_SENHA", "")
+    # nenhuma | starttls | ssl
+    smtp_seguranca: str = os.environ.get("SMTP_SEGURANCA", "nenhuma")
+    email_remetente: str = os.environ.get("EMAIL_REMETENTE", "T.U.P.A <alertas@tupa.local>")
+    # Endereço da interface, para o link do e-mail.
+    interface_url: str = os.environ.get("INTERFACE_URL", "http://localhost:8080")
+    email_repetir_s: float = _float("EMAIL_REPETIR_S", 300)
+    # Fuso dos horários escritos no e-mail (o contêiner roda em UTC).
+    email_fuso: str = os.environ.get("EMAIL_FUSO", "America/Sao_Paulo")
+
     # Nova calibração de OD pela leitura ao vivo (só a API usa). O bruto de
     # um padrão é a média das últimas N leituras, gravada só com a leitura
     # estável: (máximo - mínimo) / média menor que a variação máxima.

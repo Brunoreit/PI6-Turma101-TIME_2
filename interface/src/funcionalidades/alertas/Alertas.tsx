@@ -13,6 +13,7 @@ import chaveDesligada from "@/assets/icones/chave-desligada.svg";
 import chaveLigada from "@/assets/icones/chave-ligada.svg";
 import iconeEmail from "@/assets/icones/email-15.svg";
 import iconeSino from "@/assets/icones/sino-15.svg";
+import { SeloCritico } from "@/compartilhado/componentes/SeloCritico";
 import { Botao } from "@/compartilhado/componentes/Botao";
 import * as formatar from "@/compartilhado/formatar";
 import { useDados } from "@/dados/DadosProvider";
@@ -331,11 +332,12 @@ export function Alertas() {
           {erroAoFechar && <p className={estilos.erro}>{erroAoFechar}</p>}
           {abertos.length === 0 && <p className={estilos.vazio}>Nenhum alerta aberto. Tudo dentro do esperado.</p>}
           {abertos.map((a) => (
-            <div key={a.id} className={estilos.alerta}>
+            <div key={a.id} className={a.critico ? `${estilos.alerta} ${estilos.alertaCritico}` : estilos.alerta}>
               <span className={estilos.pontoAlerta} />
               <div className={estilos.alertaTextos}>
                 <p className={estilos.alertaTitulo}>
                   <span className={estilos.codigo}>{a.idCelula ? nomeDa(a.idCelula) : "Sistema"}</span> · {a.titulo}
+                  {a.critico && <> <SeloCritico /></>}
                 </p>
                 <p className={estilos.descricao}>{a.mensagem}</p>
                 {a.ajuda && <p className={estilos.ajudaAlerta}>{a.ajuda}</p>}

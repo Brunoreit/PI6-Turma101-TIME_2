@@ -4,7 +4,7 @@
 
 import type {
   AcessoApi, AlertaApi, CalibracaoApi, CalibracaoSalvaApi, CelulaApi, OdAoVivoApi, PontoCalibracaoApi, CultivoApi, CultivoIniciadoApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
-  LeituraApi, NovaRegraApi, PedidoSetpointApi, PermissaoApi, PessoaApi, RegraApi, SaudeApi, SessaoApi,
+  LeituraApi, NovaRegraApi, PedidoSetpointApi, PermissaoApi, PessoaApi, RegraApi, ResultadoDoTesteApi, SaudeApi, SessaoApi, TesteDeRegraApi,
 } from "./tipos";
 
 const BASE = "/api";
@@ -125,6 +125,11 @@ export function listarRegras(sinal?: AbortSignal): Promise<RegraApi[]> {
 
 export function criarRegra(regra: NovaRegraApi): Promise<RegraApi> {
   return enviar("/regras", regra);
+}
+
+/** O que a regra teria feito nas últimas 24 h, sem salvar nada. */
+export function testarRegra(regra: TesteDeRegraApi): Promise<ResultadoDoTesteApi> {
+  return enviar("/regras/testar", regra);
 }
 
 /** Desligar fecha os alertas que a regra abriu. */

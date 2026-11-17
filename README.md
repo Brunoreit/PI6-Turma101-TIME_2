@@ -62,6 +62,7 @@ Depois de alguns segundos:
 | Estado das células (com login) | `GET http://localhost:8000/celulas` |
 | Histórico completo e sem repetições? (com login) | `GET http://localhost:8000/integridade` |
 | Banco | `postgresql://evolver:evolver@localhost:5432/evolver` |
+| E-mails dos alertas (Mailpit, nada sai da máquina) | http://localhost:8025 |
 | Broker | `localhost:1883` |
 
 ### Usando a API
@@ -314,4 +315,4 @@ SELECT id_celula, count(*) AS leituras, count(DISTINCT seq) AS seq_unicos,
 - Fechar o contrato de mensagens com o grupo do hardware (`docs/contrato-mqtt.md`)
 - Senha no broker, que ainda aceita conexão anônima
 - Gráficos para publicação na tela Exportar, a parte da interface que ainda não tem API
-- Aviso fora da tela (e-mail) para os alertas, principalmente os de comunicação
+- E-mail também para os alertas fixos, principalmente os de comunicação (hoje só as regras criadas na tela avisam por e-mail, pelo Mailpit no Compose)

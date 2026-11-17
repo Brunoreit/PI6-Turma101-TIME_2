@@ -38,6 +38,7 @@ function ItemDoSistema({ nome, ok, rotuloOk, texto }: { nome: string; ok: boolea
 export function BarraLateral() {
   const { dados } = useDados();
   const alertas = dados?.alertas.length ?? 0;
+  const criticos = dados?.alertas.filter((a) => a.critico).length ?? 0;
   const sistema = dados?.sistema ?? { broker: null, consumidor: null, regras: null };
   // As telas da célula são abertas pela Visão geral, que fica marcada nelas.
   const naCelula = useLocation().pathname.startsWith("/celulas/");
@@ -72,7 +73,11 @@ export function BarraLateral() {
             />
             <span className={estilos.rotulo}>{rota.rotulo}</span>
             {rota.caminho === "/alertas" && alertas > 0 && (
-              <span className={estilos.contador} aria-label={`${alertas} alertas abertos`}>
+              <span
+                className={criticos ? `${estilos.contador} ${estilos.contadorCritico}` : estilos.contador}
+                aria-label={`${alertas} alertas abertos${criticos ? `, ${criticos} ${criticos === 1 ? "crítico" : "críticos"}` : ""}`}
+                title={criticos ? `${criticos} ${criticos === 1 ? "alerta crítico" : "alertas críticos"}` : undefined}
+              >
                 {alertas}
               </span>
             )}

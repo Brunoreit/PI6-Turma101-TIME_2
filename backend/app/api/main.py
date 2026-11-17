@@ -18,7 +18,8 @@ import logging
 import math
 import secrets
 from contextlib import asynccontextmanager, contextmanager
-from datetime import datetime, timezone
+from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 import paho.mqtt.client as mqtt
@@ -31,10 +32,12 @@ from app.api import autenticacao
 from app.api.esquemas import (AlteracaoCelula, AlteracaoCultivo, AlteracaoExperimento, AlteracaoRegra, Cadastro,
                               Entrada,
                               Motivo, MotivoOpcional, NovaCalibracao, NovoAcesso, NovoCultivo,
-                              NovaExportacao, NovaRegra, NovoExperimento, NovoSetpoint, PontoCalibracao)
+                              NovaExportacao, NovaRegra, NovoExperimento, NovoSetpoint, PontoCalibracao,
+                              TesteDeRegra)
 from app.banco import repositorios as repo
 from app.calibracao import ajuste
 from app.exportacao import montagem
+from app.regras import simulacao
 from app.banco.conexao import criar_pool
 from app.config import config
 from contrato import PedidoSetpoint, topicos
@@ -753,6 +756,32 @@ def criar_regra(conn: Conexao, pessoa: PessoaLogada, corpo: NovaRegra):
                                      "Escolha um experimento aberto ou todas as células.")
     id_regra = repo.criar_regra(conn, pessoa["id_pessoa"], **corpo.model_dump())
     return _regra_com_codigo(repo.buscar_regra(conn, id_regra, pessoa["id_pessoa"]))
+
+
+@app.post("/regras/testar")
+def testar_regra(conn: Conexao, pessoa: PessoaLogada, corpo: TesteDeRegra):
+    """O que a regra teria feito nas últimas `horas` (24 por padrão), com a
+    mesma lógica da verificação real (ver app/regras/simulacao.py). Não grava
+    nada: nem a regra, nem alertas. Regra de um experimento: qualquer acesso a
+    ele, porque testar só lê."""
+    if corpo.id_experimento is not None:
+        _exigir_acesso(conn, corpo.id_experimento, pessoa)
+    agora = repo.agora_no_banco(conn)
+    inicio = agora - timedelta(hours=corpo.horas)
+    # Leituras desde por_minutos antes do período: um alerta que abriria no
+    # começo dele depende delas.
+    desde = inicio - timedelta(minutes=corpo.por_minutos)
+    trechos = [simulacao.Trecho(**t) for t in repo.trechos_fora_do_limite(
+        conn, corpo.parametro, corpo.comparacao, corpo.limite, corpo.id_experimento, desde)]
+    alertas = simulacao.alertas_simulados(trechos, corpo.por_minutos, inicio, agora)
+    contagem = repo.leituras_testadas(conn, corpo.parametro, corpo.id_experimento, inicio)
+    return {
+        "desde": inicio,
+        "ate": agora,
+        "celulas": contagem["celulas"],
+        "leituras": contagem["leituras"],
+        "alertas": [asdict(a) for a in alertas],
+    }
 
 
 @app.patch("/regras/{id_regra}")

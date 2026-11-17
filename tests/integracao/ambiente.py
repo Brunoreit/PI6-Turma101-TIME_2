@@ -68,12 +68,14 @@ def _esperar_porta(porta: int, timeout: float = 30) -> None:
 class AmbienteCompose:
     PROJETO = "evolver-teste"
     PORTAS = {"PORTA_BANCO": "55432", "PORTA_API": "58000", "PORTA_MQTT": "51883",
-              "PORTA_INTERFACE": "58080"}
+              "PORTA_INTERFACE": "58080", "PORTA_MAILPIT": "58025"}
 
     def __init__(self):
         self.url_banco = f"postgresql://evolver:evolver@localhost:{self.PORTAS['PORTA_BANCO']}/evolver"
         self.url_api = f"http://localhost:{self.PORTAS['PORTA_API']}"
         self.host_mqtt, self.porta_mqtt = "localhost", int(self.PORTAS["PORTA_MQTT"])
+        # Caixa de e-mail do Compose; o modo local não tem (url_mailpit None).
+        self.url_mailpit = f"http://localhost:{self.PORTAS['PORTA_MAILPIT']}"
 
     def _dc(self, *args: str) -> None:
         # Portas próprias e tempos curtos, para não colidir com um
@@ -115,6 +117,7 @@ class AmbienteLocal:
         self.url_banco = f"postgresql://evolver@127.0.0.1:{self.porta_pg}/evolver"
         self.url_api = f"http://127.0.0.1:{self.porta_api}"
         self.host_mqtt = "127.0.0.1"
+        self.url_mailpit = None  # sem Mailpit: SMTP_HOST vazio, nenhum e-mail sai
         self.processos: dict[str, subprocess.Popen] = {}
         self.pg_bin = Path(os.environ.get("PG_BIN", "/usr/lib/postgresql/16/bin"))
 
