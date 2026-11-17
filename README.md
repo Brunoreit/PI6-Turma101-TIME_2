@@ -56,7 +56,7 @@ Depois de alguns segundos:
 
 | O quê | Onde |
 |---|---|
-| Interface web | http://localhost:8080 (crie uma conta em "Criar conta"; o login é pela API) |
+| Interface web | http://localhost:8080 (crie uma conta em "Criar conta"; o login é pela API). Com os dados de demonstração, entre com `pedro.ximenes@cnpem.br` e a senha `cultura123` |
 | Interface com os dados reais | `VITE_FONTE_DADOS=api docker compose up --build` (sem a variável, as telas mostram os dados de exemplo do Figma) |
 | Documentação interativa da API | http://localhost:8000/docs |
 | Estado das células (com login) | `GET http://localhost:8000/celulas` |
@@ -161,16 +161,37 @@ Opções: `--dias 7` publica menos histórico (carrega mais rápido), `--sem-cel
 
 Além das verificações fixas, cada pessoa cria regras na tela Alertas (ou pela API): uma medida acima ou abaixo de um limite por alguns minutos seguidos.
 
+**Na tela** (http://localhost:8080/alertas, com a interface no modo api):
+
+1. "Nova regra" abre uma janela por cima da aba em que você está. Escolha a medida, a condição, o limite, por quanto tempo, onde vale (todas as células ou um experimento aberto que você pode modificar) e a gravidade.
+2. "Testar com as leituras das últimas 24 h" mostra, sem salvar nada, quantos alertas a regra teria aberto, em quais células, quando e o pior valor.
+3. "E-mail" (marcado por padrão) avisa por e-mail quando a regra abre um alerta: você, numa regra de todas as células, ou o responsável e quem pode modificar o experimento. No Compose, os e-mails ficam no Mailpit (http://localhost:8025).
+4. Ao salvar, um aviso verde confirma a regra. Ela passa a valer na próxima rodada das regras, em poucos segundos, e aparece na aba Regras, com a chave para desligar e o "Excluir".
+
+A gravidade **crítica** não muda quando o alerta abre ou fecha, só o destaque: o alerta vem primeiro e em vermelho em todas as listas, com o selo "crítico", o contador da barra lateral fica vermelho e o card da célula na Visão geral ganha a borda vermelha.
+
+A aba **Histórico** mostra os alertas fechados agrupados por dia (Hoje, Ontem, depois a data), com a hora, a célula, quanto durou e se fechou sozinho ou quem fechou, e filtra por célula e por tipo.
+
+**Pela API:**
+
 ```bash
 # Avisa quando a temperatura de qualquer célula passar de 38 °C por 5 minutos seguidos
 curl -X POST localhost:8000/regras -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-     -d '{"nome": "Temperatura alta", "parametro": "temperatura", "comparacao": "maior", "limite": 38, "por_minutos": 5}'
+     -d '{"nome": "Temperatura alta", "parametro": "temperatura", "comparacao": "maior", "limite": 38, "por_minutos": 5,
+          "gravidade": "critica", "email": true}'
+
+# O que essa regra teria feito nas últimas 24 h, sem gravar nada
+curl -X POST localhost:8000/regras/testar -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"parametro": "temperatura", "comparacao": "maior", "limite": 38, "por_minutos": 5}'
 ```
 
-- `parametro`: `temperatura`, `od` ou `ph`. `comparacao`: `maior` ou `menor`. `por_minutos`: de 1 a 1440.
+- `parametro`: `temperatura`, `od` ou `ph`. `comparacao`: `maior` ou `menor`. `por_minutos`: de 1 a 1440. `gravidade`: `aviso` (padrão) ou `critica`. `email`: `false` por padrão na API.
 - Com `id_experimento`, a regra vale só para as células com cultivo aberto nele, e só o responsável ou quem pode modificar o experimento cria. Sem ele, vale para todas as células.
-- O processo de regras avalia as regras a cada rodada e abre um alerta do tipo `regra` por célula. Ele só abre quando a medida ficou fora do limite pelo tempo inteiro, e fecha sozinho quando ela volta.
-- `PATCH /regras/{id} {"ativa": false}` desliga a regra e fecha os alertas dela; `DELETE /regras/{id}` exclui. Os alertas antigos continuam no histórico.
+- O processo de regras avalia as regras a cada rodada e abre um alerta do tipo `regra` por célula. Ele só abre quando a medida ficou fora do limite pelo tempo inteiro, e fecha sozinho quando ela volta. A mensagem acompanha o valor medido, com vírgula decimal, como na tela: "Temperatura alta: Temperatura em 37,0 °C, acima de 33,0 °C há mais de 1 min."
+- Com `email`, sai um e-mail por alerta, uma vez só. Se o servidor de e-mail estiver fora, tenta de novo depois de `EMAIL_REPETIR_S`. Em produção, aponte as variáveis `SMTP_*` do `.env.example` para o servidor de verdade.
+- `POST /regras/testar` aceita também `id_experimento` e `horas` (de 1 a 168; padrão 24).
+- `PATCH /regras/{id} {"ativa": false}` desliga a regra e fecha os alertas dela; `DELETE /regras/{id}` exclui. Os alertas antigos continuam no histórico. Para parar os e-mails de uma regra, desligue ou exclua a regra.
+- Banco criado antes destas mudanças: reaplique o `03_modelo_mvp.sql` (veja "Banco que já tem dados").
 
 ### Exportar os dados
 
