@@ -1,12 +1,14 @@
-// "painel Nova regra" da tela Alertas do Figma (nó 83:1651). No modo api a
+// Janela (pop-up) Nova regra da tela Alertas, com os campos do painel do Figma
+// (nó 83:1651). Fecha no X, no Esc, em Cancelar ou clicando fora. No modo api a
 // regra vai para o POST /regras, e "Testar com as leituras das últimas 24 h"
 // chama o POST /regras/testar, que mostra o que a regra teria feito sem salvar
 // nada. Com "E-mail" marcado, o processo de regras avisa por e-mail quando a
 // regra abre um alerta (no Compose, os e-mails ficam no Mailpit).
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { testarRegra } from "@/api/cliente";
 import type { ResultadoDoTesteApi } from "@/api/tipos";
+import iconeFechar from "@/assets/icones/fechar-20.svg";
 import iconeInfo from "@/assets/icones/info-14.svg";
 import iconeTestar from "@/assets/icones/testar.svg";
 import { Botao } from "@/compartilhado/componentes/Botao";
@@ -27,7 +29,7 @@ const SIGLA: Record<Parametro, string> = { "Densidade óptica": "OD", Temperatur
 const NA_API = FONTE_DADOS === "api";
 
 interface Props {
-  /** Rejeitar (a API recusou) mostra a mensagem no painel, que continua aberto. */
+  /** Rejeitar (a API recusou) mostra a mensagem na janela, que continua aberta. */
   onSalvar: (regra: RegraNova) => void | Promise<void>;
   onCancelar: () => void;
 }
@@ -51,6 +53,21 @@ export function NovaRegra({ onSalvar, onCancelar }: Props) {
   const [testando, setTestando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const id = useId();
+  const janela = useRef<HTMLFormElement>(null);
+
+  // Abriu: foco no primeiro campo, Esc fecha e a página de trás não rola.
+  useEffect(() => {
+    janela.current?.querySelector<HTMLInputElement>("input")?.focus();
+    const aoTeclar = (e: KeyboardEvent) => e.key === "Escape" && onCancelar();
+    window.addEventListener("keydown", aoTeclar);
+    const rolagem = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", aoTeclar);
+      document.body.style.overflow = rolagem;
+    };
+  }, [onCancelar]);
 
   const alvo = ondeVale ? `de uma célula do ${ondeVale}` : "de qualquer célula";
   const sentido = comparacao === "Maior que" ? "acima" : "abaixo";
@@ -121,106 +138,137 @@ export function NovaRegra({ onSalvar, onCancelar }: Props) {
   }
 
   return (
-    <form
-      className={estilos.painel}
-      noValidate
-      onSubmit={(e) => {
-        e.preventDefault();
-        salvar();
-      }}
-    >
-      <div className={estilos.painelTitulo}>
-        <h2>Nova regra</h2>
-        <p>Escolha o que verificar, quando avisar e por onde.</p>
-      </div>
-      <Campo rotulo="Nome" tipo="texto" valor={nome} onChange={setNome} />
-      <div className={estilos.linhaCampos}>
-        <label className={estilos.campoSeletor}>
-          <span>Parâmetro</span>
-          <select className={estilos.seletor} value={parametro} onChange={(e) => setParametro(e.target.value as Parametro)}>
-            {PARAMETROS.map((p) => (
-              <option key={p}>{p}</option>
-            ))}
-          </select>
-        </label>
-        <label className={estilos.campoSeletor}>
-          <span>Condição</span>
-          <select className={estilos.seletor} value={comparacao} onChange={(e) => setComparacao(e.target.value as Comparacao)}>
-            {COMPARACOES.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <div className={estilos.linhaCampos}>
-        <Campo rotulo="Limite" valor={limite} onChange={setLimite} />
-        <Campo rotulo="Por quanto tempo" valor={minutos} onChange={setMinutos} unidade="min" />
-      </div>
-      <p className={estilos.ajuda}>O tempo evita alerta por uma leitura isolada fora do normal.</p>
-      <label className={estilos.campoSeletor}>
-        <span>Onde vale</span>
-        <select className={estilos.seletor} value={ondeVale} onChange={(e) => setOndeVale(e.target.value)}>
-          <option value="">Todas as células</option>
-          {ativos.map((e) => (
-            <option key={e.codigo} value={e.codigo}>
-              {e.codigo} · {e.nome}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className={estilos.campoSeletor}>
-        <span title="Crítica aparece primeiro e em destaque: na lista de alertas, na barra lateral e no card da célula.">
-          Gravidade
-        </span>
-        <div className={estilos.segmentos} role="radiogroup" aria-label="Gravidade">
-          {(["aviso", "critica"] as const).map((g) => (
-            <button
-              key={g}
-              type="button"
-              role="radio"
-              aria-checked={gravidade === g}
-              className={gravidade === g ? estilos.segmentoAtivo : estilos.segmento}
-              onClick={() => setGravidade(g)}
-            >
-              {g === "aviso" ? "Aviso" : "Crítica"}
-            </button>
-          ))}
+    <div className={estilos.fundoJanela} onMouseDown={(e) => e.target === e.currentTarget && onCancelar()}>
+      <form
+        ref={janela}
+        className={estilos.janela}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`${id}-titulo`}
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          salvar();
+        }}
+      >
+        <div className={estilos.janelaCabecalho}>
+          <div className={estilos.painelTitulo}>
+            <h2 id={`${id}-titulo`}>Nova regra</h2>
+            <p>Escolha o que verificar, quando avisar e por onde.</p>
+          </div>
+          <button type="button" className={estilos.janelaFechar} onClick={onCancelar} aria-label="Fechar">
+            <img src={iconeFechar} width={20} height={20} alt="" />
+          </button>
         </div>
-      </div>
-      <fieldset className={estilos.canaisOpcoes}>
-        <legend>Avisar por</legend>
-        <CaixaDeSelecao marcada desabilitada titulo="Todo alerta aparece na tela.">
-          Na tela
-        </CaixaDeSelecao>
-        <CaixaDeSelecao
-          marcada={email}
-          onChange={setEmail}
-          titulo="Um e-mail por alerta, quando ele abre. O alerta continua aparecendo na tela."
-        >
-          {ondeVale ? `E-mail para o responsável e quem pode modificar o ${ondeVale}` : "E-mail para você"}
-        </CaixaDeSelecao>
-        <CaixaDeSelecao marcada={false} desabilitada titulo="Canal ainda não disponível.">
-          WhatsApp ou SMS · canal a definir com o LNBR
-        </CaixaDeSelecao>
-      </fieldset>
-      <div className={estilos.previa}>
-        <img src={iconeInfo} width={14} height={14} alt="" />
-        <p>{previa}</p>
-      </div>
-      <button type="button" className={estilos.testar} onClick={testar} aria-busy={testando || undefined}>
-        <img src={iconeTestar} width={12} height={12} alt="" />
-        {testando ? "Testando com as leituras das últimas 24 h..." : "Testar com as leituras das últimas 24 h"}
-      </button>
-      {teste && <p className={estilos.ajuda}>{teste}</p>}
-      {resultado && <ResultadoDoTeste regra={resultado.regra} dados={resultado.dados} />}
-      {erro && <p className={estilos.erro}>{erro}</p>}
-      <div className={estilos.botoes}>
-        <Botao onClick={onCancelar}>Cancelar</Botao>
-        <Botao tipo="primario" submit ocupado={salvando}>
-          {salvando ? "Salvando..." : "Salvar regra"}
-        </Botao>
-      </div>
-    </form>
+
+        <div className={estilos.janelaCorpo}>
+          <section className={estilos.janelaSecao} aria-label="Condição">
+            <Campo rotulo="Nome" tipo="texto" valor={nome} onChange={setNome} />
+            <div className={estilos.linhaCampos}>
+              <label className={estilos.campoSeletor}>
+                <span>Parâmetro</span>
+                <select className={estilos.seletor} value={parametro} onChange={(e) => setParametro(e.target.value as Parametro)}>
+                  {PARAMETROS.map((p) => (
+                    <option key={p}>{p}</option>
+                  ))}
+                </select>
+              </label>
+              <label className={estilos.campoSeletor}>
+                <span>Condição</span>
+                <select className={estilos.seletor} value={comparacao} onChange={(e) => setComparacao(e.target.value as Comparacao)}>
+                  {COMPARACOES.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className={estilos.linhaCampos}>
+              <Campo rotulo="Limite" valor={limite} onChange={setLimite} />
+              <Campo rotulo="Por quanto tempo" valor={minutos} onChange={setMinutos} unidade="min" />
+            </div>
+            <p className={estilos.ajuda}>O tempo evita alerta por uma leitura isolada fora do normal.</p>
+          </section>
+
+          <section className={estilos.janelaSecao} aria-label="Onde e como avisar">
+            <div className={estilos.linhaCampos}>
+              <label className={estilos.campoSeletor}>
+                <span>Onde vale</span>
+                <select className={estilos.seletor} value={ondeVale} onChange={(e) => setOndeVale(e.target.value)}>
+                  <option value="">Todas as células</option>
+                  {ativos.map((e) => (
+                    <option key={e.codigo} value={e.codigo}>
+                      {e.codigo} · {e.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className={estilos.campoSeletor}>
+                <span title="Crítica aparece primeiro e em destaque: na lista de alertas, na barra lateral e no card da célula.">
+                  Gravidade
+                </span>
+                <div className={estilos.segmentos} role="radiogroup" aria-label="Gravidade">
+                  {(["aviso", "critica"] as const).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      role="radio"
+                      aria-checked={gravidade === g}
+                      className={gravidade === g ? estilos.segmentoAtivo : estilos.segmento}
+                      onClick={() => setGravidade(g)}
+                    >
+                      {g === "aviso" ? "Aviso" : "Crítica"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <fieldset className={estilos.canaisOpcoes}>
+              <legend>Avisar por</legend>
+              <CaixaDeSelecao marcada desabilitada titulo="Todo alerta aparece na tela.">
+                Na tela
+              </CaixaDeSelecao>
+              <CaixaDeSelecao
+                marcada={email}
+                onChange={setEmail}
+                titulo="Um e-mail por alerta, quando ele abre. O alerta continua aparecendo na tela."
+              >
+                {ondeVale ? `E-mail para o responsável e quem pode modificar o ${ondeVale}` : "E-mail para você"}
+              </CaixaDeSelecao>
+              <CaixaDeSelecao marcada={false} desabilitada titulo="Canal ainda não disponível.">
+                WhatsApp ou SMS · canal a definir com o LNBR
+              </CaixaDeSelecao>
+            </fieldset>
+          </section>
+
+          <section className={estilos.janelaSecao} aria-label="Prévia e teste">
+            <div className={estilos.previa}>
+              <img src={iconeInfo} width={14} height={14} alt="" />
+              <p>{previa}</p>
+            </div>
+            <button type="button" className={estilos.testar} onClick={testar} aria-busy={testando || undefined}>
+              <img src={iconeTestar} width={12} height={12} alt="" />
+              {testando ? "Testando com as leituras das últimas 24 h..." : "Testar com as leituras das últimas 24 h"}
+            </button>
+            {teste && <p className={estilos.ajuda}>{teste}</p>}
+            {resultado && <ResultadoDoTeste regra={resultado.regra} dados={resultado.dados} />}
+          </section>
+        </div>
+
+        <div className={estilos.janelaRodape}>
+          {erro && (
+            <p className={estilos.erro} role="alert">
+              {erro}
+            </p>
+          )}
+          <div className={estilos.botoes}>
+            <Botao onClick={onCancelar}>Cancelar</Botao>
+            <Botao tipo="primario" submit ocupado={salvando}>
+              {salvando ? "Salvando..." : "Salvar regra"}
+            </Botao>
+          </div>
+        </div>
+      </form>
+    </div>
   );
 }
 

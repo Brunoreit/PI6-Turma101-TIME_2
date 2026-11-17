@@ -70,7 +70,7 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 - **E-mail dos alertas fixos.** Só as regras criadas na tela avisam por
   e-mail; os alertas de comunicação, temperatura e pH aparecem só na tela.
 
-"Testar com as leituras das últimas 24 h", no painel "Nova regra", chama o
+"Testar com as leituras das últimas 24 h", na janela "Nova regra", chama o
 `POST /regras/testar` e mostra, sem salvar nada, quantos alertas a regra
 teria aberto, em quais células, das que horas às que horas e o pior valor de
 cada um. Mudar qualquer campo da regra apaga o resultado. No modo exemplo o
@@ -262,8 +262,8 @@ painel de alertas da célula.
 
 Um tipo que a interface não conhece aparece com o próprio nome.
 
-**Regras criadas na tela (aba Regras).** No modo `api`, "Nova regra" abre o
-painel do Figma e salva pelo `POST /regras`: uma medida (temperatura, OD ou
+**Regras criadas na tela (aba Regras).** No modo `api`, "Nova regra" abre
+uma janela (pop-up) com os campos do painel do Figma e salva pelo `POST /regras`: uma medida (temperatura, OD ou
 pH) maior ou menor que um limite por N minutos seguidos, em todas as células
 ou num experimento aberto que a pessoa pode modificar. A regra passa a valer
 na próxima rodada do processo de regras e abre um alerta do tipo `regra` em
@@ -278,6 +278,8 @@ cada célula fora do limite.
   a regra sem o "Excluir", e a chave explica por que não muda.
 - Embaixo ficam as verificações do sistema, que não podem ser desligadas.
 - No modo `exemplo`, a aba continua como no Figma, com as regras na memória.
+- A janela fecha no X, no Esc, em Cancelar ou clicando fora, e começa fechada
+  nos dois modos (no Figma o painel fica aberto ao lado da tabela).
 
 O Histórico filtra por célula (ou "Sistema") e por tipo, pelos parâmetros
 `id_celula` e `tipo` do `GET /alertas`.

@@ -127,10 +127,10 @@ export function Alertas() {
   const aba = (parametros.get("aba") as Aba | null) ?? (FONTE_DADOS === "api" ? "abertos" : "regras");
   const { experimentos } = useExperimentos();
   const { usuario } = useSessao();
-  // No modo exemplo, a tela abre como no Figma: a regra 6 destacada e o painel Nova regra aberto.
+  // No modo exemplo, a tela abre como no Figma, com a regra 6 destacada. "Nova regra" abre a janela.
   const [regras, setRegras] = useState<Regra[]>(NA_API ? [] : REGRAS_EXEMPLO);
   const [destacada, setDestacada] = useState<number | null>(NA_API ? null : 6);
-  const [criando, setCriando] = useState(!NA_API);
+  const [criando, setCriando] = useState(false);
   const [erroDasRegras, setErroDasRegras] = useState<string | null>(null);
   const [excluindo, setExcluindo] = useState<number | null>(null);
   const [filtro, setFiltro] = useState<FiltroDoHistorico>({ idCelula: "", tipo: "" });
@@ -170,7 +170,7 @@ export function Alertas() {
     if (NA_API) carregarRegras();
   }, [aba, carregarRegras]);
 
-  /** No modo api, um erro da API aparece no painel Nova regra, que continua aberto. */
+  /** No modo api, um erro da API aparece na janela Nova regra, que continua aberta. */
   async function salvar(regra: RegraNova) {
     if (NA_API) {
       const idExperimento = regra.ondeVale ? experimentos.find((e) => e.codigo === regra.ondeVale)?.id : undefined;
@@ -195,6 +195,7 @@ export function Alertas() {
     };
     setRegras((lista) => [...lista, nova]);
     setDestacada(id);
+    setCriando(false);
   }
 
   /** Liga ou desliga. No modo api, desligar fecha os alertas que a regra abriu. */
