@@ -1,5 +1,12 @@
+import json
+from unittest.mock import MagicMock
+
+import pytest
+
 from simulador.buffer import Buffer
+from simulador.celula import Celula
 from simulador.modelo import ModeloCultivo
+from simulador.perfis import PERFIS_PADRAO, obter_perfil
 
 
 def test_temperatura_converge_ao_setpoint():
@@ -14,6 +21,47 @@ def test_falha_de_aquecimento_esfria_a_cultura():
     for _ in range(100):
         modelo.avancar(1)
     assert modelo.temperatura_c < 34
+
+
+def test_desvio_temperatura_converge_ao_alvo_deslocado():
+    modelo = ModeloCultivo(temperatura_c=30, setpoint_c=30, desvio_temperatura=3.4, tau_s=10)
+    for _ in range(100):
+        modelo.avancar(1)
+    assert abs(modelo.temperatura_c - 33.4) < 0.01
+
+
+def test_od_inicial_configurada():
+    modelo = ModeloCultivo(od_inicial=0.615)
+    assert abs(modelo.od - 0.615) < 0.01
+
+
+def test_ph_base_personalizado():
+    modelo = ModeloCultivo(ph_base=6.55, od_inicial=0.4, ruido_ph=0.0)
+    leitura = modelo.medir()
+    assert 6.4 <= leitura["ph"] <= 6.6
+
+
+def test_definir_manual_od_e_bruto():
+    modelo = ModeloCultivo()
+    # Padrão por OD direta (ex: 0.200 -> 2000 * 0.2 + 100 = 500)
+    modelo.definir_manual(od=0.2, ruido_od=0.0)
+    assert modelo.medir()["od_bruto"] == 500.0
+
+    # Padrão por valor bruto direto
+    modelo.definir_manual(od_bruto=1200.0, ruido_od=0.0)
+    assert modelo.medir()["od_bruto"] == 1200.0
+
+    # Desativar e voltar ao automático
+    modelo.desativar_manual()
+    assert modelo.od_bruto_manual is None
+
+
+def test_definir_manual_temperatura_e_ph():
+    modelo = ModeloCultivo()
+    modelo.definir_manual(temperatura_c=39.2, ph=5.4)
+    medicao = modelo.medir()
+    assert abs(medicao["temperatura_c"] - 39.2) < 0.2
+    assert abs(medicao["ph"] - 5.4) < 0.05
 
 
 def test_od_cresce_e_estabiliza():
@@ -40,3 +88,230 @@ def test_buffer_guarda_em_ordem_ate_confirmar(tmp_path):
     assert [s for s, _ in buffer.pendentes()] == [0, 1, 2]
     buffer.remover(0)
     assert buffer.quantidade() == 2
+
+
+def test_perfis_padrao_16_celulas():
+    assert len(PERFIS_PADRAO) == 16
+    assert "c01" in PERFIS_PADRAO
+    assert "c16" in PERFIS_PADRAO
+
+    # c03 deve ter desvio de temperatura para simular alerta do Figma
+    p03 = obter_perfil("c03")
+    assert p03.cenario == "desvio_temperatura"
+    assert p03.desvio_temperatura > 0
+
+    # c08 deve ter pH ácido do EXP-02
+    p08 = obter_perfil("c08")
+    assert p08.ph_base < 6.7
+
+
+def test_celula_instanciacao_com_perfil(tmp_path):
+    c = Celula(id_celula="c03", buffer_dir=tmp_path)
+    assert c.id == "c03"
+    assert c.cenario == "desvio_temperatura"
+    assert c.modelo.desvio_temperatura == 3.4
+
+
+def test_celula_recebe_comando_simulador_manual(tmp_path):
+    c = Celula(id_celula="c04", buffer_dir=tmp_path)
+    msg = MagicMock()
+    msg.payload = json.dumps({"od": 0.35, "imediato": False}).encode("utf-8")
+
+    c._ao_receber_comando_simulador(None, None, msg)
+    assert c.modelo.od_bruto_manual == 2000.0 * 0.35 + 100.0
+
+    # Volta ao automático
+    msg.payload = json.dumps({"auto": True}).encode("utf-8")
+    c._ao_receber_comando_simulador(None, None, msg)
+    assert c.modelo.od_bruto_manual is None
+
+
+def test_valor_forcado_pede_rajada_estavel_para_a_calibracao(tmp_path):
+    """O branco (bruto baixo) tem de ficar tão estável quanto os padrões:
+    o ruído é proporcional ao bruto, e a rajada enche a janela de 6 leituras."""
+    from app.calibracao.ajuste import estavel, resumir
+
+    c = Celula(id_celula="c04", buffer_dir=tmp_path)
+    msg = MagicMock()
+    for bruto in (100.0, 570.0, 1690.0):
+        msg.payload = json.dumps({"od_bruto": bruto}).encode("utf-8")
+        c._ao_receber_comando_simulador(None, None, msg)
+        assert c.rajada == 6
+        for _ in range(50):
+            janela = resumir([c.modelo.medir()["od_bruto"] for _ in range(6)])
+            assert estavel(janela, 6, 0.01)
+            assert abs(janela.media - bruto) < bruto * 0.005
+
+    # Temperatura e pH pedem só uma leitura imediata
+    msg.payload = json.dumps({"temperatura_c": 38.5}).encode("utf-8")
+    c._ao_receber_comando_simulador(None, None, msg)
+    assert c.rajada == 1
+
+
+def test_comandos_de_rede_e_colisao(tmp_path):
+    from contrato import Leitura
+
+    c = Celula(id_celula="c04", buffer_dir=tmp_path)
+    msg = MagicMock()
+    msg.payload = json.dumps({"rede": "cortar", "por_s": 30}).encode("utf-8")
+    c._ao_receber_comando_simulador(None, None, msg)
+    assert c.pedido_corte == "cortar" and c.restaurar_em is not None
+
+    msg.payload = json.dumps({"colisao": True}).encode("utf-8")
+    c._ao_receber_comando_simulador(None, None, msg)
+    assert c.pedido_colisao
+
+    # A colisão reusa o último seq já gravado, com outro horário
+    c._medir()
+    original = Leitura.de_json(c.buffer.pendentes()[-1][1])
+    c.conectado.set()
+    c.cliente = MagicMock()
+    assert c._publicar_colisao() == original.seq
+    publicada = Leitura.de_json(c.cliente.publish.call_args.args[1])
+    assert publicada.seq == original.seq and publicada.ts != original.ts
+
+
+def test_historico_tem_seq_continuo_e_horarios_passados(tmp_path):
+    from contrato import Leitura
+
+    c = Celula(id_celula="c01", buffer_dir=tmp_path, historico_horas=2, historico_passo_min=20)
+    assert c._gerar_historico() == 6
+    leituras = [Leitura.de_json(p) for _, p in c.buffer.pendentes()]
+    assert [l.seq for l in leituras] == list(range(6))
+    assert all(a.ts < b.ts for a, b in zip(leituras, leituras[1:]))
+    # A cultura cresce ao longo do histórico até a OD atual do perfil
+    assert leituras[0].od_bruto < leituras[-1].od_bruto
+    assert c.buffer.ler("proximo_seq") == "6"
+
+    # Depois da primeira subida não gera de novo: o seq continua de onde parou
+    assert Celula(id_celula="c01", buffer_dir=tmp_path, historico_horas=2)._gerar_historico() == 0
+
+
+def test_parse_comando_padrao_sintaxe():
+    from simulador.cli import parse_comando_padrao, SessaoCalibracao
+
+    # Sintaxe: padrao 0.2 valor 0.235
+    ref, med, bruto = parse_comando_padrao(["0.2", "valor", "0.235"])
+    assert ref == 0.2
+    assert med == 0.235
+    assert abs(bruto - 570.0) < 0.01
+
+    # Sintaxe: padrao 0.5 (sem valor medido)
+    ref2, med2, bruto2 = parse_comando_padrao(["0.5"])
+    assert ref2 == 0.5
+    assert med2 == 0.5
+    assert abs(bruto2 - 1100.0) < 0.01
+
+    # Cálculo da regressão na sessão
+    sessao = SessaoCalibracao()
+    sessao.registrar_branco(100.0)
+    sessao.adicionar_ponto("P1", 0.2, 0.2, 500.0)
+    sessao.adicionar_ponto("P2", 0.4, 0.4, 900.0)
+    sessao.adicionar_ponto("P3", 0.6, 0.6, 1300.0)
+
+    reg = sessao.calcular_regressao()
+    assert reg is not None
+    assert abs(reg["a"] - 0.0005) < 1e-6
+    assert abs(reg["b"] - 0.0) < 1e-4
+    assert abs(reg["r2"] - 1.0) < 1e-4
+
+
+def test_enlace_repassa_nos_dois_sentidos_e_fecha_junto():
+    import asyncio
+
+    from simulador.enlace import servir
+
+    async def roteiro():
+        async def eco(leitor, escritor):
+            while dados := await leitor.read(100):
+                escritor.write(dados.upper())
+                await escritor.drain()
+            escritor.close()
+
+        destino = await asyncio.start_server(eco, "127.0.0.1", 0)
+        porta_destino = destino.sockets[0].getsockname()[1]
+        enlace = await servir(0, "127.0.0.1", porta_destino)
+        porta = enlace.sockets[0].getsockname()[1]
+
+        leitor, escritor = await asyncio.open_connection("127.0.0.1", porta)
+        escritor.write(b"mqtt")
+        await escritor.drain()
+        assert await leitor.readexactly(4) == b"MQTT"
+        escritor.close()
+
+        # Destino fora do ar: o enlace aceita e fecha, como um broker parado.
+        destino.close()
+        await destino.wait_closed()
+        leitor, escritor = await asyncio.open_connection("127.0.0.1", porta)
+        assert await asyncio.wait_for(leitor.read(), 5) == b""
+        enlace.close()
+
+    asyncio.run(roteiro())
+
+
+# ------------------------------------------------------------------ roteiro de 90 dias
+
+
+def test_roteiro_nao_tem_cultivos_sobrepostos_na_mesma_celula():
+    from simulador import roteiro
+
+    por_celula: dict[str, list] = {}
+    for c in roteiro.CULTIVOS:
+        por_celula.setdefault(c.celula, []).append(c)
+    for cultivos in por_celula.values():
+        cultivos.sort(key=lambda c: -c.inicio)
+        assert all(a.fim is not None and a.fim >= b.inicio for a, b in zip(cultivos, cultivos[1:]))
+    experimentos = {e.id: e for e in roteiro.EXPERIMENTOS}
+    assert len(experimentos) == 7
+    for c in roteiro.CULTIVOS:
+        e = experimentos[c.experimento]
+        assert e.inicio >= c.inicio and (e.fim or 0) <= (c.fim or 0), (e.nome, c.celula)
+        assert (c.fim is None) == (e.status == "em_andamento")
+
+
+def test_roteiro_emenda_no_perfil_e_fica_na_faixa_de_ph():
+    from simulador import roteiro
+    from simulador.perfis import PERFIS_PADRAO
+
+    # Agora: cada célula em cultivo está na OD e no pH do perfil dela.
+    for c in roteiro.CULTIVOS:
+        if c.fim is None:
+            perfil = PERFIS_PADRAO[c.celula]
+            _, od, _ = roteiro.valores(c.celula, 1e-6)
+            assert od == pytest.approx(perfil.od_inicial, rel=0.03), c.celula
+
+    # Fora dos eventos, o pH de cada cultivo fica dentro da faixa do experimento.
+    experimentos = {e.id: e for e in roteiro.EXPERIMENTOS}
+    eventos = [(e.celula, e.inicio, e.inicio - e.duracao_h / 24) for e in roteiro.EVENTOS if e.grandeza == "ph"]
+    for passo in range(1, roteiro.DIAS * 6):
+        dias = passo / 6
+        for id_celula in PERFIS_PADRAO:
+            c = roteiro.cultivo_em(id_celula, dias)
+            temperatura, od, ph = roteiro.valores(id_celula, dias)
+            assert 0 < od < 2.0 and 20 <= temperatura <= 46
+            if c and not any(cel == id_celula and ini >= dias > fim for cel, ini, fim in eventos):
+                e = experimentos[c.experimento]
+                assert e.ph_min <= ph <= e.ph_max, (id_celula, dias, ph)
+
+
+def test_roteiro_mostra_os_eventos_nas_leituras():
+    from simulador import roteiro
+
+    normal, _, _ = roteiro.valores("c14", 50.5)
+    no_evento, _, _ = roteiro.valores("c14", 49.95)
+    assert no_evento - normal == pytest.approx(3.2, abs=0.01)
+    _, _, ph = roteiro.valores("c06", 56.9)
+    assert ph < 6.5
+
+
+def test_historico_de_90_dias_segue_o_roteiro(tmp_path):
+    from contrato import Leitura
+
+    c = Celula(id_celula="c01", buffer_dir=tmp_path, historico_horas=90 * 24, historico_passo_min=20)
+    assert c._gerar_historico() == 6480
+    leituras = [Leitura.de_json(p) for _, p in c.buffer.pendentes()]
+    assert [l.seq for l in leituras] == list(range(6480))
+    # Há 36 dias a c01 estava no EXP-06, a 42 °C; há 80, no EXP-04, a 30 °C.
+    ha = lambda dias: leituras[6480 - int(dias * 72)]
+    assert ha(36).temperatura_c == pytest.approx(42, abs=0.5)
+    assert ha(80).temperatura_c == pytest.approx(30, abs=0.5)

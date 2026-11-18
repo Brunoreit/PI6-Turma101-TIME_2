@@ -1,6 +1,11 @@
 # Sobe o sistema inteiro: broker, banco, os três processos do backend
 # e três células simuladas.
 #
+# O consumidor e a API chegam ao broker pelo enlace, que faz o papel do cabo
+# entre o servidor e o Raspberry Pi do broker; as células ligam direto no
+# broker, como as placas pelo Wi-Fi. "docker compose pause enlace" corta
+# servidor <-> Raspberry; "unpause" religa (ver simulador/enlace.py).
+#
 #   docker compose up --build
 #
 # Valores padrão são os de uso normal. O teste de integração sobrescreve
@@ -11,16 +16,22 @@ x-backend: &backend
   restart: unless-stopped
   environment: &env-backend
     DATABASE_URL: postgresql://evolver:${POSTGRES_PASSWORD:-evolver}@banco:5432/evolver
-    MQTT_HOST: broker
+    MQTT_HOST: enlace
     MQTT_PORT: "1883"
     TEMPERATURA_MIN_C: ${TEMPERATURA_MIN_C:-20}
     TEMPERATURA_MAX_C: ${TEMPERATURA_MAX_C:-45}
     REGRAS_INTERVALO_S: ${REGRAS_INTERVALO_S:-10}
     SEM_COMUNICACAO_S: ${SEM_COMUNICACAO_S:-90}
     SETPOINT_TIMEOUT_S: ${SETPOINT_TIMEOUT_S:-120}
+    SETPOINT_ATINGIR_S: ${SETPOINT_ATINGIR_S:-900}
+    ALERTA_PERSISTENCIA_S: ${ALERTA_PERSISTENCIA_S:-60}
+    SINAL_VIDA_S: ${SINAL_VIDA_S:-10}
+    SINAL_VIDA_LIMITE_S: ${SINAL_VIDA_LIMITE_S:-30}
+    BROKER_INACESSIVEL_S: ${BROKER_INACESSIVEL_S:-20}
   depends_on:
     banco: { condition: service_healthy }
     broker: { condition: service_healthy }
+    enlace: { condition: service_started }
 
 x-celula: &celula
   build: { context: ., dockerfile: simulador/Dockerfile }
@@ -37,6 +48,8 @@ x-env-celula: &env-celula
   KEEPALIVE_S: ${KEEPALIVE_S:-30}
   TAU_S: ${TAU_S:-120}
   ESCALA_TEMPO: ${ESCALA_TEMPO:-1}
+  HISTORICO_HORAS: ${HISTORICO_HORAS:-0}
+  HISTORICO_PASSO_MIN: ${HISTORICO_PASSO_MIN:-20}
 
 services:
   broker:
@@ -50,6 +63,16 @@ services:
       test: ["CMD", "mosquitto_sub", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
       interval: 5s
       retries: 10
+
+  # Repassador TCP entre o servidor (consumidor e API) e o broker. Ferramenta
+  # de teste: em produção MQTT_HOST aponta direto para o Raspberry Pi.
+  enlace:
+    build: { context: ., dockerfile: simulador/Dockerfile }
+    restart: unless-stopped
+    command: ["python", "-m", "simulador.enlace"]
+    environment: { ENLACE_PORTA: "1883", ENLACE_DESTINO: "broker:1883" }
+    depends_on:
+      broker: { condition: service_healthy }
 
   banco:
     image: postgres:16-alpine
@@ -79,7 +102,28 @@ services:
 
   regras:
     <<: *backend
+    environment:
+      <<: *env-backend
+      # E-mail dos alertas. O padrão é o Mailpit abaixo, que não entrega a
+      # ninguém e mostra os e-mails em http://localhost:8025. Para um servidor
+      # de verdade, troque estas variáveis no .env.
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORTA: ${SMTP_PORTA:-1025}
+      SMTP_USUARIO: ${SMTP_USUARIO:-}
+      SMTP_SENHA: ${SMTP_SENHA:-}
+      SMTP_SEGURANCA: ${SMTP_SEGURANCA:-nenhuma}
+      EMAIL_REMETENTE: ${EMAIL_REMETENTE:-T.U.P.A <alertas@tupa.local>}
+      INTERFACE_URL: ${INTERFACE_URL:-http://localhost:8080}
+      EMAIL_REPETIR_S: ${EMAIL_REPETIR_S:-300}
+      EMAIL_FUSO: ${EMAIL_FUSO:-America/Sao_Paulo}
     command: ["python", "-m", "app.regras.main"]
+
+  # Caixa de e-mail de desenvolvimento: recebe os e-mails dos alertas e os
+  # mostra em http://localhost:8025. Nada sai da máquina.
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    restart: unless-stopped
+    ports: ["${PORTA_MAILPIT:-8025}:8025"]
 
   api:
     <<: *backend
@@ -88,6 +132,9 @@ services:
       # Assina os tokens de login. Este padrão serve só para desenvolvimento.
       SEGREDO_SESSAO: ${SEGREDO_SESSAO:-desenvolvimento-troque-em-producao}
       SESSAO_HORAS: ${SESSAO_HORAS:-12}
+      # Leitura ao vivo da nova calibração de OD.
+      CALIBRACAO_N_LEITURAS: ${CALIBRACAO_N_LEITURAS:-6}
+      CALIBRACAO_VARIACAO_MAX: ${CALIBRACAO_VARIACAO_MAX:-0.01}
     command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports: ["${PORTA_API:-8000}:8000"]
     healthcheck:
@@ -102,20 +149,32 @@ services:
         VITE_FONTE_DADOS: "${VITE_FONTE_DADOS:-exemplo}"
     restart: unless-stopped
     ports: ["${PORTA_INTERFACE:-8080}:80"]
-    depends_on:
-      api: { condition: service_healthy }
+    # Em modo exemplo (VITE_FONTE_DADOS=exemplo) a interface não usa a API:
+    # sobe assim que o nginx estiver pronto, sem esperar a API ser saudável.
+    # Em modo api a API já estará rodando por outros serviços dependerem dela.
 
   celula-c01:
     <<: *celula
-    environment: { <<: *env-celula, ID_CELULA: c01, CENARIO: "${CENARIO_C01:-normal}" }
+    environment: { <<: *env-celula, ID_CELULA: c01, CENARIO: "${CENARIO_C01:-}" }
 
   celula-c02:
     <<: *celula
-    environment: { <<: *env-celula, ID_CELULA: c02, CENARIO: "${CENARIO_C02:-normal}" }
+    environment: { <<: *env-celula, ID_CELULA: c02, CENARIO: "${CENARIO_C02:-}" }
 
   celula-c03:
     <<: *celula
-    environment: { <<: *env-celula, ID_CELULA: c03, CENARIO: "${CENARIO_C03:-normal}" }
+    environment: { <<: *env-celula, ID_CELULA: c03, CENARIO: "${CENARIO_C03:-}" }
+
+  # Com as três acima, completa as 16 células com os perfis da interface:
+  #   docker compose --profile 16-celulas up
+  simulador-16:
+    <<: *celula
+    profiles: ["16-celulas", "completo"]
+    # c01 a c03 já sobem pelos serviços acima; rodar de novo aqui duplicaria
+    # o client_id e o buffer delas.
+    command: ["python", "-m", "simulador", "c04", "c05", "c06", "c07", "c08", "c09", "c10",
+              "c11", "c12", "c13", "c14", "c15", "c16"]
+    environment: { <<: *env-celula }
 
 volumes:
   banco-dados:

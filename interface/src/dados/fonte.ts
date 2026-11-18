@@ -3,19 +3,21 @@
 //   VITE_FONTE_DADOS=exemplo  (padrão) dados de exemplo iguais aos do Figma
 //   VITE_FONTE_DADOS=api      dados reais, pela API
 //
-// No modo api, o que a API ainda não informa (estado do consumidor e das
-// regras) fica como "sem dados".
+// No modo api, o estado do consumidor e das regras vem do sinal de vida que
+// eles gravam (GET /saude); antes do primeiro sinal, fica "sem dados".
 
 import { consultarSaude, listarAlertas, listarCelulas, listarExperimentos, listarLeituras, listarSetpoints } from "@/api/cliente";
-import type { AlertaApi, CelulaApi, ExperimentoListadoApi, LeituraApi, PedidoSetpointApi, TipoAlerta } from "@/api/tipos";
+import type { AlertaApi, CelulaApi, ExperimentoListadoApi, LeituraApi, PedidoSetpointApi, SaudeApi, TipoAlerta } from "@/api/tipos";
 import * as formatar from "@/compartilhado/formatar";
 import { gerarExemplo } from "./exemplo";
 import {
   HORAS_DE_HISTORICO,
+  ordenarAlertas,
   type AlertaResumo,
   type Experimento,
   type CelulaResumo,
   type SituacaoCelula,
+  type Sistema,
   type VisaoGeral,
 } from "./modelo";
 
@@ -34,24 +36,39 @@ export const TITULO_DO_ALERTA: Record<TipoAlerta, { titulo: string; ajuda: strin
   },
   setpoint_sem_confirmacao: {
     titulo: "Setpoint sem confirmação",
-    ajuda: "A célula não confirmou o pedido de temperatura no prazo. Fecha sozinho quando ela confirmar.",
+    ajuda: "A célula não respondeu ao pedido de temperatura no prazo, ou disse que recebeu e não confirmou que aplicou. Fecha sozinho quando ela confirmar, ou quando um pedido mais novo for confirmado.",
   },
   desvio_temperatura: {
     titulo: "Desvio de temperatura",
-    ajuda: "A temperatura está longe do alvo. Fecha sozinho quando ela voltar para perto do alvo.",
+    ajuda: "A temperatura está longe do alvo do último setpoint aplicado: ela se afastou depois de chegar, ou o setpoint foi aplicado e a temperatura não chegou no prazo (aquecimento com defeito). Uma leitura fora sozinha não abre o alerta. A mensagem mostra a temperatura atual. Fecha sozinho quando ela voltar para perto do alvo.",
   },
   ph_fora_da_faixa: {
     titulo: "pH fora da faixa do cultivo",
-    ajuda: "O último pH ficou fora da faixa de referência do cultivo (a faixa e o valor estão na mensagem). Fecha sozinho quando o pH volta para a faixa.",
+    ajuda: "O pH ficou fora da faixa de referência do cultivo (a faixa e o valor atual estão na mensagem). Uma leitura fora sozinha não abre o alerta. Fecha sozinho quando o pH volta para a faixa.",
   },
   colisao_seq: {
     titulo: "Leitura repetida com horário diferente",
-    ajuda: "Chegou uma leitura com o mesmo número de outra, mas com outro horário. A leitura original foi mantida e a nova, descartada. Este alerta não fecha sozinho.",
+    ajuda: "Chegou uma leitura com o mesmo número de outra, mas com outro horário. A leitura original foi mantida e a nova, descartada. Este alerta não fecha sozinho: depois de conferir, feche em Alertas.",
+  },
+  consumidor_parado: {
+    titulo: "Consumidor parado",
+    ajuda: "O processo que grava as leituras parou de dar sinal de vida. Nada se perde: o broker guarda as leituras até ele voltar. Enquanto isso, nenhuma célula ganha alerta de sem comunicação. Fecha sozinho quando ele voltar.",
+  },
+  broker_inacessivel: {
+    titulo: "Servidor sem conexão com o broker",
+    ajuda: "O servidor não alcança o broker MQTT (Raspberry Pi desligado, broker parado ou rede entre os dois cortada). As leituras ficam guardadas no broker ou nas células e chegam quando a conexão voltar. Enquanto isso, nenhuma célula ganha alerta de sem comunicação. Fecha sozinho quando a conexão voltar.",
   },
 };
 
 /** Título e ajuda de um tipo. Tipo desconhecido aparece com o próprio nome. */
-export function infoDoAlerta(tipo: string): { titulo: string; ajuda: string | undefined } {
+export function infoDoAlerta(tipo: string, nomeDaRegra?: string | null): { titulo: string; ajuda: string | undefined } {
+  // Alerta de uma regra criada na tela: o título é o nome que a pessoa deu.
+  if (tipo === "regra") {
+    return {
+      titulo: nomeDaRegra ?? "Regra de alerta",
+      ajuda: "Regra criada na aba Regras. Fecha sozinho quando a medida voltar ao limite, quando a célula sair do experimento ou quando a regra for desligada.",
+    };
+  }
   const conhecido = TITULO_DO_ALERTA[tipo as TipoAlerta];
   return conhecido ?? { titulo: tipo, ajuda: undefined };
 }
@@ -90,8 +107,8 @@ async function carregarDaApi(sinal?: AbortSignal): Promise<VisaoGeral> {
 
   return {
     celulas: celulas.map((c, i) => celulaDaApi(c, leituras[i], alertas, inicio, experimentos, agora)),
-    alertas: alertas.map(alertaDaApi),
-    sistema: { broker: saude?.broker ?? null, consumidor: null, regras: null },
+    alertas: ordenarAlertas(alertas.map(alertaDaApi)),
+    sistema: sistemaDaApi(saude, agora),
     setpointsAguardando: setpointsAguardando(pedidos.map((lista) => lista[0]).filter(Boolean)),
     leituras24h: { total, perdidas },
     atualizadoEm: agora,
@@ -114,6 +131,7 @@ function celulaDaApi(
     apelido: celula.apelido,
     situacao,
     alertasAbertos: celula.alertas_abertos,
+    alertaCritico: daCelula.some((a) => a.regra_gravidade === "critica"),
     experimento: experimentoDaCelula(celula, experimentos, agora),
     temperaturaC: celula.temperatura_c,
     ph: celula.ph,
@@ -169,13 +187,37 @@ function mediaPorHora(leituras: LeituraApi[], inicio: Date): (number | null)[] {
   return somas.map((soma, i) => (contagens[i] ? soma / contagens[i] : null));
 }
 
+/** Barra lateral: o broker visto pela API e o sinal de vida do consumidor
+ *  (vivo e ligado ao broker) e das regras. */
+export function sistemaDaApi(saude: SaudeApi | null, agora: Date): Sistema {
+  if (!saude) return { broker: null, consumidor: null, regras: null };
+  const parado = (p: { ultimo_sinal: string } | null) =>
+    p ? `parado ${formatar.tempoDecorrido(new Date(p.ultimo_sinal), agora)}` : undefined;
+  const c = saude.consumidor;
+  const textos: Sistema["textos"] = { broker: saude.broker ? undefined : "desconectado" };
+  let consumidor: boolean | null = null;
+  if (c && !c.ativo) {
+    consumidor = false;
+    textos.consumidor = parado(c);
+  } else if (c && !c.broker_conectado) {
+    consumidor = false;
+    textos.consumidor = "sem broker";
+  } else if (c) {
+    consumidor = true;
+  }
+  const regras = saude.regras ? saude.regras.ativo : null;
+  if (saude.regras && !saude.regras.ativo) textos.regras = parado(saude.regras);
+  return { broker: saude.broker, consumidor, regras, textos };
+}
+
 export function alertaDaApi(alerta: AlertaApi): AlertaResumo {
   return {
     id: alerta.id_alerta,
     idCelula: alerta.id_celula,
     tipo: alerta.tipo,
-    ...infoDoAlerta(alerta.tipo),
+    ...infoDoAlerta(alerta.tipo, alerta.regra_nome),
     mensagem: alerta.mensagem,
     abertoEm: new Date(alerta.aberto_em),
+    critico: alerta.regra_gravidade === "critica",
   };
 }

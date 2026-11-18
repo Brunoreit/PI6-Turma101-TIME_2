@@ -785,3 +785,9 @@
   font-size: 13px;
   color: var(--status\/online);
 }
+
+/* Alerta de regra crítica no painel da célula. */
+.alertaCritico {
+  border: 2px solid var(--status\/alerta);
+  padding: 9px 11px;
+}

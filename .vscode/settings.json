@@ -12,5 +12,7 @@
     "**/__pycache__": true,
     "**/.pytest_cache": true,
     "**/*.egg-info": true
-  }
+  },
+  "python-envs.defaultEnvManager": "ms-python.python:system",
+  "python.terminal.useEnvFile": true
 }

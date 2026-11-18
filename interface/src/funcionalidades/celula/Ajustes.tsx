@@ -1,6 +1,7 @@
 // Tela "Célula c08 · ajustes" do Figma (nó 85:1321). A Identificação (não
 // está no Figma) salva apelido, descrição e modelo pelo PATCH /celulas/{id};
-// o firmware só aparece. A nova calibração salva pela API. O resto ainda não
+// o firmware só aparece. A calibração vem de GET /celulas/{id}/calibracoes e
+// a nova calibração salva pela API. O resto ainda não
 // tem endpoint: os botões aparecem como no Figma e dizem isso ao passar o
 // mouse, e os painéis sem dados avisam que a API não os informa.
 
@@ -16,7 +17,8 @@ import * as formatar from "@/compartilhado/formatar";
 import { useDados } from "@/dados/DadosProvider";
 import { mensagemDoErro } from "@/funcionalidades/conta/CartaoDeConta";
 import { salvarIdentificacao } from "./fonte";
-import type { Bomba, DetalheDaCelula, VersaoDeCalibracao } from "./modelo";
+import { formulaDaVersao } from "./calibracao";
+import type { Bomba, DetalheDaCelula } from "./modelo";
 import { useCelula } from "./useCelula";
 import estilos from "./Ajustes.module.css";
 import { CabecalhoDaCelula, CarregandoCelula } from "./CabecalhoDaCelula";
@@ -25,12 +27,6 @@ import comum from "./Celula.module.css";
 const SEM_DADOS = "A API ainda não informa estes dados.";
 
 const MOTIVOS_DE_MANUTENCAO = ["Troca de mangueira", "Troca de frasco", "Ventoinha", "Bomba", "Outro"];
-
-/** od = 0,00048 · bruto − 0,041 */
-function formula(versao: VersaoDeCalibracao): string {
-  const numero = (valor: number) => valor.toLocaleString("pt-BR", { maximumFractionDigits: 6 });
-  return `od = ${numero(versao.a)} · bruto ${versao.b < 0 ? "−" : "+"} ${numero(Math.abs(versao.b))}`;
-}
 
 function TituloDoPainel({ id, nome, descricao }: { id: string; nome: string; descricao: string }) {
   return (
@@ -102,9 +98,6 @@ function Identificacao({ dados, aoSalvar }: { dados: DetalheDaCelula; aoSalvar: 
 function CalibracaoDeOd({ idCelula, calibracao }: { idCelula: string; calibracao: DetalheDaCelula["calibracao"] }) {
   const atual = calibracao?.atual;
   const padroes = atual?.padroes ?? [];
-  const faixa = padroes.length
-    ? `${padroes.length} padrões entre ${formatar.decimal(Math.min(...padroes.map((p) => p.referencia)), 1)} e ${formatar.decimal(Math.max(...padroes.map((p) => p.referencia)), 1)}`
-    : null;
 
   return (
     <section className={comum.painel} aria-labelledby="titulo-calibracao">
@@ -115,7 +108,7 @@ function CalibracaoDeOd({ idCelula, calibracao }: { idCelula: string; calibracao
       />
 
       {!atual ? (
-        <p className={comum.semDados}>{SEM_DADOS}</p>
+        <p className={comum.semDados}>Nenhuma versão de calibração cadastrada para esta célula.</p>
       ) : (
         <>
           <div className={estilos.emUso}>
@@ -123,23 +116,22 @@ function CalibracaoDeOd({ idCelula, calibracao }: { idCelula: string; calibracao
               <span className={estilos.emUsoVersao}>Versão {atual.versao}</span>
               <span className={`${estilos.selo} ${estilos.seloOk}`}>em uso</span>
             </div>
-            <p className={estilos.formula}>{formula(atual)}</p>
+            <p className={estilos.formula}>{formulaDaVersao(atual)}</p>
             <p className={estilos.emUsoDetalhe}>
               {[
                 formatar.data(atual.criadaEm),
-                `por ${atual.autor}`,
-                faixa,
+                atual.autor ? `por ${atual.autor}` : "padrão do sistema",
+                atual.branco !== null ? `branco ${formatar.inteiro(atual.branco)}` : null,
+                padroes.length ? `${padroes.length} ${padroes.length === 1 ? "padrão" : "padrões"}` : null,
                 atual.r2 === null ? null : `R² = ${formatar.decimal(atual.r2, 3)}`,
+                atual.organismo ? atual.organismo : null,
               ].filter(Boolean).join(" · ")}
             </p>
           </div>
           {padroes.length > 0 && (
             <>
               <CurvaDeCalibracao padroes={padroes} />
-              <p className={estilos.nota}>
-                Eixo vertical: OD calculada pelo T.U.P.A. Eixo horizontal: OD do espectrofotômetro. Em destaque, a
-                faixa confiável de 0,2 a 0,8.
-              </p>
+              <p className={estilos.nota}>Eixo vertical: OD calculada pelo T.U.P.A. Eixo horizontal: OD do espectrofotômetro.</p>
             </>
           )}
         </>
@@ -153,8 +145,8 @@ function CalibracaoDeOd({ idCelula, calibracao }: { idCelula: string; calibracao
       <div className={estilos.passos}>
         <p className={estilos.passosTitulo}>A nova calibração abre um passo a passo</p>
         <ol className={estilos.passosLista}>
-          <li>Registrar a leitura do branco, com o frasco só com meio de cultura.</li>
-          <li>Digitar pelo menos 3 padrões de OD conhecida, entre 0,2 e 0,8, com o valor bruto de cada um.</li>
+          <li>Gravar o branco, com o frasco só com meio de cultura. Ele zera a linha base e não entra na reta.</li>
+          <li>Gravar pelo menos 3 padrões de OD conhecida, lendo o sensor ao vivo ou digitando o valor bruto.</li>
           <li>Conferir a curva e o R² antes de salvar.</li>
         </ol>
       </div>
@@ -165,8 +157,8 @@ function CalibracaoDeOd({ idCelula, calibracao }: { idCelula: string; calibracao
           {calibracao.anteriores.map((versao) => (
             <div key={versao.versao} className={estilos.versao}>
               <span className={estilos.versaoNome}>Versão {versao.versao}</span>
-              <span className={estilos.versaoDetalhe}>{formatar.data(versao.criadaEm)} · {versao.autor}</span>
-              <span className={estilos.versaoFormula}>{formula(versao)}</span>
+              <span className={estilos.versaoDetalhe}>{formatar.data(versao.criadaEm)} · {versao.autor ?? "padrão do sistema"}</span>
+              <span className={estilos.versaoFormula}>{formulaDaVersao(versao)}</span>
             </div>
           ))}
         </div>

@@ -20,8 +20,8 @@ export const ROTAS = [
   { caminho: "/exportar", rotulo: "Exportar dados", icone: iconeExportar },
 ] as const;
 
-function ItemDoSistema({ nome, ok, rotuloOk }: { nome: string; ok: boolean | null; rotuloOk: string }) {
-  const situacao = ok === null ? "sem dados" : ok ? rotuloOk : "parado";
+function ItemDoSistema({ nome, ok, rotuloOk, texto }: { nome: string; ok: boolean | null; rotuloOk: string; texto?: string }) {
+  const situacao = texto ?? (ok === null ? "sem dados" : ok ? rotuloOk : "parado");
   return (
     <div className={estilos.servico}>
       {ok ? (
@@ -38,6 +38,7 @@ function ItemDoSistema({ nome, ok, rotuloOk }: { nome: string; ok: boolean | nul
 export function BarraLateral() {
   const { dados } = useDados();
   const alertas = dados?.alertas.length ?? 0;
+  const criticos = dados?.alertas.filter((a) => a.critico).length ?? 0;
   const sistema = dados?.sistema ?? { broker: null, consumidor: null, regras: null };
   // As telas da célula são abertas pela Visão geral, que fica marcada nelas.
   const naCelula = useLocation().pathname.startsWith("/celulas/");
@@ -72,7 +73,11 @@ export function BarraLateral() {
             />
             <span className={estilos.rotulo}>{rota.rotulo}</span>
             {rota.caminho === "/alertas" && alertas > 0 && (
-              <span className={estilos.contador} aria-label={`${alertas} alertas abertos`}>
+              <span
+                className={criticos ? `${estilos.contador} ${estilos.contadorCritico}` : estilos.contador}
+                aria-label={`${alertas} alertas abertos${criticos ? `, ${criticos} ${criticos === 1 ? "crítico" : "críticos"}` : ""}`}
+                title={criticos ? `${criticos} ${criticos === 1 ? "alerta crítico" : "alertas críticos"}` : undefined}
+              >
                 {alertas}
               </span>
             )}
@@ -84,9 +89,9 @@ export function BarraLateral() {
 
       <section className={estilos.sistema} aria-label="Sistema">
         <span className={estilos.sistemaTitulo}>Sistema</span>
-        <ItemDoSistema nome="Broker MQTT" ok={sistema.broker} rotuloOk="conectado" />
-        <ItemDoSistema nome="Consumidor" ok={sistema.consumidor} rotuloOk="ativo" />
-        <ItemDoSistema nome="Regras" ok={sistema.regras} rotuloOk="ativo" />
+        <ItemDoSistema nome="Broker MQTT" ok={sistema.broker} rotuloOk="conectado" texto={sistema.textos?.broker} />
+        <ItemDoSistema nome="Consumidor" ok={sistema.consumidor} rotuloOk="ativo" texto={sistema.textos?.consumidor} />
+        <ItemDoSistema nome="Regras" ok={sistema.regras} rotuloOk="ativo" texto={sistema.textos?.regras} />
       </section>
 
       <ContaDoUsuario />

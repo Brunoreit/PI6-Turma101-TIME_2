@@ -14,6 +14,7 @@ Rodar:
   pytest tests/integracao/test_modelo_dados.py -v
 """
 
+import dataclasses
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -263,6 +264,20 @@ def test_alertas_novos_sao_aceitos_e_tipo_inventado_e_recusado(tx):
     tx.execute(sql, ("ph_fora_da_faixa",))
     tx.execute(sql, ("colisao_seq",))
     recusa(tx, sql, ("tipo_inventado",), errors.CheckViolation, "alerta_tipo_check")
+
+
+def test_alerta_do_sistema_nao_tem_celula_e_abre_um_por_tipo(tx):
+    # Pode já haver um aberto pelo processo de regras do ambiente; a
+    # transação deste teste começa sem nenhum.
+    tx.execute("UPDATE alerta SET fechado_em = now() WHERE id_celula IS NULL AND fechado_em IS NULL")
+    assert repo.abrir_alerta(tx, None, "consumidor_parado", "x")
+    assert not repo.abrir_alerta(tx, None, "consumidor_parado", "x")
+    assert repo.abrir_alerta(tx, None, "broker_inacessivel", "x")
+    assert repo.fechar_alerta(tx, None, "consumidor_parado")
+    assert repo.abrir_alerta(tx, None, "consumidor_parado", "x")
+    sql = "INSERT INTO alerta (id_celula, tipo, mensagem) VALUES (%s, %s, 'x')"
+    recusa(tx, sql, (None, "sem_comunicacao"), errors.CheckViolation, "alerta_celula_check")
+    recusa(tx, sql, ("tst-a", "broker_inacessivel"), errors.CheckViolation, "alerta_celula_check")
 
 
 def test_leitura_com_extras_e_aceita(tx):
@@ -786,12 +801,323 @@ def _ph_aberto(conn, id_celula: str) -> bool:
     return any(a["fechado_em"] is None for a in _alertas_ph(conn, id_celula))
 
 
+def _cfg(**mudancas):
+    """Config com os tempos do processo de regras do ambiente de teste
+    (ambiente.AMBIENTE_RAPIDO), para os dois decidirem igual."""
+    from app.config import config
+
+    return dataclasses.replace(config, **{"alerta_persistencia_s": 0, "setpoint_atingir_s": 15, **mudancas})
+
+
 @pytest.fixture
 def regra_ph(banco):
-    from app.config import config
     from app.regras.verificacoes import ph_fora_da_faixa
 
-    return lambda: ph_fora_da_faixa(banco, config)
+    return lambda: ph_fora_da_faixa(banco, _cfg())
+
+
+def test_setpoint_sem_confirmacao_fecha_quando_um_pedido_mais_novo_e_confirmado(banco, celula):
+    """A célula ignorou o pedido de 36 °C e confirmou o de 37 °C depois. O
+    pedido de 36 continua solicitado, mas o alerta tem de fechar."""
+    from app.regras.verificacoes import setpoint_sem_confirmacao
+
+    config = _cfg()
+
+    def aberto() -> bool:
+        return banco.execute(
+            "SELECT 1 FROM alerta WHERE id_celula = %s AND tipo = 'setpoint_sem_confirmacao' AND fechado_em IS NULL",
+            (celula,),
+        ).fetchone() is not None
+
+    ignorado = f"sp-{uuid.uuid4().hex[:8]}"
+    repo.criar_pedido(banco, ignorado, celula, 36.0, "Ana")
+    banco.execute("UPDATE pedido_setpoint SET solicitado_em = now() - interval '1 hour' WHERE id_pedido = %s",
+                  (ignorado,))
+    setpoint_sem_confirmacao(banco, config)
+    assert aberto()
+
+    confirmado = f"sp-{uuid.uuid4().hex[:8]}"
+    repo.criar_pedido(banco, confirmado, celula, 37.0, "Ana")
+    repo.avancar_pedido(banco, confirmado, "aplicado")
+    setpoint_sem_confirmacao(banco, config)
+    assert not aberto()
+    assert repo.buscar_pedido(banco, ignorado)["estado"] == "solicitado"
+
+
+def test_servidor_sem_receber_abre_alerta_do_sistema_e_nao_culpa_as_celulas(banco):
+    """Consumidor parado ou sem broker abre o alerta do sistema, e a célula
+    calada ou offline não ganha sem_comunicacao (o broker que sai do ar
+    publica o offline das células conectadas). Logo depois de reconectar também não:
+    só quando a célula continua calada depois de SEM_COMUNICACAO_S.
+
+    Roda numa transação desfeita: o consumidor do ambiente, que grava o
+    próprio sinal a cada segundo, espera ela acabar."""
+    from app.regras.verificacoes import comunicacao_do_servidor, sem_comunicacao
+
+    config = _cfg()
+
+    def consumidor(sinal: str, conectado: bool, desde: str) -> None:
+        banco.execute(
+            f"""INSERT INTO processo (nome, iniciado_em, ultimo_sinal, broker_conectado, broker_desde)
+                VALUES ('consumidor', now() - interval '2 hours', {sinal}, %s, {desde})
+                ON CONFLICT (nome) DO UPDATE SET ultimo_sinal = EXCLUDED.ultimo_sinal,
+                       broker_conectado = EXCLUDED.broker_conectado, broker_desde = EXCLUDED.broker_desde""",
+            (conectado,))
+        comunicacao_do_servidor(banco, config)
+        sem_comunicacao(banco, config)
+
+    def abertos() -> set[tuple[str | None, str]]:
+        return {(a["id_celula"], a["tipo"]) for a in banco.execute(
+            "SELECT id_celula, tipo FROM alerta WHERE fechado_em IS NULL AND (id_celula IS NULL OR id_celula IN ('calada', 'caida'))"
+        ).fetchall()}
+
+    with banco.transaction(force_rollback=True):
+        banco.execute("UPDATE alerta SET fechado_em = now() WHERE id_celula IS NULL AND fechado_em IS NULL")
+        banco.execute("INSERT INTO celula (id_celula, estado, ultimo_contato) "
+                      "VALUES ('calada', 'online', now() - interval '1 hour'), ('caida', 'offline', now())")
+        # As regras do ambiente podem ter subido há pouco, e recém-subidas
+        # elas não acusam o consumidor (teste seguinte).
+        banco.execute("""INSERT INTO processo (nome, iniciado_em, ultimo_sinal)
+                         VALUES ('regras', now() - interval '1 hour', now())
+                         ON CONFLICT (nome) DO UPDATE SET iniciado_em = EXCLUDED.iniciado_em""")
+
+        consumidor("now() - interval '1 hour'", True, "now() - interval '2 hours'")
+        assert abertos() == {(None, "consumidor_parado")}
+
+        consumidor("now()", False, "now() - interval '1 hour'")
+        assert abertos() == {(None, "broker_inacessivel")}
+
+        consumidor("now()", False, "now()")  # caiu agora: ainda dentro de BROKER_INACESSIVEL_S
+        assert abertos() == {(None, "broker_inacessivel")}
+
+        consumidor("now()", True, "now()")  # reconectou agora
+        assert abertos() == set()
+
+        consumidor("now()", True, "now() - interval '1 hour'")  # recebendo há tempo: a célula é que calou
+        assert abertos() == {("calada", "sem_comunicacao"), ("caida", "sem_comunicacao")}
+
+        banco.execute("UPDATE celula SET ultimo_contato = now(), estado = 'online' WHERE id_celula IN ('calada', 'caida')")
+        consumidor("now() - interval '1 hour'", True, "now() - interval '2 hours'")
+        assert abertos() == {(None, "consumidor_parado")}, "voltou a falar: fecha mesmo com o consumidor parado"
+
+
+def test_regras_recem_subidas_nao_acusam_o_consumidor_pelo_sinal_antigo(banco):
+    """Na subida do sistema o sinal do consumidor que está no banco é de
+    antes da parada. As regras esperam SINAL_VIDA_LIMITE_S antes de acusar."""
+    from app.regras.verificacoes import comunicacao_do_servidor
+
+    def parado_com_regras_desde(desde: str) -> bool:
+        banco.execute(f"""INSERT INTO processo (nome, iniciado_em, ultimo_sinal) VALUES ('regras', {desde}, now())
+                          ON CONFLICT (nome) DO UPDATE SET iniciado_em = EXCLUDED.iniciado_em""")
+        comunicacao_do_servidor(banco, _cfg())
+        return banco.execute(
+            "SELECT 1 FROM alerta WHERE tipo = 'consumidor_parado' AND fechado_em IS NULL").fetchone() is not None
+
+    with banco.transaction(force_rollback=True):
+        banco.execute("UPDATE alerta SET fechado_em = now() WHERE id_celula IS NULL AND fechado_em IS NULL")
+        banco.execute("""INSERT INTO processo (nome, iniciado_em, ultimo_sinal, broker_conectado, broker_desde)
+                         VALUES ('consumidor', now() - interval '2 days', now() - interval '1 day', true,
+                                 now() - interval '2 days')
+                         ON CONFLICT (nome) DO UPDATE SET ultimo_sinal = EXCLUDED.ultimo_sinal""")
+        assert not parado_com_regras_desde("now()")
+        assert parado_com_regras_desde("now() - interval '1 hour'")
+
+
+# ------------------------------------------------------------------ regra desvio_temperatura
+#
+# Tudo numa transação desfeita, que o processo de regras do ambiente não vê:
+# ele roda com outros tempos e mexeria nos mesmos alertas. Dentro dela o
+# now() do banco fica parado no início da transação, então os horários são
+# dados em "há quantos segundos".
+
+
+def _pedido(conn, id_celula: str, temperatura: float, estado: str, solicitado_ha_s: float,
+            aplicado_ha_s: float | None = None) -> str:
+    id_pedido = f"sp-{uuid.uuid4().hex[:8]}"
+    repo.criar_pedido(conn, id_pedido, id_celula, temperatura, "Ana")
+    for passo in ("recebido", "aplicado", "atingido"):
+        repo.avancar_pedido(conn, id_pedido, passo)
+        if passo == estado:
+            break
+    conn.execute(
+        """UPDATE pedido_setpoint SET solicitado_em = now() - make_interval(secs => %s),
+                  aplicado_em = CASE WHEN aplicado_em IS NULL THEN NULL ELSE now() - make_interval(secs => %s) END
+            WHERE id_pedido = %s""",
+        (solicitado_ha_s, aplicado_ha_s if aplicado_ha_s is not None else solicitado_ha_s, id_pedido))
+    return id_pedido
+
+
+def _temperatura(conn, id_celula: str, seq: int, temperatura: float, ha_s: float = 0) -> None:
+    agora = conn.execute("SELECT now() AS agora").fetchone()["agora"]
+    repo.gravar_leitura(conn, id_celula, seq, agora - timedelta(seconds=ha_s), temperatura, 1000.0, 0.45, 7.0, None)
+
+
+def _alertas_de(conn, id_celula: str, tipo: str) -> list[dict]:
+    return conn.execute(
+        "SELECT mensagem, fechado_em FROM alerta WHERE id_celula = %s AND tipo = %s ORDER BY id_alerta",
+        (id_celula, tipo)).fetchall()
+
+
+@pytest.fixture
+def desvio(banco):
+    from app.regras.verificacoes import desvio_temperatura
+
+    with banco.transaction(force_rollback=True):
+        id_celula = f"d{uuid.uuid4().hex[:6]}"
+        repo.registrar_celula(banco, id_celula, "online")
+
+        def rodar(**cfg) -> list[dict]:
+            desvio_temperatura(banco, _cfg(**cfg))
+            return _alertas_de(banco, id_celula, "desvio_temperatura")
+
+        yield banco, id_celula, rodar
+
+
+def test_setpoint_aplicado_que_nao_chega_abre_desvio_depois_do_prazo(desvio):
+    """Aquecimento com defeito: a célula aplica o setpoint e a temperatura
+    não sai do lugar. Dentro de SETPOINT_ATINGIR_S ela ainda está a caminho."""
+    conn, celula, rodar = desvio
+    pedido = _pedido(conn, celula, 37.0, "aplicado", solicitado_ha_s=5)
+    _temperatura(conn, celula, 0, 30.0)
+    assert rodar() == []
+
+    conn.execute("UPDATE pedido_setpoint SET aplicado_em = now() - interval '2 minutes' WHERE id_pedido = %s", (pedido,))
+    (alerta,) = rodar()
+    assert alerta["fechado_em"] is None
+    assert alerta["mensagem"] == ("Temperatura em 30,0 °C, alvo de 37,0 °C. "
+                                  "O setpoint foi aplicado há 2 min e a temperatura não chegou ao alvo.")
+
+    _temperatura(conn, celula, 1, 36.2)
+    (alerta,) = rodar()
+    assert alerta["fechado_em"] is not None
+
+
+def test_setpoint_novo_fecha_o_desvio_do_alvo_antigo(desvio):
+    """Antes, o alerta ficava aberto com a mensagem do alvo antigo até o
+    pedido novo ser atingido."""
+    conn, celula, rodar = desvio
+    _pedido(conn, celula, 30.0, "atingido", solicitado_ha_s=3600)
+    _temperatura(conn, celula, 0, 34.0)
+    assert [a["fechado_em"] for a in rodar()] == [None]
+
+    _pedido(conn, celula, 34.5, "aplicado", solicitado_ha_s=2)
+    (alerta,) = rodar()
+    assert alerta["fechado_em"] is not None
+
+
+def test_desvio_espera_a_persistencia_e_a_mensagem_acompanha_a_medida(desvio):
+    conn, celula, rodar = desvio
+    _pedido(conn, celula, 30.0, "atingido", solicitado_ha_s=3600)
+    _temperatura(conn, celula, 0, 30.1, ha_s=30)
+    _temperatura(conn, celula, 1, 34.0)
+    assert rodar(alerta_persistencia_s=60) == [], "uma leitura perto do alvo há 30 s: ainda não abre"
+    assert len(rodar(alerta_persistencia_s=20)) == 1, "nenhuma leitura perto do alvo nos últimos 20 s"
+
+    # Aberto, o alerta fica e a mensagem troca, sem abrir outro.
+    _temperatura(conn, celula, 2, 35.5)
+    (alerta,) = rodar(alerta_persistencia_s=60)
+    assert (alerta["mensagem"], alerta["fechado_em"]) == ("Temperatura em 35,5 °C, alvo de 30,0 °C.", None)
+
+    # Voltou e saiu de novo logo depois: fechou, e o pico sozinho não reabre.
+    _temperatura(conn, celula, 3, 30.2)
+    assert rodar(alerta_persistencia_s=60)[0]["fechado_em"] is not None
+    _temperatura(conn, celula, 4, 34.0)
+    assert len(rodar(alerta_persistencia_s=60)) == 1
+
+
+def test_setpoint_recebido_e_nao_aplicado_abre_alerta(banco):
+    from app.regras.verificacoes import setpoint_sem_confirmacao
+
+    with banco.transaction(force_rollback=True):
+        id_celula = f"d{uuid.uuid4().hex[:6]}"
+        repo.registrar_celula(banco, id_celula, "online")
+        _pedido(banco, id_celula, 36.0, "recebido", solicitado_ha_s=3600)
+        setpoint_sem_confirmacao(banco, _cfg())
+        (alerta,) = _alertas_de(banco, id_celula, "setpoint_sem_confirmacao")
+        assert alerta["mensagem"] == "A célula recebeu o setpoint de 36,0 °C, mas não confirmou que aplicou."
+
+
+def test_ph_espera_a_persistencia_e_a_mensagem_acompanha_a_medida(cenario):
+    from app.regras.verificacoes import ph_fora_da_faixa
+
+    conn, celula = cenario.conn, cenario.celulas[0]
+    cultivo = cenario.iniciar(0, cenario.novo_experimento(cenario.ana, ph_ref_min=6.5, ph_ref_max=7.5))
+
+    def rodar(persistencia: float) -> list[dict]:
+        ph_fora_da_faixa(conn, _cfg(alerta_persistencia_s=persistencia))
+        return _alertas_ph(conn, celula)
+
+    with conn.transaction(force_rollback=True):
+        agora = conn.execute("SELECT now() AS agora").fetchone()["agora"]
+        conn.execute("UPDATE cultivo SET iniciado_em = now() - interval '1 hour' WHERE id_cultivo = %s",
+                     (cultivo["id_cultivo"],))
+        _medir(conn, celula, 0, 7.0, agora - timedelta(seconds=30))
+        _medir(conn, celula, 1, 8.0, agora)
+        assert rodar(60) == [], "pH dentro da faixa há 30 s: ainda não abre"
+        assert len(rodar(20)) == 1
+
+        _medir(conn, celula, 2, 8.4, agora + timedelta(milliseconds=1))
+        (alerta,) = rodar(60)
+        assert (alerta["mensagem"], alerta["fechado_em"]) == (
+            "pH em 8,40, fora da faixa de referência (de 6,50 a 7,50).", None)
+
+
+# ------------------------------------------------------------------ API: alertas
+
+
+def _colisao(banco, id_celula: str) -> None:
+    repo.gravar_leitura(banco, id_celula, 0, T0, 30.0, 1000.0, 0.45, 7.0, None)
+    assert repo.gravar_leitura(banco, id_celula, 0, T0 + DIA, 31.0, 1000.0, 0.45, 7.0, None) == "colisao"
+
+
+def test_fechar_colisao_a_mao_grava_quem_fechou(ambiente, banco, celula):
+    ana = Conta(ambiente, "Ana")
+    _colisao(banco, celula)
+    (alerta,) = ana.chamar("GET", f"/alertas?id_celula={celula}").json()
+    assert (alerta["tipo"], alerta["fechado_em"], alerta["fechado_por"]) == ("colisao_seq", None, None)
+
+    fechado = ana.chamar("POST", f"/alertas/{alerta['id_alerta']}/fechar")
+    assert fechado.status_code == 200, fechado.text
+    assert fechado.json()["fechado_em"] and (fechado.json()["fechado_por"], fechado.json()["fechado_por_nome"]) == (
+        ana.id, "Ana")
+    assert ana.chamar("GET", f"/alertas?id_celula={celula}").json() == []
+    (historico,) = ana.chamar("GET", f"/alertas?abertos=false&id_celula={celula}&tipo=colisao_seq").json()
+    assert historico["fechado_por_nome"] == "Ana"
+
+    de_novo = ana.chamar("POST", f"/alertas/{alerta['id_alerta']}/fechar")
+    assert de_novo.status_code == 409 and "já estava fechado" in de_novo.json()["detail"]
+
+
+def test_alerta_que_fecha_sozinho_nao_e_fechado_a_mao(ambiente, banco, celula):
+    ana = Conta(ambiente, "Ana")
+    id_alerta = banco.execute(
+        "INSERT INTO alerta (id_celula, tipo, mensagem) VALUES (%s, 'desvio_temperatura', 'x') RETURNING id_alerta",
+        (celula,)).fetchone()["id_alerta"]
+    resposta = ana.chamar("POST", f"/alertas/{id_alerta}/fechar")
+    assert resposta.status_code == 409 and "fecha sozinho" in resposta.json()["detail"]
+    assert banco.execute("SELECT fechado_por FROM alerta WHERE id_alerta = %s", (id_alerta,)).fetchone()["fechado_por"] is None
+    assert ana.chamar("POST", "/alertas/0/fechar").status_code == 404
+
+
+def test_lista_de_alertas_filtra_por_celula_tipo_e_limite(ambiente, banco, celula):
+    ana = Conta(ambiente, "Ana")
+    _colisao(banco, celula)
+    banco.execute("INSERT INTO alerta (id_celula, tipo, mensagem, fechado_em) VALUES (%s, 'ph_fora_da_faixa', 'x', now())",
+                  (celula,))
+    todos = ana.chamar("GET", f"/alertas?abertos=false&id_celula={celula}").json()
+    assert {a["tipo"] for a in todos} == {"colisao_seq", "ph_fora_da_faixa"}
+    assert [a["tipo"] for a in ana.chamar("GET", f"/alertas?abertos=false&id_celula={celula}&tipo=ph_fora_da_faixa").json()] == [
+        "ph_fora_da_faixa"]
+    assert len(ana.chamar("GET", f"/alertas?abertos=false&id_celula={celula}&limite=1").json()) == 1
+    assert all(a["id_celula"] is None for a in ana.chamar("GET", "/alertas?abertos=false&id_celula=sistema").json())
+    assert ana.chamar("GET", "/alertas?limite=0").status_code == 422
+
+
+def test_saude_traz_o_sinal_de_vida_do_consumidor_e_das_regras(ambiente):
+    saude = requests.get(f"{ambiente.url_api}/saude", timeout=5).json()
+    assert saude["banco"] and saude["broker"]
+    assert saude["consumidor"]["ativo"] and saude["consumidor"]["broker_conectado"]
+    assert saude["regras"]["ativo"] and "broker_conectado" not in saude["regras"]
 
 
 def _medir(conn, id_celula: str, seq: int, ph: float | None, ts: datetime | None = None) -> None:
@@ -807,7 +1133,7 @@ def test_ph_fora_da_faixa_abre_uma_vez_e_fecha_quando_volta(cenario, regra_ph):
     regra_ph()
     alertas = _alertas_ph(conn, celula)
     assert len(alertas) == 1 and alertas[0]["fechado_em"] is None
-    assert alertas[0]["mensagem"] == "pH em 8.00, fora da faixa de referência (de 6.50 a 7.50)."
+    assert alertas[0]["mensagem"] == "pH em 8,00, fora da faixa de referência (de 6,50 a 7,50)."
 
     _medir(conn, celula, 1, 7.0, cultivo["iniciado_em"] + timedelta(seconds=2))
     regra_ph()
@@ -827,7 +1153,7 @@ def test_ph_a_ultima_leitura_e_a_de_maior_ts_origem(cenario, regra_ph):
     _medir(conn, celula, 3, 7.0, inicio - timedelta(seconds=1))
     regra_ph()
     assert _ph_aberto(conn, celula)
-    assert "máximo de 7.50" in _alertas_ph(conn, celula)[0]["mensagem"]
+    assert "máximo de 7,50" in _alertas_ph(conn, celula)[0]["mensagem"]
 
 
 def test_ph_so_com_minimo(cenario, regra_ph):
@@ -955,6 +1281,257 @@ def test_calibracao_guarda_pontos_r2_e_organismo(cenario, leo):
     for invalido in ([{"od_referencia": 0.0}], [{"od_referencia": "x", "bruto": 1}], {"od_referencia": 0, "bruto": 1}):
         resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"a": 1, "b": 0, "pontos": invalido})
         assert resposta.status_code == 422, resposta.text
+
+
+# ------------------------------------------------------------------ API: calibração ao vivo, com branco
+
+N_LEITURAS = 6  # CALIBRACAO_N_LEITURAS padrão
+
+
+def _gravar_od(conn, id_celula: str, inicio: int, valores: list[float], t0: datetime = T0) -> tuple[int, int]:
+    """Grava leituras com esses od_bruto, uma a cada 20 s, a partir do seq
+    `inicio`. Devolve o primeiro e o último seq."""
+    for i, valor in enumerate(valores):
+        repo.gravar_leitura(conn, id_celula, inicio + i, t0 + timedelta(seconds=20 * (inicio + i)),
+                            30.0, valor, None, 7.0, None)
+    return inicio, inicio + len(valores) - 1
+
+
+def _ao_vivo(conta: "Conta", id_celula: str) -> dict:
+    resposta = conta.chamar("GET", f"/celulas/{id_celula}/od-ao-vivo")
+    assert resposta.status_code == 200, resposta.text
+    return resposta.json()
+
+
+def _lido(rotulo: str, od: float | None, inicio: int, fim: int, bruto: float = 0.0) -> dict:
+    return {"rotulo": rotulo, "od_referencia": od, "bruto": bruto, "origem": "leitura",
+            "seq_inicio": inicio, "seq_fim": fim, "n_leituras": fim - inicio + 1}
+
+
+def _digitado(rotulo: str, od: float | None, bruto: float) -> dict:
+    return {"rotulo": rotulo, "od_referencia": od, "bruto": bruto, "origem": "digitado"}
+
+
+def test_od_ao_vivo_com_o_simulador(ambiente, banco, leo):
+    """c01 é a célula simulada do ambiente, que manda uma leitura por segundo."""
+    fim = time.time() + 30
+    while len(repo.ultimas_leituras_od(banco, "c01", N_LEITURAS)) < N_LEITURAS:
+        assert time.time() < fim, "o simulador não mandou 6 leituras em 30 s"
+        time.sleep(0.5)
+    vivo = _ao_vivo(leo, "c01")
+    janela = vivo["janela"]
+    assert janela["n_leituras"] == N_LEITURAS and janela["faltam"] == 0
+    valores = repo.od_bruto_no_intervalo(banco, "c01", janela["seq_inicio"], janela["seq_fim"])
+    assert len(valores) == N_LEITURAS
+    assert janela["media"] == pytest.approx(sum(valores) / N_LEITURAS)
+    assert (janela["minimo"], janela["maximo"]) == (min(valores), max(valores))
+    variacao = (max(valores) - min(valores)) / (sum(valores) / N_LEITURAS)
+    assert janela["variacao"] == pytest.approx(variacao)
+    assert janela["estavel"] is (variacao < 0.01)
+    assert vivo["variacao_max"] == 0.01
+    assert vivo["ultima"]["seq"] >= janela["seq_fim"]
+    assert set(vivo["ultima"]) == {"seq", "ts_origem", "od_bruto"}
+    # INTERVALO_S do ambiente de teste é 1 s.
+    assert 0.5 < janela["intervalo_medio_s"] < 3
+
+
+def test_od_ao_vivo_estavel_e_estabilizando(celula, banco, leo):
+    vazio = _ao_vivo(leo, celula)
+    assert vazio["ultima"] is None and vazio["recentes"] == []
+    assert vazio["janela"]["estavel"] is False and vazio["janela"]["faltam"] == N_LEITURAS
+
+    _gravar_od(banco, celula, 0, [1000.0, 1040.0, 1060.0])
+    poucas = _ao_vivo(leo, celula)["janela"]
+    assert (poucas["n_leituras"], poucas["faltam"], poucas["estavel"]) == (3, 3, False)
+
+    # Subindo: 1000 a 1071 varia mais de 1%.
+    _gravar_od(banco, celula, 3, [1065.0, 1070.0, 1071.0])
+    subindo = _ao_vivo(leo, celula)["janela"]
+    assert (subindo["n_leituras"], subindo["faltam"], subindo["estavel"]) == (N_LEITURAS, 0, False)
+    assert subindo["intervalo_medio_s"] == pytest.approx(20)
+
+    # Seis leituras entre 1.097 e 1.106: estável, média 1.102.
+    inicio, fim = _gravar_od(banco, celula, 6, [1097.0, 1100.0, 1102.0, 1104.0, 1106.0, 1103.0])
+    vivo = _ao_vivo(leo, celula)
+    estavel = vivo["janela"]
+    assert estavel["estavel"] is True
+    assert (estavel["seq_inicio"], estavel["seq_fim"]) == (inicio, fim)
+    assert estavel["media"] == pytest.approx(1102.0)
+    assert (estavel["minimo"], estavel["maximo"]) == (1097.0, 1106.0)
+    assert estavel["variacao"] == pytest.approx(9 / 1102)
+    assert vivo["ultima"]["seq"] == fim
+    assert [l["seq"] for l in vivo["recentes"]] == list(range(fim - 7, fim + 1))
+
+
+def test_od_ao_vivo_e_calibracoes_de_celula_inexistente_dao_404(leo):
+    for caminho in ("/celulas/nao-existe/od-ao-vivo", "/celulas/nao-existe/calibracoes"):
+        assert leo.chamar("GET", caminho).status_code == 404
+
+
+def test_calibracao_por_pontos_lidos_e_digitados(celula, banco, leo):
+    """Exemplo do orientador: branco 98, padrões (520; 0,2), (812; 0,35) e
+    (1102; 0,5). Branco e P1 lidos ao vivo, P2 e P3 digitados."""
+    branco = _gravar_od(banco, celula, 0, [97.6, 98.0, 98.4, 98.0, 97.6, 98.4])
+    p1 = _gravar_od(banco, celula, 6, [519.0, 520.0, 521.0, 520.0, 518.0, 522.0])
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {
+        "recalcular": False, "organismo": "E. coli K-12",
+        "pontos": [_lido("branco", None, *branco), _lido("P1", 0.2, *p1),
+                   _digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)]})
+    assert resposta.status_code == 201, resposta.text
+    corpo = resposta.json()
+    assert round(corpo["ajuste"]["a"], 6) == 0.000515
+    assert round(corpo["ajuste"]["b"], 3) == -0.018
+    assert round(corpo["r2"], 3) == 1.0
+    assert (corpo["ajuste"]["branco"], corpo["ajuste"]["padroes"]) == (98.0, 3)
+    # O banco guarda o branco embutido no b.
+    assert corpo["a"] == pytest.approx(corpo["ajuste"]["a"])
+    assert corpo["b"] == pytest.approx(corpo["ajuste"]["b"] - corpo["ajuste"]["a"] * 98.0)
+
+    pontos = banco.execute("SELECT pontos FROM calibracao WHERE id_calibracao = %s",
+                           (corpo["id_calibracao"],)).fetchone()["pontos"]
+    assert [p["rotulo"] for p in pontos] == ["branco", "P1", "P2", "P3"]
+    assert pontos[0]["od_referencia"] is None
+    assert {k: pontos[0][k] for k in ("bruto", "origem", "seq_inicio", "seq_fim", "n_leituras")} == {
+        "bruto": 98.0, "origem": "leitura", "seq_inicio": 0, "seq_fim": 5, "n_leituras": 6}
+    assert pontos[0]["desvio"] == pytest.approx(0.36, abs=0.01)
+    assert pontos[1]["bruto"] == 520.0
+    assert {k: pontos[2][k] for k in ("bruto", "origem", "od_referencia")} == {
+        "bruto": 812.0, "origem": "digitado", "od_referencia": 0.35}
+    assert not {"seq_inicio", "seq_fim", "n_leituras"} & set(pontos[2])
+    assert all("gravado_em" in p for p in pontos)
+
+
+def test_calibracao_por_pontos_aceita_padroes_fora_de_0_2_a_0_8(celula, leo):
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {
+        "recalcular": False,
+        "pontos": [_digitado("branco", None, 100.0), _digitado("P1", 0.05, 200.0),
+                   _digitado("P2", 1.0, 2100.0), _digitado("P3", 2.0, 4100.0)]})
+    assert resposta.status_code == 201, resposta.text
+    assert resposta.json()["ajuste"]["a"] == pytest.approx(0.0005)
+    assert resposta.json()["r2"] == pytest.approx(1.0)
+
+
+def test_servidor_recalcula_a_media_pelo_intervalo_de_seq(celula, banco, leo):
+    branco = _gravar_od(banco, celula, 0, [98.0] * 6)
+    p1 = _gravar_od(banco, celula, 6, [520.0] * 6)
+    # O navegador manda médias e desvio errados; valem as leituras do banco.
+    pontos = [_lido("branco", None, *branco, bruto=5000.0), {**_lido("P1", 0.2, *p1, bruto=1.0), "desvio": 99.0},
+              _digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)]
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"recalcular": False, "pontos": pontos})
+    assert resposta.status_code == 201, resposta.text
+    gravados = resposta.json()["pontos"]
+    assert (gravados[0]["bruto"], gravados[1]["bruto"], gravados[1]["desvio"]) == (98.0, 520.0, 0.0)
+    assert round(resposta.json()["ajuste"]["a"], 6) == 0.000515
+
+
+def test_intervalo_de_seq_invalido_da_422(cenario, banco, leo):
+    minha, outra = cenario.celulas[0], cenario.celulas[1]
+    branco = _gravar_od(banco, minha, 0, [98.0] * 6)
+    da_outra = _gravar_od(banco, outra, 100, [520.0] * 6)
+    versoes = lambda: len(repo.listar_calibracoes(banco, minha))
+    antes = versoes()
+    padroes = [_digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)]
+    for p1 in (_lido("P1", 0.2, *da_outra),                        # leituras de outra célula
+               {**_lido("P1", 0.2, *branco), "n_leituras": 7},      # conta que não fecha
+               _lido("P1", 0.2, 500, 505)):                         # seq que não existe
+        resposta = leo.chamar("POST", f"/celulas/{minha}/calibracoes",
+                              {"recalcular": False, "pontos": [_lido("branco", None, *branco), p1, *padroes]})
+        assert resposta.status_code == 422, resposta.text
+        assert "P1" in _detalhe(resposta) and minha in _detalhe(resposta)
+    assert versoes() == antes
+
+
+def test_ponto_lido_com_leitura_instavel_da_422(celula, banco, leo):
+    branco = _gravar_od(banco, celula, 0, [98.0] * 6)
+    subindo = _gravar_od(banco, celula, 6, [1000.0, 1040.0, 1060.0, 1065.0, 1070.0, 1071.0])
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"recalcular": False, "pontos": [
+        _lido("branco", None, *branco), _lido("P1", 0.2, *subindo),
+        _digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)]})
+    assert resposta.status_code == 422, resposta.text
+    assert "P1" in _detalhe(resposta) and "estabilizar" in _detalhe(resposta)
+
+
+@pytest.mark.parametrize("pontos, trecho", [
+    ([_digitado("P1", 0.2, 520.0), _digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)], "Falta o branco"),
+    ([_digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P2", 0.35, 812.0)], "Falta 1 padrão"),
+    ([_digitado("branco", None, 98.0)], "Faltam 3 padrões"),
+    ([_digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P2", None, 812.0),
+      _digitado("P3", 0.5, 1102.0)], "Falta a OD de referência em: P2"),
+    ([_digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P1", 0.35, 812.0),
+      _digitado("P3", 0.5, 1102.0)], "rótulo P1"),
+    ([_digitado("branco", None, 98.0), {"rotulo": "P1", "od_referencia": 0.2, "bruto": 520.0},
+      _digitado("P2", 0.35, 812.0), _digitado("P3", 0.5, 1102.0)], "Falta a origem"),
+])
+def test_falta_de_branco_ou_de_padroes_da_422(celula, leo, pontos, trecho):
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"recalcular": False, "pontos": pontos})
+    assert resposta.status_code == 422, resposta.text
+    assert trecho in _detalhe(resposta)
+
+
+@pytest.mark.parametrize("corpo", [
+    {"pontos": [_digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P2", 0.35, 812.0),
+                _digitado("P3", 0.5, 1102.0)], "r2": 0.9},            # r2 é do servidor
+    {"a": 0.001},                                                       # a sem b
+    {},                                                                 # nem a e b, nem pontos
+    {"pontos": [{**_digitado("P1", 0.2, 520.0), "seq_inicio": 1}]},     # digitado com seq
+    {"pontos": [{**_lido("P1", 0.2, 3, 1)}]},                           # seq_inicio > seq_fim
+])
+def test_corpo_de_calibracao_invalido_da_422(celula, leo, corpo):
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", corpo)
+    assert resposta.status_code == 422, resposta.text
+
+
+def test_od_recalculada_desconta_o_branco_e_od_bruto_nao_muda(celula, banco, leo):
+    _gravar_od(banco, celula, 0, [98.0, 520.0, 812.0, 1102.0, 1500.0])
+    brutos = lambda: [l["od_bruto"] for l in repo.listar_leituras(banco, celula)]
+    antes = brutos()
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"pontos": [
+        _digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P2", 0.35, 812.0),
+        _digitado("P3", 0.5, 1102.0)]})
+    assert resposta.status_code == 201, resposta.text
+    ajuste = resposta.json()["ajuste"]
+    assert resposta.json()["leituras_reprocessadas"] == 5
+    leituras = repo.listar_leituras(banco, celula)
+    assert brutos() == antes
+    for leitura in leituras:
+        esperada = round(ajuste["a"] * (leitura["od_bruto"] - 98.0) + ajuste["b"], 4)
+        assert leitura["od"] == pytest.approx(esperada, abs=1e-4)
+        assert leitura["id_calibracao"] == resposta.json()["id_calibracao"]
+    assert leituras[0]["od"] == pytest.approx(ajuste["b"], abs=1e-4)   # o branco dá a OD do b
+
+    # A leitura que chega depois converte pela mesma curva, no consumidor.
+    from app.calibracao.conversao import converter
+    curva = repo.curva_ativa(banco, celula)
+    assert converter(98.0, curva) == pytest.approx(ajuste["b"], abs=1e-4)
+
+
+def test_calibracao_no_formato_antigo_continua_funcionando(celula, leo):
+    pontos = [{"od_referencia": 0.0, "bruto": 100.0}, {"od_referencia": 1.0, "bruto": 2100.0}]
+    resposta = leo.chamar("POST", f"/celulas/{celula}/calibracoes",
+                          {"a": 0.0005, "b": -0.05, "recalcular": False, "pontos": pontos, "r2": 0.998})
+    assert resposta.status_code == 201, resposta.text
+    corpo = resposta.json()
+    assert (corpo["a"], corpo["b"], corpo["r2"], corpo["pontos"]) == (0.0005, -0.05, 0.998, pontos)
+    assert "ajuste" not in corpo
+
+
+def test_get_calibracoes_lista_as_versoes(celula, leo):
+    leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"a": 0.0005, "b": -0.05, "recalcular": False})
+    nova = leo.chamar("POST", f"/celulas/{celula}/calibracoes", {"recalcular": False, "organismo": "E. coli", "pontos": [
+        _digitado("branco", None, 98.0), _digitado("P1", 0.2, 520.0), _digitado("P2", 0.35, 812.0),
+        _digitado("P3", 0.5, 1102.0)]}).json()
+
+    resposta = leo.chamar("GET", f"/celulas/{celula}/calibracoes")
+    assert resposta.status_code == 200, resposta.text
+    versoes = resposta.json()
+    assert [v["versao"] for v in versoes] == [3, 2, 1]
+    assert [v["ativa"] for v in versoes] == [True, False, False]
+    assert {"versao", "a", "b", "ativa", "criada_em", "pontos", "r2", "organismo", "calibrado_por"} <= set(versoes[0])
+    assert (versoes[0]["id_calibracao"], versoes[0]["organismo"], versoes[0]["calibrado_por"]) == (
+        nova["id_calibracao"], "E. coli", "Leo")
+    assert versoes[0]["pontos"][0]["rotulo"] == "branco"
+    # A versão 1 é a padrão do sistema, criada com a célula, sem pessoa.
+    assert (versoes[2]["calibrado_por"], versoes[2]["pontos"]) == (None, None)
 
 
 # ------------------------------------------------------------------ API: autenticação
@@ -1220,7 +1797,7 @@ def test_todas_as_rotas_exigem_login_menos_saude_e_auth(ambiente, cenario, conta
     teste falhar."""
     e = _criar(contas[0])["id_experimento"]
     exemplos = {"id_celula": cenario.celulas[0], "id_experimento": e, "id_cultivo": 1, "id_pessoa": 1,
-                "id_pedido": "sp-00000000"}
+                "id_pedido": "sp-00000000", "id_alerta": 1, "id_regra": 1}
     rotas = requests.get(f"{ambiente.url_api}/openapi.json", timeout=10).json()["paths"]
     conferidas = 0
     for caminho, metodos in rotas.items():
@@ -1504,3 +2081,439 @@ def test_alterar_celula_pela_api(ambiente, cenario, contas):
     assert ana.chamar("PATCH", f"/celulas/{outra}", {"apelido": "  "}).status_code == 422
     assert ana.chamar("PATCH", "/celulas/nao-existe", {"apelido": "x"}).status_code == 404
     assert ana.chamar("PATCH", f"/celulas/{celula}", {"apelido": None}).json()["apelido"] is None
+
+
+# ------------------------------------------------------------------ API: exportação
+
+FUSO = "America/Sao_Paulo"
+BRT = timedelta(hours=-3)
+
+
+def _proxima_hora() -> datetime:
+    """Uma hora cheia no futuro: as leituras do teste caem dentro do cultivo que acabou de abrir."""
+    return datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+
+def _crescer(conn, celula: str, inicio: datetime, quantas: int = 6) -> None:
+    """Uma leitura a cada 20 min, com a OD dobrando a cada hora (taxa de 1 divisão por hora)."""
+    curva = repo.curva_ativa(conn, celula)
+    for n in range(quantas):
+        repo.gravar_leitura(conn, celula, n, inicio + n * timedelta(minutes=20), 30.0 + n, 1000.0 + n,
+                            0.1 * 2 ** (n / 3), 7.0, curva)
+
+
+def _exportar(conta: "Conta", **pedido) -> requests.Response:
+    return conta.chamar("POST", "/exportacoes", {"medidas": ["temperatura", "od", "taxa"], "fuso": FUSO, **pedido})
+
+
+def _abas(resposta: requests.Response) -> dict[str, list[list]]:
+    """As abas do Excel devolvido, cada uma como lista de linhas sem as células vazias do fim."""
+    import io
+
+    from openpyxl import load_workbook
+
+    assert resposta.status_code == 200, resposta.text
+    livro = load_workbook(io.BytesIO(resposta.content))
+    return {aba.title: [list(linha) for linha in aba.iter_rows(values_only=True)] for aba in livro}
+
+
+def _linhas_csv(resposta: requests.Response) -> list[list[str]]:
+    assert resposta.status_code == 200, resposta.text
+    texto = resposta.content.decode("utf-8")
+    assert texto.startswith("﻿")
+    return [linha.split(";") for linha in texto.lstrip("﻿").strip().split("\r\n")]
+
+
+def test_exportar_experimento_em_excel_agrupado_por_hora(cenario, contas):
+    ana, henry, bia = contas
+    conn, celula, outra = cenario.conn, cenario.celulas[0], cenario.celulas[1]
+    e = _criar(ana, temperatura_alvo_c=None)["id_experimento"]
+    assert _iniciar(ana, e, celula, condicao="30 °C", replica=2).status_code == 201
+    inicio = _proxima_hora()
+    _crescer(conn, celula, inicio)
+    repo.criar_pedido(conn, f"sp-{uuid.uuid4().hex[:8]}", celula, 31.0, "Ana", id_pessoa=ana.id)
+    repo.abrir_alerta(conn, celula, "desvio_temperatura", "Temperatura fora do alvo")
+
+    resposta = _exportar(ana, id_experimento=e, agrupamento="hora",
+                         anexos=["contexto", "parametros", "alertas", "calibracoes"])
+    abas = _abas(resposta)
+    assert resposta.headers["Content-Disposition"].startswith(f'attachment; filename="EXP-{e:02d}_media-por-hora_')
+    assert list(abas) == ["Dados", "Metadados", "Parâmetros", "Alertas", "Calibrações"]
+
+    cabecalho, primeira, segunda = abas["Dados"]
+    assert cabecalho == ["celula", "condicao", "replica", "inicio_do_intervalo", "leituras",
+                         "temperatura_c_media", "temperatura_c_min", "temperatura_c_max",
+                         "od_media", "od_min", "od_max", "taxa_divisoes_por_hora"]
+    local = (inicio + BRT).replace(tzinfo=None)
+    assert primeira[:8] == [celula, "30 °C", 2, local, 3, 31.0, 30.0, 32.0]
+    assert segunda[:8] == [celula, "30 °C", 2, local + timedelta(hours=1), 3, 34.0, 33.0, 35.0]
+    assert (primeira[9], primeira[10]) == (0.1, round(0.1 * 2 ** (2 / 3), 4))
+    # A OD dobra a cada hora: 1 divisão por hora, nos dois intervalos.
+    assert primeira[11] == pytest.approx(1.0, abs=1e-3) and segunda[11] == pytest.approx(1.0, abs=1e-3)
+
+    metadados = abas["Metadados"]
+    assert ["codigo", f"EXP-{e:02d}"] in [linha[:2] for linha in metadados]
+    assert ["organismo", "E. coli K-12"] in [linha[:2] for linha in metadados]
+    assert [celula, "30 °C", 2, "em_andamento"] in [linha[1:5] for linha in metadados]
+    assert [linha[:4] for linha in abas["Parâmetros"][1:]] == [[celula, abas["Parâmetros"][1][1], 31.0, "Ana"]]
+    assert [linha[:3] for linha in abas["Alertas"][1:]] == [[celula, "desvio_temperatura", "Temperatura fora do alvo"]]
+    assert [(linha[0], linha[9]) for linha in abas["Calibrações"][1:]] == [(celula, 6)]
+
+    # Sem anexos, só a aba Dados. O intervalo livre agrupa de 20 em 20 min: uma leitura em cada, sem taxa.
+    so_dados = _abas(_exportar(ana, id_experimento=e, agrupamento="intervalo", intervalo_min=20))
+    assert list(so_dados) == ["Dados"] and len(so_dados["Dados"]) == 7
+    assert {(linha[4], linha[11]) for linha in so_dados["Dados"][1:]} == {(1, None)}
+
+    # Quem tem acesso de leitura exporta; quem não vê o experimento recebe 404.
+    assert ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": henry.email, "permissao": "leitura"}).status_code == 200
+    assert _exportar(henry, id_experimento=e, agrupamento="dia").status_code == 200
+    assert _exportar(bia, id_experimento=e, agrupamento="dia").status_code == 404
+
+    de_fora = _exportar(ana, id_experimento=e, celulas=[celula, outra])
+    assert de_fora.status_code == 422 and outra in _detalhe(de_fora)
+    repo.fechar_alerta(conn, celula, "desvio_temperatura")
+
+
+def test_exportar_experimento_em_csv_bruto(cenario, contas):
+    ana = contas[0]
+    conn, celula = cenario.conn, cenario.celulas[0]
+    e = _criar(ana, temperatura_alvo_c=None)["id_experimento"]
+    assert _iniciar(ana, e, celula, condicao="30 °C").status_code == 201
+    inicio = _proxima_hora()
+    _crescer(conn, celula, inicio)
+
+    # O CSV leva só os dados (os anexos são ignorados) e a taxa não existe nos dados brutos.
+    resposta = _exportar(ana, id_experimento=e, formato="csv", anexos=["alertas"])
+    linhas = _linhas_csv(resposta)
+    assert resposta.headers["Content-Type"].startswith("text/csv")
+    assert f"EXP-{e:02d}_dados-brutos_" in resposta.headers["Content-Disposition"]
+    assert linhas[0] == ["celula", "condicao", "replica", "data_hora", "temperatura_c", "od"]
+    assert len(linhas) == 7
+    assert linhas[1] == [celula, "30 °C", "", (inicio + BRT).strftime("%Y-%m-%d %H:%M:%S"), "30,0", "0,1"]
+
+    # Experimento sem células e experimento sem leituras.
+    vazio = _criar(ana, temperatura_alvo_c=None)["id_experimento"]
+    sem_celulas = _exportar(ana, id_experimento=vazio)
+    assert sem_celulas.status_code == 422 and "ainda não tem células" in _detalhe(sem_celulas)
+    assert _iniciar(ana, vazio, cenario.celulas[1]).status_code == 201
+    sem_leituras = _exportar(ana, id_experimento=vazio)
+    assert sem_leituras.status_code == 404 and "Nenhuma leitura" in _detalhe(sem_leituras)
+
+
+def test_exportar_por_celula_e_periodo(cenario, contas):
+    ana, _, bia = contas
+    conn, celula, outra = cenario.conn, cenario.celulas[0], cenario.celulas[1]
+    e = _criar(ana, temperatura_alvo_c=None)["id_experimento"]
+    assert _iniciar(ana, e, celula).status_code == 201
+    inicio = _proxima_hora()
+    _crescer(conn, celula, inicio)
+    _crescer(conn, outra, inicio, quantas=2)
+    periodo = {"desde": inicio.isoformat(), "ate": (inicio + timedelta(hours=1)).isoformat()}
+
+    # Só a primeira hora, das duas células: 3 leituras de uma e 2 da outra, sem condição nem réplica.
+    resposta = _exportar(ana, celulas=[outra, celula, celula], formato="csv", medidas=["od_bruta", "ph"], **periodo)
+    linhas = _linhas_csv(resposta)
+    assert f'filename="celulas_{celula}-{outra}_dados-brutos_' in resposta.headers["Content-Disposition"]
+    assert linhas[0] == ["celula", "data_hora", "ph", "od_bruto"]
+    assert [linha[0] for linha in linhas[1:]] == [celula] * 3 + [outra] * 2
+    assert linhas[1][2:] == ["7,0", "1000,0"]
+
+    # Contexto: o experimento em que a célula estava aparece para quem pode vê-lo, e só para ele.
+    contexto = {"agrupamento": "hora", "anexos": ["contexto"], "celulas": [celula], **periodo}
+    da_ana = _abas(_exportar(ana, **contexto))["Contexto"]
+    assert da_ana[1][:2] == [celula, f"EXP-{e:02d} · {FICHA['nome']}"]
+    da_bia = _abas(_exportar(bia, **contexto))
+    assert len(da_bia["Dados"]) == 2
+    assert not any(linha[0] == celula for linha in da_bia["Contexto"][1:])
+
+    # Dia no fuso pedido: a mesma hora cai em dias diferentes em São Paulo e em Tóquio.
+    dia = lambda fuso: _abas(_exportar(ana, celulas=[celula], agrupamento="dia", **{**periodo, "fuso": fuso}))["Dados"][1][1]
+    assert dia(FUSO) == (inicio + BRT).replace(tzinfo=None, hour=0)
+    assert dia("Asia/Tokyo") == (inicio + timedelta(hours=9)).replace(tzinfo=None, hour=0)
+
+    for corpo, status, trecho in [
+        ({"celulas": ["nao-existe"], **periodo}, 404, "não encontrada"),
+        ({"celulas": [celula], **periodo, "fuso": "Marte/Olimpo"}, 422, "Fuso Marte/Olimpo desconhecido"),
+        ({"celulas": [celula], "desde": (inicio - 2 * DIA).isoformat(), "ate": (inicio - DIA).isoformat()},
+         404, "Nenhuma leitura"),
+        ({"celulas": [celula], "desde": periodo["ate"], "ate": periodo["desde"]}, 422, "desde antes de ate"),
+        ({"celulas": [celula], **periodo, "medidas": ["taxa"]}, 422, "só existe nos dados agrupados"),
+        ({"celulas": [celula], **periodo, "medidas": []}, 422, ""),
+        ({"celulas": [celula], **periodo, "agrupamento": "intervalo"}, 422, "intervalo_min"),
+    ]:
+        resposta = _exportar(ana, **corpo)
+        assert resposta.status_code == status, (corpo, resposta.text)
+        assert trecho in resposta.text, (corpo, resposta.text)
+
+
+# ------------------------------------------------------------------ regras de alerta criadas na tela
+
+REGRA = {"nome": "Temperatura alta", "parametro": "temperatura", "comparacao": "maior", "limite": 50.0,
+         "por_minutos": 2}
+
+
+@pytest.fixture
+def regras_da_tela(banco):
+    """Cria regras direto no banco e roda a verificação; no fim exclui as
+    regras, para não avaliarem as células dos outros testes."""
+    from app.regras.verificacoes import regras_configuradas
+
+    criadas = []
+
+    class Regras:
+        def criar(self, id_pessoa: int, **campos) -> int:
+            criadas.append(repo.criar_regra(banco, id_pessoa, **{**REGRA, **campos}))
+            return criadas[-1]
+
+        def rodar(self) -> None:
+            regras_configuradas(banco, _cfg())
+
+    yield Regras()
+    for id_regra in criadas:
+        repo.excluir_regra(banco, id_regra)
+
+
+def _ler(conn, id_celula: str, seq: int, minutos_atras: float, temperatura: float = 30.0, ph: float = 7.0) -> None:
+    repo.gravar_leitura(conn, id_celula, seq, datetime.now(timezone.utc) - timedelta(minutes=minutos_atras),
+                        temperatura, 1000.0, 0.45, ph, None)
+
+
+def _alertas_da_regra(conn, id_regra: int) -> list[dict]:
+    return conn.execute(
+        "SELECT id_celula, tipo, mensagem, fechado_em FROM alerta WHERE id_regra = %s ORDER BY id_alerta",
+        (id_regra,)).fetchall()
+
+
+def test_regra_da_tela_so_abre_depois_do_tempo_e_fecha_quando_volta(cenario, regras_da_tela):
+    conn = cenario.conn
+    recente, persistente, sem_passado = cenario.celulas
+    regra = regras_da_tela.criar(cenario.ana)
+    _ler(conn, recente, 0, 5)                         # dentro do limite antes da janela de 2 min
+    _ler(conn, recente, 1, 1, temperatura=60.0)       # passou do limite há 1 min: ainda não
+    _ler(conn, persistente, 0, 5, temperatura=60.0)   # fora do limite antes e durante a janela
+    _ler(conn, persistente, 1, 1, temperatura=61.0)
+    _ler(conn, sem_passado, 0, 1, temperatura=60.0)   # sem leitura de antes da janela
+
+    regras_da_tela.rodar()
+    regras_da_tela.rodar()   # idempotente: não abre de novo
+    alertas = _alertas_da_regra(conn, regra)
+    assert [(a["id_celula"], a["tipo"], a["fechado_em"]) for a in alertas] == [(persistente, "regra", None)]
+    assert alertas[0]["mensagem"] == "Temperatura alta: Temperatura em 61,0 °C, acima de 50,0 °C há mais de 2 min."
+
+    # Aberto, o alerta acompanha o valor medido; quando a leitura volta ao limite, fecha.
+    _ler(conn, persistente, 2, 0.1, temperatura=62.0)
+    regras_da_tela.rodar()
+    assert [a["mensagem"] for a in _alertas_da_regra(conn, regra)] == [
+        "Temperatura alta: Temperatura em 62,0 °C, acima de 50,0 °C há mais de 2 min."]
+    _ler(conn, persistente, 3, 0, temperatura=30.0)
+    regras_da_tela.rodar()
+    assert all(a["fechado_em"] for a in _alertas_da_regra(conn, regra))
+
+    # "Menor que", em outra medida: um alerta por regra, na mesma célula.
+    acido = regras_da_tela.criar(cenario.ana, nome="pH ácido", parametro="ph", comparacao="menor", limite=3.0)
+    _ler(conn, recente, 2, 0.5, ph=2.0)               # a leitura de 5 min atrás tinha pH 7
+    _ler(conn, sem_passado, 1, 0.5, ph=2.0)           # a de 1 min atrás também: nenhuma persistente
+    regras_da_tela.rodar()
+    assert _alertas_da_regra(conn, acido) == []
+
+
+def test_regra_da_tela_de_um_experimento_vale_so_para_as_celulas_dele(cenario, regras_da_tela):
+    conn = cenario.conn
+    dentro, fora = cenario.celulas[0], cenario.celulas[1]
+    cultivo = cenario.iniciar(0)
+    conn.execute("UPDATE cultivo SET iniciado_em = now() - interval '10 minutes' WHERE id_cultivo = %s",
+                 (cultivo["id_cultivo"],))
+    regra = regras_da_tela.criar(cenario.ana, id_experimento=cenario.experimento["id_experimento"])
+    for celula in (dentro, fora):
+        _ler(conn, celula, 0, 5, temperatura=60.0)
+        _ler(conn, celula, 1, 1, temperatura=60.0)
+
+    regras_da_tela.rodar()
+    abertos = lambda: [a["id_celula"] for a in _alertas_da_regra(conn, regra) if a["fechado_em"] is None]
+    assert abertos() == [dentro]
+
+    # Desligar fecha na hora; desligada, a regra não abre nada. Religada, abre de novo.
+    repo.ligar_regra(conn, regra, False)
+    assert abertos() == []
+    regras_da_tela.rodar()
+    assert abertos() == []
+    repo.ligar_regra(conn, regra, True)
+    regras_da_tela.rodar()
+    assert abertos() == [dentro] and len(_alertas_da_regra(conn, regra)) == 2
+
+    # A célula saiu do experimento: o alerta fecha.
+    repo.encerrar_cultivo(conn, cultivo["id_cultivo"], cenario.ana)
+    regras_da_tela.rodar()
+    assert abertos() == []
+
+    # Excluída, some das listas, mas os alertas antigos continuam apontando para ela.
+    repo.excluir_regra(conn, regra)
+    assert repo.buscar_regra(conn, regra, cenario.ana) is None
+    assert regra not in [r["id_regra"] for r in repo.listar_regras(conn, cenario.ana)]
+    assert len(_alertas_da_regra(conn, regra)) == 2
+    alerta = repo.listar_alertas(conn, somente_abertos=False, id_celula=dentro, tipo="regra")[0]
+    assert (alerta["id_regra"], alerta["regra_nome"], alerta["regra_gravidade"]) == (regra, "Temperatura alta", "aviso")
+
+
+def test_regras_pela_api(cenario, contas):
+    ana, henry, bia = contas
+    ids = lambda conta: [r["id_regra"] for r in conta.chamar("GET", "/regras").json()]
+
+    # Regra de todas as células: todo mundo vê, só quem criou altera.
+    criada = ana.chamar("POST", "/regras", {**REGRA, "nome": "  Temperatura alta  ", "gravidade": "critica"})
+    assert criada.status_code == 201, criada.text
+    geral = criada.json()
+    assert {k: geral[k] for k in ("nome", "parametro", "comparacao", "limite", "por_minutos", "id_experimento",
+                                  "codigo_experimento", "gravidade", "ativa", "criada_por", "alertas_abertos",
+                                  "pode_alterar")} == {
+        "nome": "Temperatura alta", "parametro": "temperatura", "comparacao": "maior", "limite": 50.0,
+        "por_minutos": 2, "id_experimento": None, "codigo_experimento": None, "gravidade": "critica",
+        "ativa": True, "criada_por": "Ana", "alertas_abertos": 0, "pode_alterar": True}
+    da_bia = next(r for r in bia.chamar("GET", "/regras").json() if r["id_regra"] == geral["id_regra"])
+    assert da_bia["pode_alterar"] is False
+    assert bia.chamar("PATCH", f"/regras/{geral['id_regra']}", {"ativa": False}).status_code == 403
+    assert bia.chamar("DELETE", f"/regras/{geral['id_regra']}").status_code == 403
+    desligada = ana.chamar("PATCH", f"/regras/{geral['id_regra']}", {"ativa": False})
+    assert desligada.status_code == 200 and desligada.json()["ativa"] is False
+
+    # Regra de um experimento: só o responsável ou quem pode modificar cria; quem não vê o experimento não a vê.
+    e = _criar(ana)["id_experimento"]
+    do_experimento = {**REGRA, "id_experimento": e}
+    assert bia.chamar("POST", "/regras", do_experimento).status_code == 404
+    assert ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": henry.email, "permissao": "leitura"}).status_code == 200
+    assert henry.chamar("POST", "/regras", do_experimento).status_code == 403
+    assert ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": henry.email, "permissao": "edicao"}).status_code == 200
+    do_henry = henry.chamar("POST", "/regras", do_experimento)
+    assert do_henry.status_code == 201, do_henry.text
+    id_do_henry = do_henry.json()["id_regra"]
+    assert (do_henry.json()["codigo_experimento"], do_henry.json()["experimento_nome"]) == (f"EXP-{e:02d}", FICHA["nome"])
+    assert id_do_henry in ids(ana) and id_do_henry not in ids(bia)
+    assert bia.chamar("PATCH", f"/regras/{id_do_henry}", {"ativa": False}).status_code == 404
+    # A responsável pelo experimento altera a regra que outra pessoa criou.
+    assert next(r for r in ana.chamar("GET", "/regras").json() if r["id_regra"] == id_do_henry)["pode_alterar"] is True
+    assert ana.chamar("PATCH", f"/regras/{id_do_henry}", {"ativa": False}).status_code == 200
+
+    # Experimento fechado não aceita regra nova.
+    fechado = _criar(ana)["id_experimento"]
+    assert ana.chamar("POST", f"/experimentos/{fechado}/cancelar", {"motivo": "teste"}).status_code == 200
+    recusada = ana.chamar("POST", "/regras", {**REGRA, "id_experimento": fechado})
+    assert recusada.status_code == 409 and "cancelado" in _detalhe(recusada)
+
+    for corpo in ({**REGRA, "nome": "  "}, {**REGRA, "por_minutos": 0}, {**REGRA, "por_minutos": 1441},
+                  {**REGRA, "parametro": "agitacao"}, {**REGRA, "comparacao": "igual"}, {**REGRA, "limite": "abc"},
+                  {**REGRA, "gravidade": "leve"}, {k: v for k, v in REGRA.items() if k != "limite"}):
+        assert ana.chamar("POST", "/regras", corpo).status_code == 422, corpo
+    assert ana.chamar("PATCH", "/regras/999999", {"ativa": True}).status_code == 404
+    assert ana.chamar("DELETE", "/regras/999999").status_code == 404
+
+    # Excluir tira a regra das listas; depois disso ela não existe mais para a API.
+    for id_regra in (geral["id_regra"], id_do_henry):
+        assert ana.chamar("DELETE", f"/regras/{id_regra}").status_code == 204
+        assert id_regra not in ids(ana)
+        assert ana.chamar("PATCH", f"/regras/{id_regra}", {"ativa": True}).status_code == 404
+
+
+def test_testar_regra_com_as_leituras_antigas(cenario, contas):
+    """POST /regras/testar mostra o que a regra teria feito, sem gravar nada."""
+    ana, _henry, bia = contas
+    conn = cenario.conn
+    celula, outra = cenario.celulas[0], cenario.celulas[1]
+    # 30 °C, depois 3 h atrás fica 20 min acima de 50 °C, e 1 h atrás só 1 min.
+    leituras = [(0, 200, 30.0), (1, 180, 60.0), (2, 175, 65.0), (3, 170, 61.0), (4, 160, 30.0),
+                (5, 61, 70.0), (6, 60, 30.0), (7, 10, 55.0), (8, 1, 56.0)]
+    for seq, minutos, temperatura in leituras:
+        _ler(conn, celula, seq, minutos, temperatura=temperatura)
+    _ler(conn, outra, 0, 30, temperatura=30.0)
+    # O processo de regras do ambiente pode abrir outros alertas nestas células
+    # (sem_comunicacao); o teste só não pode criar alerta de regra.
+    alertas_de_regra = lambda: conn.execute(
+        "SELECT count(*) AS n FROM alerta WHERE tipo = 'regra' AND id_celula = ANY(%s)",
+        ([celula, outra],)).fetchone()["n"]
+
+    teste = ana.chamar("POST", "/regras/testar", {"parametro": "temperatura", "comparacao": "maior",
+                                                   "limite": 50, "por_minutos": 5})
+    assert teste.status_code == 200, teste.text
+    corpo = teste.json()
+    da_celula = [a for a in corpo["alertas"] if a["id_celula"] == celula]
+    agora = datetime.fromisoformat(corpo["ate"])
+    minutos = lambda iso: round((agora - datetime.fromisoformat(iso)).total_seconds() / 60)
+    # Trecho de 20 min: abre 5 min depois do início e fecha quando volta. O de
+    # 1 min não chega a abrir. O de agora está fora há 10 min: aberto.
+    assert [(minutos(a["abriria_em"]), a["fecharia_em"] and minutos(a["fecharia_em"]), a["pior"], a["leituras_fora"])
+            for a in da_celula] == [(175, 160, 65.0, 3), (5, None, 56.0, 2)]
+    assert not any(a["aberto_antes"] for a in da_celula)
+    assert corpo["celulas"] >= 2 and corpo["leituras"] >= len(leituras) + 1
+    assert alertas_de_regra() == 0
+    assert not [r for r in repo.listar_regras(conn, cenario.ana) if r["parametro"] == "temperatura" and r["limite"] == 50
+                and r["por_minutos"] == 5]
+
+    # Mais tempo pedido: o trecho de 20 min some.
+    longo = ana.chamar("POST", "/regras/testar", {"parametro": "temperatura", "comparacao": "maior",
+                                                   "limite": 50, "por_minutos": 30}).json()
+    assert [a for a in longo["alertas"] if a["id_celula"] == celula] == []
+
+    # De um experimento: só as células com cultivo aberto nele, e só quem vê o experimento.
+    e = _criar(ana)["id_experimento"]
+    assert _iniciar(ana, e, outra).status_code == 201
+    do_experimento = {"parametro": "temperatura", "comparacao": "maior", "limite": 50, "por_minutos": 5,
+                      "id_experimento": e}
+    so_dele = ana.chamar("POST", "/regras/testar", do_experimento)
+    assert so_dele.status_code == 200 and so_dele.json()["alertas"] == []
+    assert bia.chamar("POST", "/regras/testar", do_experimento).status_code == 404
+
+    for invalido in ({**do_experimento, "por_minutos": 0}, {**do_experimento, "horas": 200},
+                     {**do_experimento, "parametro": "agitacao"}):
+        assert ana.chamar("POST", "/regras/testar", invalido).status_code == 422
+
+
+def _emails_do_mailpit(ambiente, trecho_do_assunto: str) -> list[dict]:
+    mensagens = requests.get(f"{ambiente.url_mailpit}/api/v1/messages?limit=500", timeout=10).json()["messages"]
+    return [m for m in mensagens if trecho_do_assunto in m["Subject"]]
+
+
+def test_regra_com_email_avisa_uma_vez_pelo_mailpit(ambiente, cenario, contas):
+    """O processo de regras do ambiente abre o alerta e manda o e-mail ao
+    responsável e a quem tem edição, uma vez só."""
+    if ambiente.url_mailpit is None:
+        pytest.skip("o modo local não tem Mailpit; o envio é testado no modo Compose")
+    ana, henry, bia = contas
+    conn = cenario.conn
+    celula = cenario.celulas[2]
+    e = _criar(ana)["id_experimento"]
+    for conta, permissao in ((henry, "edicao"), (bia, "leitura")):
+        assert ana.chamar("POST", f"/experimentos/{e}/acessos", {"email": conta.email, "permissao": permissao}).status_code == 200
+    assert _iniciar(ana, e, celula).status_code == 201
+    conn.execute("UPDATE cultivo SET iniciado_em = now() - interval '10 minutes' WHERE id_celula = %s AND status = 'em_andamento'",
+                 (celula,))
+
+    sem_email = ana.chamar("POST", "/regras", {**REGRA, "nome": "Sem e-mail", "id_experimento": e})
+    assert sem_email.status_code == 201 and sem_email.json()["email"] is False
+    regra = ana.chamar("POST", "/regras", {**REGRA, "nome": f"Quente {celula}", "id_experimento": e,
+                                            "gravidade": "critica", "email": True})
+    assert regra.status_code == 201, regra.text
+    assert (regra.json()["email"], regra.json()["gravidade"]) == (True, "critica")
+    id_regra = regra.json()["id_regra"]
+    try:
+        _ler(conn, celula, 0, 5, temperatura=60.0)
+        _ler(conn, celula, 1, 1, temperatura=61.0)
+
+        assunto = f"Quente {celula} · célula {celula}"
+        fim = time.time() + 30
+        while not (emails := _emails_do_mailpit(ambiente, assunto)):
+            assert time.time() < fim, "o e-mail do alerta não chegou ao Mailpit em 30 s"
+            time.sleep(0.5)
+        [email] = emails
+        assert email["Subject"] == f"[T.U.P.A] [CRÍTICO] {assunto}"
+        assert sorted(d["Address"] for d in email["To"]) == sorted([ana.email, henry.email])
+        alerta = conn.execute("SELECT email_enviado_em, email_erro FROM alerta WHERE id_regra = %s AND fechado_em IS NULL",
+                              (id_regra,)).fetchone()
+        assert alerta["email_enviado_em"] is not None and alerta["email_erro"] is None
+
+        # As rodadas seguintes (uma por segundo no ambiente) não mandam de novo.
+        time.sleep(3)
+        assert len(_emails_do_mailpit(ambiente, assunto)) == 1
+        # A regra sem e-mail também abriu alerta, mas não mandou nada.
+        assert _emails_do_mailpit(ambiente, f"Sem e-mail · célula {celula}") == []
+    finally:
+        for id_r in (id_regra, sem_email.json()["id_regra"]):
+            repo.excluir_regra(conn, id_r)

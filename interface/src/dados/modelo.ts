@@ -19,6 +19,8 @@ export interface CelulaResumo {
   situacao: SituacaoCelula;
   /** Quantos alertas a célula tem abertos (alertas_abertos de GET /celulas). */
   alertasAbertos?: number;
+  /** Algum alerta aberto da célula é de uma regra de gravidade crítica. */
+  alertaCritico?: boolean;
   /** `null`: célula livre. `undefined`: a API ainda não informa. */
   experimento: Experimento | null | undefined;
   temperaturaC: number | null;
@@ -33,7 +35,8 @@ export interface CelulaResumo {
 
 export interface AlertaResumo {
   id: number;
-  idCelula: string;
+  /** null nos alertas do sistema, que não são de uma célula. */
+  idCelula: string | null;
   /** Tipo da API, como "ph_fora_da_faixa". */
   tipo?: string;
   titulo: string;
@@ -41,12 +44,24 @@ export interface AlertaResumo {
   ajuda?: string;
   mensagem: string;
   abertoEm: Date;
+  /** Alerta de uma regra de gravidade crítica: aparece primeiro e em destaque. */
+  critico?: boolean;
 }
 
+/** Críticos primeiro; dentro de cada grupo, o mais novo primeiro. */
+export function ordenarAlertas<T extends AlertaResumo>(alertas: T[]): T[] {
+  return [...alertas].sort(
+    (a, b) => Number(b.critico ?? false) - Number(a.critico ?? false) || b.abertoEm.getTime() - a.abertoEm.getTime(),
+  );
+}
+
+/** Situação de uma parte do sistema: true funciona, false parou, null sem dados. */
 export interface Sistema {
   broker: boolean | null;
   consumidor: boolean | null;
   regras: boolean | null;
+  /** Texto no lugar do padrão ("conectado", "ativo", "parado"), como "sem broker". */
+  textos?: Partial<Record<"broker" | "consumidor" | "regras", string>>;
 }
 
 export interface VisaoGeral {

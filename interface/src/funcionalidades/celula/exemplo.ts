@@ -127,10 +127,13 @@ function exemploDaC08(id: string, periodo: Periodo, agora: Date): DetalheDaCelul
     alertas: [],
     series: seriesDoPeriodo(periodo),
     calibracao: {
+      // Figma: od = 0,00051 · (bruto − 96) − 0,020. O b guardado tem o branco
+      // embutido: −0,020 − 0,00051 · 96.
       atual: {
         versao: 3,
-        a: 0.00048,
-        b: -0.041,
+        a: 0.00051,
+        b: -0.020 - 0.00051 * 96,
+        branco: 96,
         criadaEm: new Date(2026, 9, 15),
         autor: "Henry Piozzi",
         padroes: [
@@ -143,8 +146,8 @@ function exemploDaC08(id: string, periodo: Periodo, agora: Date): DetalheDaCelul
         r2: 0.998,
       },
       anteriores: [
-        { versao: 2, a: 0.0005, b: -0.05, criadaEm: new Date(2026, 9, 12), autor: "Henry Piozzi", padroes: [], r2: null },
-        { versao: 1, a: 0.00052, b: -0.06, criadaEm: new Date(2026, 8, 30), autor: "padrão do sistema", padroes: [], r2: null },
+        { versao: 2, a: 0.0005, b: -0.05, branco: null, criadaEm: new Date(2026, 9, 12), autor: "Henry Piozzi", padroes: [], r2: null },
+        { versao: 1, a: 0.00052, b: -0.06, branco: null, criadaEm: new Date(2026, 8, 30), autor: null, padroes: [], r2: null },
       ],
     },
     bombas: [

@@ -148,3 +148,9 @@
   color: var(--texto\/secundario);
   white-space: nowrap;
 }
+
+/* Com algum alerta de regra crítica aberto, o contador fica vermelho cheio. */
+.contadorCritico {
+  background: var(--status\/alerta);
+  color: var(--fundo\/pagina);
+}

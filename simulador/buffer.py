@@ -12,6 +12,7 @@ Isto é do simulador: na placa real, o grupo do hardware decide como guardar
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -34,6 +35,21 @@ class Buffer:
             atual = int(self.ler("proximo_seq", "0"))
             self._gravar_meta("proximo_seq", str(atual + 1))
             return atual
+
+    @contextmanager
+    def lote(self):
+        """Grava tudo o que for feito dentro numa transação só. Para o
+        histórico de 90 dias: milhares de leituras, uma confirmação em disco."""
+        with self._trava:
+            self._db.execute("BEGIN")
+        try:
+            yield
+        except BaseException:
+            with self._trava:
+                self._db.execute("ROLLBACK")
+            raise
+        with self._trava:
+            self._db.execute("COMMIT")
 
     def guardar(self, seq: int, payload: bytes) -> None:
         with self._trava:

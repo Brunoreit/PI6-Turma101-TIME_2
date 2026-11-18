@@ -1165,3 +1165,70 @@ Revê a P-2 ("rotas existentes continuam sem login"), depois que a interface pas
 | CSV na interface | `GET /celulas/{id}/leituras.csv` exige login, então a interface baixa o arquivo pela chamada com token, e não por um link direto |
 | Teste | `test_todas_as_rotas_exigem_login_menos_saude_e_auth` percorre o `/openapi.json`: uma rota nova sem login faz o teste falhar |
 | Fora desta mudança | Senha no broker (`allow_anonymous true`) e a troca do `SEGREDO_SESSAO` e da senha do banco fora do desenvolvimento |
+
+### Regras de alerta criadas na tela (16/11/2026)
+
+| Ponto | Decisão |
+|---|---|
+| Tabela | `regra_alerta`: nome, `parametro` (`temperatura`, `od`, `ph`), `comparacao` (`maior`, `menor`), `limite`, `por_minutos` (1 a 1440), `id_experimento` (nulo: todas as células), `gravidade` (`aviso`, `critica`), `ativa`, `id_criada_por`, `criada_em`, `excluida_em` |
+| Alerta | Tipo novo `regra`, com `alerta.id_regra` (obrigatório nesse tipo e nulo nos outros). O índice único passa a ser por célula, tipo e regra: uma célula pode ter um alerta aberto de cada regra |
+| Onde vale | Sem experimento: todas as células, com todas as leituras. Com experimento: as células com cultivo aberto nele, só com as leituras desde o início do cultivo |
+| Quando abre | A última leitura da medida está fora do limite, nenhuma leitura dos últimos `por_minutos` ficou dentro dele e a última leitura de antes desse tempo já estava fora. Sem leitura anterior, não abre. Igual ao limite não conta como fora |
+| Quando fecha | A última leitura voltou ao limite, a célula saiu do experimento, ou a regra foi desligada ou excluída (nesses dois casos, na hora, sem esperar a rodada) |
+| Mensagem | `{nome}: {medida} em {valor}, acima (ou abaixo) de {limite} há mais de {por_minutos} min.`, atualizada a cada rodada com o valor medido |
+| Quem vê | As regras de todas as células e as dos experimentos que a pessoa vê |
+| Quem cria | Regra de todas as células: qualquer pessoa logada. Regra de experimento: responsável ou edição (404 sem acesso, 403 só leitura, 409 com o experimento encerrado ou cancelado) |
+| Quem altera | Quem criou, ou o responsável ou edição do experimento da regra. `PATCH` só muda `ativa`; para mudar o resto, exclui e cria outra |
+| Excluir | Marca `excluida_em` e desliga. A regra some das listas e os alertas antigos continuam apontando para ela, com o nome no histórico |
+| Gravidade | `critica` é destaque na tela (17/11/2026): primeiro nas listas, selo "crítico", contador e card em vermelho. Não muda quando o alerta abre ou fecha |
+| E-mail (17/11/2026) | `regra_alerta.email`. Destinatários: quem criou, na regra de todas as células; o responsável e quem tem edição, na regra de experimento. Um e-mail por alerta, enviado pelo processo de regras depois das verificações (`app/avisos/correio.py`). `alerta.email_enviado_em` impede o reenvio; com falha, `email_tentado_em` e `email_erro`, e nova tentativa depois de `EMAIL_REPETIR_S` (300). Alertas abertos há mais de um dia não são avisados, para ligar o e-mail não mandar a fila antiga. Horários do texto no fuso `EMAIL_FUSO` (America/Sao_Paulo). Sem `SMTP_HOST`, nada sai. No Compose, o Mailpit (`axllent/mailpit:v1.21.8`) recebe os e-mails e os mostra na porta `PORTA_MAILPIT` (8025) |
+| Fora desta mudança | E-mail dos alertas fixos (comunicação, temperatura, pH) |
+| Teste com leituras antigas (17/11/2026) | `POST /regras/testar {parametro, comparacao, limite, por_minutos, id_experimento?, horas?}` (24 h por padrão, até 168) diz o que a regra teria feito, sem gravar regra nem alerta. As consultas (`trechos_fora_do_limite`, `leituras_testadas`) acham, por célula, as sequências de leituras seguidas fora do limite; `app/regras/simulacao.py` aplica a mesma lógica da verificação: abriria `por_minutos` depois da primeira leitura fora, se nenhuma voltar antes, e fecharia na primeira leitura de volta. Busca também a última leitura de antes do período, para saber se o alerta já estaria aberto no início dele. Mesmas células da verificação (todas, ou as com cultivo aberto no experimento, desde o início do cultivo). Regra de experimento: qualquer acesso, porque só lê; sem acesso, 404. Os horários reais variam até `REGRAS_INTERVALO_S`, o intervalo das rodadas |
+
+### Exportação de dados (16/11/2026)
+
+| Ponto | Decisão |
+|---|---|
+| Rota | `POST /exportacoes` devolve o arquivo. É POST porque o pedido tem listas (células, medidas, anexos); nada é gravado |
+| Dois modos | Com `id_experimento`: cada célula sai no período do cultivo dela (`iniciado_em` até `encerrado_em`, ou até agora), com `condicao` e `replica`; `celulas` restringe às escolhidas. Sem ele: `celulas`, `desde` e `ate` obrigatórios |
+| Acesso | Por experimento, qualquer acesso (404 sem acesso). Por célula, basta estar logado, como nas outras rotas de célula |
+| Agrupamento | `brutos`, `hora`, `dia` ou `intervalo` (`intervalo_min` de 1 a 1440). Os intervalos são contados a partir da meia-noite do `fuso` (`date_bin`), com média, mínimo, máximo e número de leituras |
+| Taxa de crescimento | Inclinação de ln(OD) no tempo dentro do intervalo, dividida por ln 2 (divisões por hora), a mesma conta do painel. Vazia com menos de duas leituras de OD positiva. Não existe nos dados brutos: pedir só a taxa em `brutos` dá 422; junto de outras medidas, ela é ignorada |
+| Formatos | `xlsx`: aba Dados e uma aba por anexo (`contexto` vira Metadados no modo experimento e Contexto no modo célula; `parametros`, `alertas`, `calibracoes`). `csv`: só os dados, com BOM, `;` e vírgula decimal; os anexos são ignorados |
+| Datas | Saem no `fuso` pedido (padrão `America/Sao_Paulo`), sem fuso no arquivo. Fuso desconhecido dá 422 |
+| Limites | Excel acima de 1.000.000 de linhas de dados dá 422. O CSV é enviado em pedaços, sem limite. Sem nenhuma leitura no período, 404 |
+| Contexto | No modo célula, lista só os cultivos de experimentos que a pessoa pode ver; os outros não aparecem, para não revelar que existem |
+| Arredondamento | Temperatura e pH com 3 casas, OD e taxa com 4, OD bruta com 2. O banco não muda |
+| `GET /celulas/{id}/leituras.csv` | Continua existindo, mas a interface não o usa mais |
+
+### Calibração de OD ao vivo, com branco (10/11/2026)
+
+Regras do orientador para a nova calibração de OD, que passa a ler o sensor ao vivo. **O esquema do banco não mudou**: nenhuma tabela nem coluna nova. Tudo cabe em `leitura` (`od_bruto` e `seq` de cada medida) e em `calibracao` (`a`, `b`, `pontos`, `r2`, `organismo`).
+
+| Ponto | Decisão |
+|---|---|
+| Branco | Não é ponto da reta. Só zera a linha base e tira o efeito do meio de cultura. A reta é ajustada só com os padrões, com x = bruto do padrão − bruto do branco |
+| Padrões | Qualquer OD; a faixa de 0,2 a 0,8 saiu (ela só existia na interface). Para salvar: o branco e pelo menos 3 padrões, todos com `od_referencia` |
+| Ajuste | Mínimos quadrados só com os padrões: a = Sxy/Sxx, b = ȳ − a·x̄, R² = 1 − Σ(y − (a·x + b))² / Σ(y − ȳ)². Padrões com o mesmo bruto ou a mesma OD dão 422. Contas em `backend/app/calibracao/ajuste.py`; a interface repete em `regressao.ts` só como prévia |
+| **Branco embutido no b** | od = a·(bruto − branco) + b é o mesmo que od = a·bruto + (b − a·branco). A `calibracao` recebe `a` e `b_banco = b − a·branco`. O consumidor, `converter` e o recálculo de `nova_calibracao` continuam iguais, e o `od_bruto` das leituras nunca muda |
+| Média calculada no servidor | O bruto de um ponto com `origem: "leitura"` é a média das leituras `seq_inicio` a `seq_fim` da célula. O servidor confere que o intervalo tem `n_leituras` medidas de OD daquela célula (senão 422) e recalcula média e desvio pelo banco; o `bruto` e o `desvio` vindos do navegador são ignorados. Média e desvio são gravados com 2 casas, e a reta é ajustada com o valor gravado |
+| Estabilidade | Um padrão só pode ser gravado ao vivo com a janela das últimas N leituras estável: (máximo − mínimo) / média < limite. N = `CALIBRACAO_N_LEITURAS` (6), limite = `CALIBRACAO_VARIACAO_MAX` (0,01). A interface libera o botão pelo `estavel` de `GET /celulas/{id}/od-ao-vivo`, e o POST confere de novo com as mesmas leituras: intervalo instável dá 422. Quem não quer esperar digita o valor |
+| Desvio | Desvio padrão amostral das leituras da janela (0 com uma leitura) |
+| Formato antigo | `POST /celulas/{id}/calibracoes` com `a` e `b` prontos continua como antes; `pontos` e `r2` só são guardados, como vieram. Sem `a` e `b`, é o cadastro por pontos; `r2` no corpo dá 422 (quem calcula é o servidor). `a` sem `b` dá 422 |
+| Resposta do cadastro por pontos | A de sempre (com `b` = `b_banco`) mais `ajuste: {branco, a, b, r2, padroes}`, com o `b` da fórmula com o branco |
+| Rotas novas | `GET /celulas/{id}/od-ao-vivo` (última leitura, até 8 recentes e a janela: `seq_inicio`, `seq_fim`, `media`, `minimo`, `maximo`, `variacao`, `desvio`, `estavel`, `intervalo_medio_s` pelos `ts_origem` e `faltam`) e `GET /celulas/{id}/calibracoes` (versões com `calibrado_por`). As duas exigem login |
+
+Formato do JSONB `pontos`, só nas versões novas. As antigas continuam como estão, com `{od_referencia, bruto}`.
+
+```json
+[
+  {"rotulo": "branco", "od_referencia": null, "bruto": 98, "origem": "leitura",
+   "seq_inicio": 56201, "seq_fim": 56206, "n_leituras": 6, "desvio": 1.2,
+   "gravado_em": "2026-11-10T09:41:00-03:00"},
+  {"rotulo": "P1", "od_referencia": 0.2, "bruto": 520, "origem": "leitura", "...": "..."},
+  {"rotulo": "P2", "od_referencia": 0.35, "bruto": 812, "origem": "digitado",
+   "gravado_em": "..."}
+]
+```
+
+Com `origem: "leitura"`, `seq_inicio`, `seq_fim` e `n_leituras` são obrigatórios e apontam para as leituras que formaram a média. Com `"digitado"`, ficam de fora (mandá-los dá 422). O branco é o ponto de rótulo `"branco"` (o primeiro da lista); quem lê uma versão tira o branco de lá e mostra b = b_banco + a·branco. Versão sem ponto `"branco"` é do formato antigo e aparece como `od = a · bruto + b`.

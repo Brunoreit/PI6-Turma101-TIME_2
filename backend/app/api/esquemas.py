@@ -12,13 +12,56 @@ class NovoSetpoint(BaseModel):
 
 
 class PontoCalibracao(BaseModel):
-    od_referencia: float = Field(description="OD do branco ou do padrão, medida no espectrofotômetro")
-    bruto: float = Field(description="Valor bruto lido pelo sensor da célula para esse padrão")
+    """Um ponto da calibração. No formato antigo só `od_referencia` e `bruto`;
+    os outros campos são do cadastro por pontos e ficam todos opcionais."""
+
+    od_referencia: float | None = Field(
+        default=None, description="OD do padrão, medida no espectrofotômetro. null no branco")
+    bruto: float = Field(description="Valor bruto lido pelo sensor da célula para esse ponto. "
+                                     "Com origem leitura, o servidor recalcula pela média das leituras")
+    rotulo: str | None = Field(default=None, description='"branco" ou o nome do padrão ("P1", "P2"...)')
+    origem: Literal["leitura", "digitado"] | None = Field(
+        default=None, description="leitura: média das leituras seq_inicio a seq_fim; digitado: medido por fora")
+    seq_inicio: int | None = Field(default=None, ge=0, description="Primeira leitura da média (origem leitura)")
+    seq_fim: int | None = Field(default=None, ge=0, description="Última leitura da média (origem leitura)")
+    n_leituras: int | None = Field(default=None, gt=0, le=10_000,
+                                   description="Quantas leituras formam a média (origem leitura)")
+    desvio: float | None = Field(default=None, description="Desvio padrão das leituras. O servidor recalcula")
+    gravado_em: datetime | None = Field(default=None, description="Quando o ponto foi gravado na tela")
+
+    @field_validator("rotulo")
+    @classmethod
+    def _rotulo(cls, rotulo: str | None) -> str | None:
+        return _texto_obrigatorio(rotulo, "O rótulo do ponto não pode ficar em branco.")
+
+    @model_validator(mode="after")
+    def _origem(self):
+        nome = self.rotulo or "ponto"
+        intervalo = (self.seq_inicio, self.seq_fim, self.n_leituras)
+        if self.origem == "leitura":
+            if None in intervalo:
+                raise ValueError(f"O {nome} veio da leitura ao vivo e precisa de seq_inicio, seq_fim e n_leituras.")
+            if self.seq_inicio > self.seq_fim:
+                raise ValueError(f"No {nome}, seq_inicio precisa ser menor ou igual a seq_fim.")
+        elif any(v is not None for v in intervalo):
+            raise ValueError(f"seq_inicio, seq_fim e n_leituras só valem com origem leitura. "
+                             f"Tire esses campos do {nome} ou use origem leitura.")
+        return self
 
 
 class NovaCalibracao(BaseModel):
-    a: float = Field(description="Coeficiente angular: od = a * od_bruto + b")
-    b: float = Field(description="Coeficiente linear")
+    """Dois jeitos de cadastrar:
+
+    - **a e b prontos** (formato antigo): a curva é gravada como veio; `pontos`
+      e `r2`, se vierem, só são guardados.
+    - **por pontos**, sem a, b e r2: um ponto `branco` e pelo menos 3 padrões.
+      O servidor confere as leituras, ajusta a reta só com os padrões, com
+      x = bruto − branco, e grava a, b − a·branco e o R².
+    """
+
+    a: float | None = Field(default=None, description="Coeficiente angular: od = a * od_bruto + b. "
+                                                       "De fora no cadastro por pontos")
+    b: float | None = Field(default=None, description="Coeficiente linear. De fora no cadastro por pontos")
     recalcular: bool = Field(
         default=True,
         description="Recalcula a OD das leituras já gravadas. Se falso, só as próximas leituras usam a nova versão.",
@@ -28,10 +71,28 @@ class NovaCalibracao(BaseModel):
         description="Com recalcular, só as leituras a partir deste instante. Vazio recalcula o histórico todo.",
     )
     pontos: list[PontoCalibracao] | None = Field(
-        default=None, description="Branco e padrões usados no ajuste. Só guardados, não mudam a conta.",
+        default=None, max_length=100,
+        description="Branco e padrões. Com a e b, só guardados. Sem, o servidor calcula a reta com eles.",
     )
-    r2: float | None = Field(default=None, description="Qualidade do ajuste, calculada por quem cadastra")
+    r2: float | None = Field(default=None, description="Qualidade do ajuste. Com a e b, calculada por quem "
+                                                       "cadastra; no cadastro por pontos, pelo servidor")
     organismo: str | None = Field(default=None, description="Cultura usada para fazer a curva")
+
+    @property
+    def por_pontos(self) -> bool:
+        return self.a is None
+
+    @model_validator(mode="after")
+    def _um_dos_jeitos(self):
+        if (self.a is None) != (self.b is None):
+            raise ValueError("Envie a e b juntos, ou nenhum dos dois para o servidor calcular a reta pelos pontos.")
+        if self.a is None:
+            if not self.pontos:
+                raise ValueError("Envie a e b prontos, ou os pontos (o branco e pelo menos 3 padrões) "
+                                 "para o servidor calcular a reta.")
+            if self.r2 is not None:
+                raise ValueError("No cadastro por pontos o servidor calcula o R². Tire o r2 do corpo.")
+        return self
 
 
 def _normalizar_email(email: str) -> str:
@@ -148,6 +209,81 @@ class AlteracaoCultivo(BaseModel):
     replica: int | None = Field(default=None, gt=0, le=32767)
     ph_ref_min: float | None = None
     ph_ref_max: float | None = None
+
+
+class NovaExportacao(BaseModel):
+    """Exportação por experimento (id_experimento, e as células dele se não
+    forem todas) ou por célula e período (celulas, desde e ate)."""
+
+    id_experimento: int | None = Field(default=None, description="Exporta cada célula no período em que esteve no experimento")
+    celulas: list[str] | None = Field(default=None, max_length=64,
+                                      description="Por célula: obrigatório. Por experimento: só estas células dele")
+    desde: datetime | None = Field(default=None, description="Por célula: início do período, com fuso")
+    ate: datetime | None = Field(default=None, description="Por célula: fim do período, com fuso")
+    medidas: list[Literal["temperatura", "ph", "od", "od_bruta", "taxa"]] = Field(min_length=1)
+    agrupamento: Literal["brutos", "hora", "dia", "intervalo"] = "brutos"
+    intervalo_min: int | None = Field(default=None, ge=1, le=1440, description="Só com agrupamento intervalo")
+    formato: Literal["xlsx", "csv"] = "xlsx"
+    anexos: list[Literal["contexto", "parametros", "alertas", "calibracoes"]] = Field(
+        default_factory=list, description="Abas a mais do Excel. O CSV leva só os dados")
+    fuso: str = Field(default="America/Sao_Paulo", max_length=64,
+                      description="Fuso das datas do arquivo e do começo de cada dia")
+
+    @model_validator(mode="after")
+    def _coerente(self):
+        if self.id_experimento is None:
+            if not self.celulas:
+                raise ValueError("Informe id_experimento, ou celulas com desde e ate.")
+            if self.desde is None or self.ate is None:
+                raise ValueError("Na exportação por célula, informe desde e ate.")
+            if self.desde.tzinfo is None or self.ate.tzinfo is None:
+                raise ValueError("Envie desde e ate com fuso, como 2026-11-16T09:00:00-03:00.")
+            if self.desde >= self.ate:
+                raise ValueError("O período precisa ter desde antes de ate.")
+        elif self.desde is not None or self.ate is not None:
+            raise ValueError("Na exportação por experimento o período é o de cada célula no experimento. "
+                             "Tire desde e ate.")
+        if (self.agrupamento == "intervalo") != (self.intervalo_min is not None):
+            raise ValueError("intervalo_min vale só com agrupamento intervalo, e nesse caso é obrigatório.")
+        if self.agrupamento == "brutos" and set(self.medidas) == {"taxa"}:
+            raise ValueError("A taxa de crescimento só existe nos dados agrupados. "
+                             "Escolha um agrupamento ou outra medida.")
+        return self
+
+
+class NovaRegra(BaseModel):
+    """Regra de alerta criada na tela: a medida acima ou abaixo do limite por um tempo."""
+
+    nome: str = Field(max_length=80)
+    parametro: Literal["temperatura", "od", "ph"]
+    comparacao: Literal["maior", "menor"]
+    limite: float = Field(allow_inf_nan=False)
+    por_minutos: int = Field(ge=1, le=1440, description="Minutos seguidos fora do limite antes de avisar")
+    id_experimento: int | None = Field(default=None, description="Sem ele, a regra vale para todas as células")
+    gravidade: Literal["aviso", "critica"] = Field(
+        default="aviso", description="critica aparece primeiro e em destaque na tela")
+    email: bool = Field(default=False, description="Avisa por e-mail quem criou a regra (todas as células) "
+                                                   "ou o responsável e quem tem edição no experimento")
+
+    @field_validator("nome")
+    @classmethod
+    def _nome(cls, nome: str) -> str:
+        return _texto_obrigatorio(nome, "Dê um nome à regra.")
+
+
+class TesteDeRegra(BaseModel):
+    """Regra ainda não salva, para ver o que ela teria feito com as leituras antigas."""
+
+    parametro: Literal["temperatura", "od", "ph"]
+    comparacao: Literal["maior", "menor"]
+    limite: float = Field(allow_inf_nan=False)
+    por_minutos: int = Field(ge=1, le=1440, description="Minutos seguidos fora do limite antes de avisar")
+    id_experimento: int | None = Field(default=None, description="Sem ele, testa em todas as células")
+    horas: int = Field(default=24, ge=1, le=168, description="Quantas horas para trás testar")
+
+
+class AlteracaoRegra(BaseModel):
+    ativa: bool = Field(description="false desliga a regra e fecha os alertas que ela abriu")
 
 
 class NovoCultivo(BaseModel):

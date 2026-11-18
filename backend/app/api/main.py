@@ -13,23 +13,31 @@ Documentação interativa em http://localhost:8000/docs
 
 import csv
 import io
+import itertools
 import logging
+import math
 import secrets
 from contextlib import asynccontextmanager, contextmanager
-from datetime import datetime, timezone
+from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 import paho.mqtt.client as mqtt
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.api import autenticacao
-from app.api.esquemas import (AlteracaoCelula, AlteracaoCultivo, AlteracaoExperimento, Cadastro, Entrada,
+from app.api.esquemas import (AlteracaoCelula, AlteracaoCultivo, AlteracaoExperimento, AlteracaoRegra, Cadastro,
+                              Entrada,
                               Motivo, MotivoOpcional, NovaCalibracao, NovoAcesso, NovoCultivo,
-                              NovoExperimento, NovoSetpoint)
+                              NovaExportacao, NovaRegra, NovoExperimento, NovoSetpoint, PontoCalibracao,
+                              TesteDeRegra)
 from app.banco import repositorios as repo
+from app.calibracao import ajuste
+from app.exportacao import montagem
+from app.regras import simulacao
 from app.banco.conexao import criar_pool
 from app.config import config
 from contrato import PedidoSetpoint, topicos
@@ -119,14 +127,33 @@ def _conferir_temperatura(temperatura_c: float) -> None:
 
 @app.get("/saude")
 def saude():
-    """Aberta, sem login: só diz se o banco e o broker respondem."""
+    """Aberta, sem login: se o banco e o broker respondem à API e o sinal de
+    vida do consumidor e das regras (None se nunca gravaram ou se o banco
+    não responde). Não traz dado de célula nem de pessoa."""
+    processos: dict[str, dict] = {}
     try:
         with estado["pool"].connection(timeout=2) as conn:
-            conn.execute("SELECT 1")
+            processos = {p["nome"]: p for p in repo.listar_processos(conn)}
         banco = True
     except Exception:
         banco = False
-    return {"banco": banco, "broker": estado["mqtt"].is_connected()}
+
+    def resumo(nome: str, limite_s: float) -> dict | None:
+        p = processos.get(nome)
+        if p is None:
+            return None
+        return {"ativo": p["segundos_sem_sinal"] <= limite_s, "ultimo_sinal": p["ultimo_sinal"],
+                "iniciado_em": p["iniciado_em"],
+                **({"broker_conectado": p["broker_conectado"], "broker_desde": p["broker_desde"]}
+                   if nome == "consumidor" else {})}
+
+    return {
+        "banco": banco,
+        "broker": estado["mqtt"].is_connected(),
+        "consumidor": resumo("consumidor", config.sinal_vida_limite_s),
+        # As regras gravam uma vez por rodada.
+        "regras": resumo("regras", max(config.sinal_vida_limite_s, 3 * config.regras_intervalo_s)),
+    }
 
 
 def _sessao(pessoa: dict) -> dict:
@@ -273,20 +300,173 @@ def buscar_setpoint(conn: Conexao, _pessoa: PessoaLogada, id_pedido: str):
     return pedido
 
 
+@app.get("/celulas/{id_celula}/od-ao-vivo")
+def od_ao_vivo(conn: Conexao, _pessoa: PessoaLogada, id_celula: str):
+    """Sensor de OD agora, para a nova calibração. `janela` resume as últimas
+    CALIBRACAO_N_LEITURAS leituras; o bruto de um padrão gravado ao vivo é a
+    média delas, e só pode ser gravado com `estavel`. `recentes` traz até 8
+    leituras (ou N, se for maior) para o gráfico."""
+    _exigir_celula(conn, id_celula)
+    n = config.calibracao_n_leituras
+    recentes = repo.ultimas_leituras_od(conn, id_celula, max(n, 8))
+    janela = recentes[-n:]
+    resumo = ajuste.resumir([l["od_bruto"] for l in janela]) if janela else None
+    intervalo = None
+    if len(janela) >= 2:
+        intervalo = (janela[-1]["ts_origem"] - janela[0]["ts_origem"]).total_seconds() / (len(janela) - 1)
+    return {
+        "id_celula": id_celula,
+        "ultima": recentes[-1] if recentes else None,
+        "recentes": recentes,
+        "variacao_max": config.calibracao_variacao_max,
+        "janela": {
+            "n_esperado": n,
+            "n_leituras": len(janela),
+            "faltam": n - len(janela),
+            "seq_inicio": janela[0]["seq"] if janela else None,
+            "seq_fim": janela[-1]["seq"] if janela else None,
+            "media": resumo.media if resumo else None,
+            "minimo": resumo.minimo if resumo else None,
+            "maximo": resumo.maximo if resumo else None,
+            # Média zero dá variação infinita, que o JSON não representa.
+            "variacao": resumo.variacao if resumo and math.isfinite(resumo.variacao) else None,
+            "desvio": resumo.desvio if resumo else None,
+            "estavel": ajuste.estavel(resumo, n, config.calibracao_variacao_max),
+            "intervalo_medio_s": intervalo,
+        },
+    }
+
+
+@app.get("/celulas/{id_celula}/calibracoes")
+def listar_calibracoes(conn: Conexao, _pessoa: PessoaLogada, id_celula: str):
+    """Versões da curva de OD, da mais nova para a mais antiga. Nas versões
+    com branco, `b` já tem o branco embutido (b − a·branco); o branco está
+    em `pontos`, no ponto de rótulo "branco"."""
+    _exigir_celula(conn, id_celula)
+    return repo.listar_calibracoes(conn, id_celula)
+
+
+def _porcento(fracao: float) -> str:
+    """0.0153 vira "1,5%"; 0.01 vira "1%"."""
+    return f"{fracao * 100:.1f}".replace(".0", "").replace(".", ",") + "%"
+
+
+def _calibracao_por_pontos(conn: psycopg.Connection, id_celula: str,
+                           pontos: list[PontoCalibracao]) -> tuple[ajuste.AjusteComBranco, list[dict]]:
+    """Confere os pontos, recalcula pelas leituras os que vieram ao vivo e
+    ajusta a reta só com os padrões. Qualquer problema dá 422 dizendo o quê."""
+    sem_rotulo = [i + 1 for i, p in enumerate(pontos) if p.rotulo is None]
+    if sem_rotulo:
+        raise HTTPException(422, f"Os pontos {', '.join(map(str, sem_rotulo))} estão sem rotulo. "
+                                 'Use "branco" para o branco e um nome para cada padrão, como "P1".')
+    sem_origem = [p.rotulo for p in pontos if p.origem is None]
+    if sem_origem:
+        raise HTTPException(422, f"Falta a origem (leitura ou digitado) em: {', '.join(sem_origem)}.")
+    rotulos = [p.rotulo.casefold() for p in pontos]
+    repetidos = sorted({p.rotulo for p in pontos if rotulos.count(p.rotulo.casefold()) > 1})
+    if repetidos:
+        raise HTTPException(422, f"Há mais de um ponto com o rótulo {', '.join(repetidos)}. Cada ponto precisa de um rótulo só dele.")
+    brancos = [p for p in pontos if p.rotulo.casefold() == "branco"]
+    padroes = [p for p in pontos if p.rotulo.casefold() != "branco"]
+    if not brancos:
+        raise HTTPException(422, 'Falta o branco. Grave a leitura do frasco só com meio de cultura num ponto de rótulo "branco".')
+    sem_referencia = [p.rotulo for p in padroes if p.od_referencia is None]
+    if sem_referencia:
+        raise HTTPException(422, f"Falta a OD de referência em: {', '.join(sem_referencia)}. "
+                                 "Informe a OD medida no espectrofotômetro de cada padrão.")
+    if len(padroes) < ajuste.MINIMO_DE_PADROES:
+        faltam = ajuste.MINIMO_DE_PADROES - len(padroes)
+        raise HTTPException(422, f"A calibração precisa do branco e de pelo menos {ajuste.MINIMO_DE_PADROES} padrões. "
+                                 f"{'Falta 1 padrão' if faltam == 1 else f'Faltam {faltam} padrões'}.")
+
+    agora = datetime.now(timezone.utc)
+    gravados = []
+    for p in [brancos[0], *padroes]:
+        ponto = {"rotulo": "branco" if p is brancos[0] else p.rotulo,
+                 "od_referencia": None if p is brancos[0] else p.od_referencia,
+                 "bruto": p.bruto, "origem": p.origem}
+        if p.origem == "leitura":
+            # Vale o que está no banco, não a média que veio do navegador.
+            valores = repo.od_bruto_no_intervalo(conn, id_celula, p.seq_inicio, p.seq_fim)
+            if len(valores) != p.n_leituras:
+                raise HTTPException(
+                    422, f"O {ponto['rotulo']} aponta para as leituras seq {p.seq_inicio} a {p.seq_fim}, mas a "
+                         f"{id_celula} tem {len(valores)} leituras de OD nesse intervalo, não {p.n_leituras}. "
+                         "Grave o ponto de novo pela leitura ao vivo ou digite o valor.")
+            resumo = ajuste.resumir(valores)
+            if not resumo.variacao < config.calibracao_variacao_max:
+                # As mesmas leituras dão a mesma variação: o que a tela viu
+                # como estável continua estável aqui.
+                raise HTTPException(
+                    422, f"As leituras seq {p.seq_inicio} a {p.seq_fim} do {ponto['rotulo']} variam "
+                         f"{_porcento(resumo.variacao)} entre o mínimo e o máximo, mais que o limite de "
+                         f"{_porcento(config.calibracao_variacao_max)}. Espere a leitura estabilizar e grave de novo, "
+                         "ou digite o valor.")
+            ponto.update(bruto=round(resumo.media, 2), seq_inicio=p.seq_inicio, seq_fim=p.seq_fim,
+                         n_leituras=p.n_leituras, desvio=round(resumo.desvio, 2))
+        elif p.desvio is not None:
+            ponto["desvio"] = p.desvio
+        ponto["gravado_em"] = (p.gravado_em or agora).isoformat()
+        gravados.append(ponto)
+
+    branco = gravados[0]["bruto"]
+    try:
+        resultado = ajuste.ajustar_com_branco(branco, [(g["bruto"], g["od_referencia"]) for g in gravados[1:]])
+    except ajuste.CalibracaoInvalida as erro:
+        raise HTTPException(422, str(erro)) from None
+    return resultado, gravados
+
+
 @app.post("/celulas/{id_celula}/calibracoes", status_code=201)
 def cadastrar_calibracao(conn: Conexao, pessoa: PessoaLogada, id_celula: str, corpo: NovaCalibracao):
+    """Com a e b prontos, grava a curva como veio. Sem, calcula pelos pontos
+    (ver NovaCalibracao) e devolve também `ajuste`, a reta com o branco à
+    parte: od = a·(bruto − branco) + b."""
     _exigir_celula(conn, id_celula)
-    return repo.nova_calibracao(
-        conn, id_celula, corpo.a, corpo.b,
+    if not corpo.por_pontos:
+        return repo.nova_calibracao(
+            conn, id_celula, corpo.a, corpo.b,
+            recalcular=corpo.recalcular, desde=corpo.recalcular_desde,
+            pontos=[p.model_dump(mode="json", exclude_unset=True) for p in corpo.pontos]
+            if corpo.pontos is not None else None,
+            r2=corpo.r2, organismo=corpo.organismo, id_pessoa=pessoa["id_pessoa"],
+        )
+    resultado, pontos = _calibracao_por_pontos(conn, id_celula, corpo.pontos)
+    salva = repo.nova_calibracao(
+        conn, id_celula, resultado.a, resultado.b_banco,
         recalcular=corpo.recalcular, desde=corpo.recalcular_desde,
-        pontos=[p.model_dump() for p in corpo.pontos] if corpo.pontos is not None else None,
-        r2=corpo.r2, organismo=corpo.organismo, id_pessoa=pessoa["id_pessoa"],
+        pontos=pontos, r2=resultado.r2, organismo=corpo.organismo, id_pessoa=pessoa["id_pessoa"],
     )
+    return {**salva, "ajuste": {"branco": resultado.branco, "a": resultado.a, "b": resultado.b,
+                                "r2": resultado.r2, "padroes": len(pontos) - 1}}
 
 
 @app.get("/alertas")
-def listar_alertas(conn: Conexao, _pessoa: PessoaLogada, abertos: bool = True):
-    return repo.listar_alertas(conn, somente_abertos=abertos)
+def listar_alertas(conn: Conexao, _pessoa: PessoaLogada, abertos: bool = True,
+                   id_celula: str | None = None, tipo: str | None = None,
+                   limite: int = Query(500, ge=1, le=5000)):
+    """Do mais novo ao mais antigo. Com abertos=false vêm também os fechados.
+    id_celula=sistema traz os alertas sem célula (consumidor e broker)."""
+    return repo.listar_alertas(conn, somente_abertos=abertos, id_celula=id_celula, tipo=tipo, limite=limite)
+
+
+# Alertas que nenhuma regra fecha. Os outros fecham sozinhos quando a
+# condição acaba; fechados à mão, a regra abriria de novo na rodada seguinte.
+_FECHA_A_MAO = ("colisao_seq",)
+
+
+@app.post("/alertas/{id_alerta}/fechar")
+def fechar_alerta(id_alerta: int, conn: Conexao, pessoa: PessoaLogada):
+    """Fecha um alerta que não fecha sozinho e grava quem fechou."""
+    alerta = repo.buscar_alerta(conn, id_alerta)
+    if alerta is None:
+        raise HTTPException(404, "Alerta não encontrado. Atualize a lista de alertas.")
+    if alerta["tipo"] not in _FECHA_A_MAO:
+        raise HTTPException(409, "Este alerta fecha sozinho quando a condição que o abriu acabar. "
+                                 "Só o alerta de leitura repetida (colisao_seq) é fechado à mão.")
+    if not repo.fechar_alerta_a_mao(conn, id_alerta, pessoa["id_pessoa"]):
+        raise HTTPException(409, "Este alerta já estava fechado. Atualize a lista de alertas.")
+    return repo.buscar_alerta(conn, id_alerta)
 
 
 @app.get("/integridade")
@@ -537,3 +717,169 @@ def listar_leituras_do_cultivo(conn: Conexao, pessoa: PessoaLogada, id_cultivo: 
     """Leituras medidas no período do cultivo."""
     _exigir_cultivo(conn, id_cultivo, pessoa)
     return repo.listar_leituras_do_cultivo(conn, id_cultivo, desde, limite)
+
+
+# ------------------------------------------------------------------ regras de alerta
+
+
+def _regra_com_codigo(regra: dict) -> dict:
+    codigo = f"EXP-{regra['id_experimento']:02d}" if regra["id_experimento"] is not None else None
+    return {**regra, "codigo_experimento": codigo}
+
+
+def _exigir_regra(conn: psycopg.Connection, id_regra: int, pessoa: dict) -> dict:
+    """A regra, se a pessoa pode vê-la e alterá-la."""
+    regra = repo.buscar_regra(conn, id_regra, pessoa["id_pessoa"])
+    if regra is None:
+        raise HTTPException(404, f"Regra {id_regra} não encontrada. Atualize a lista de regras.")
+    if not regra["pode_alterar"]:
+        raise HTTPException(403, "Só quem criou a regra, ou quem é responsável ou pode modificar o experimento "
+                                 "dela, pode alterá-la.")
+    return regra
+
+
+@app.get("/regras")
+def listar_regras(conn: Conexao, pessoa: PessoaLogada):
+    """As regras de todas as células e as dos experimentos que a pessoa vê."""
+    return [_regra_com_codigo(r) for r in repo.listar_regras(conn, pessoa["id_pessoa"])]
+
+
+@app.post("/regras", status_code=201)
+def criar_regra(conn: Conexao, pessoa: PessoaLogada, corpo: NovaRegra):
+    """Regra de um experimento: só o responsável ou quem pode modificar. Regra
+    de todas as células: qualquer pessoa logada."""
+    if corpo.id_experimento is not None:
+        _exigir_acesso(conn, corpo.id_experimento, pessoa, "responsavel", "edicao")
+        status = repo.buscar_experimento(conn, corpo.id_experimento)["status"]
+        if status in ("encerrado", "cancelado"):
+            raise HTTPException(409, f"O experimento {corpo.id_experimento} já está {status}: a regra nunca avisaria. "
+                                     "Escolha um experimento aberto ou todas as células.")
+    id_regra = repo.criar_regra(conn, pessoa["id_pessoa"], **corpo.model_dump())
+    return _regra_com_codigo(repo.buscar_regra(conn, id_regra, pessoa["id_pessoa"]))
+
+
+@app.post("/regras/testar")
+def testar_regra(conn: Conexao, pessoa: PessoaLogada, corpo: TesteDeRegra):
+    """O que a regra teria feito nas últimas `horas` (24 por padrão), com a
+    mesma lógica da verificação real (ver app/regras/simulacao.py). Não grava
+    nada: nem a regra, nem alertas. Regra de um experimento: qualquer acesso a
+    ele, porque testar só lê."""
+    if corpo.id_experimento is not None:
+        _exigir_acesso(conn, corpo.id_experimento, pessoa)
+    agora = repo.agora_no_banco(conn)
+    inicio = agora - timedelta(hours=corpo.horas)
+    # Leituras desde por_minutos antes do período: um alerta que abriria no
+    # começo dele depende delas.
+    desde = inicio - timedelta(minutes=corpo.por_minutos)
+    trechos = [simulacao.Trecho(**t) for t in repo.trechos_fora_do_limite(
+        conn, corpo.parametro, corpo.comparacao, corpo.limite, corpo.id_experimento, desde)]
+    alertas = simulacao.alertas_simulados(trechos, corpo.por_minutos, inicio, agora)
+    contagem = repo.leituras_testadas(conn, corpo.parametro, corpo.id_experimento, inicio)
+    return {
+        "desde": inicio,
+        "ate": agora,
+        "celulas": contagem["celulas"],
+        "leituras": contagem["leituras"],
+        "alertas": [asdict(a) for a in alertas],
+    }
+
+
+@app.patch("/regras/{id_regra}")
+def alterar_regra(conn: Conexao, pessoa: PessoaLogada, id_regra: int, corpo: AlteracaoRegra):
+    """Liga ou desliga a regra. Desligada, os alertas que ela abriu fecham."""
+    _exigir_regra(conn, id_regra, pessoa)
+    repo.ligar_regra(conn, id_regra, corpo.ativa)
+    return _regra_com_codigo(repo.buscar_regra(conn, id_regra, pessoa["id_pessoa"]))
+
+
+@app.delete("/regras/{id_regra}", status_code=204)
+def excluir_regra(conn: Conexao, pessoa: PessoaLogada, id_regra: int):
+    _exigir_regra(conn, id_regra, pessoa)
+    repo.excluir_regra(conn, id_regra)
+
+
+# ------------------------------------------------------------------ exportação
+
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@app.post("/exportacoes")
+def exportar(conn: Conexao, pessoa: PessoaLogada, corpo: NovaExportacao):
+    """Devolve o arquivo (.xlsx ou .csv) com as leituras pedidas: por
+    experimento, cada célula no período do cultivo dela; por célula, o
+    período pedido. O Excel leva os anexos em abas; o CSV, só os dados."""
+    if not repo.fuso_existe(conn, corpo.fuso):
+        raise HTTPException(422, f"Fuso {corpo.fuso} desconhecido. Use um nome como America/Sao_Paulo.")
+    por_experimento = corpo.id_experimento is not None
+    if por_experimento:
+        _exigir_acesso(conn, corpo.id_experimento, pessoa)
+        cultivos = repo.cultivos_do_experimento(conn, corpo.id_experimento, corpo.fuso)
+        if corpo.celulas is not None:
+            de_fora = sorted(set(corpo.celulas) - {c["id_celula"] for c in cultivos})
+            if de_fora:
+                raise HTTPException(422, f"Estas células não fizeram parte do experimento: {', '.join(de_fora)}. "
+                                         "Tire-as da lista.")
+            cultivos = [c for c in cultivos if c["id_celula"] in corpo.celulas]
+        if not cultivos:
+            raise HTTPException(422, "Este experimento ainda não tem células. Atribua uma célula antes de exportar.")
+        alvos = [montagem.Alvo(c["id_celula"], c["inicio"], c["fim"], c["condicao"], c["replica"]) for c in cultivos]
+        origem = f"EXP-{corpo.id_experimento:02d}"
+    else:
+        celulas = sorted(set(corpo.celulas))
+        for id_celula in celulas:
+            _exigir_celula(conn, id_celula)
+        alvos = [montagem.Alvo(id_celula, corpo.desde, corpo.ate) for id_celula in celulas]
+        origem = "celulas_" + "-".join(celulas[:4]) + (f"-e-mais-{len(celulas) - 4}" if len(celulas) > 4 else "")
+
+    passo = montagem.passo_em_minutos(corpo.agrupamento, corpo.intervalo_min)
+    agrupado = passo is not None
+
+    # As leituras vêm por outra conexão do pool: no CSV, o envio continua
+    # depois que a requisição devolve a dela.
+    def dados():
+        with estado["pool"].connection() as leitor:
+            for alvo in alvos:
+                registros = (repo.iterar_leituras_agrupadas(leitor, alvo.id_celula, alvo.inicio, alvo.fim,
+                                                            corpo.fuso, passo) if agrupado
+                             else repo.iterar_leituras_do_periodo(leitor, alvo.id_celula, alvo.inicio, alvo.fim,
+                                                                  corpo.fuso))
+                for registro in registros:
+                    yield montagem.linha_dos_dados(alvo, registro, corpo.medidas, agrupado, por_experimento)
+
+    leituras = dados()
+    primeira = next(leituras, None)
+    if primeira is None:
+        raise HTTPException(404, "Nenhuma leitura das células escolhidas no período. Confira as células e o período.")
+    linhas = itertools.chain([montagem.cabecalho_dos_dados(corpo.medidas, agrupado, por_experimento), primeira],
+                             leituras)
+    nome = montagem.nome_do_arquivo(origem, corpo.agrupamento, corpo.intervalo_min, corpo.formato,
+                                    repo.hoje_no_fuso(conn, corpo.fuso))
+    cabecalhos = {"Content-Disposition": f'attachment; filename="{nome}"'}
+    if corpo.formato == "csv":
+        return StreamingResponse(montagem.escrever_csv(linhas), media_type="text/csv", headers=cabecalhos)
+
+    planilhas = [montagem.Planilha("Dados", linhas)]
+    periodos = [(a.id_celula, a.inicio, a.fim) for a in alvos]
+    if "contexto" in corpo.anexos:
+        if por_experimento:
+            planilhas.append(montagem.planilha_de_metadados(
+                repo.buscar_experimento(conn, corpo.id_experimento), cultivos, corpo.fuso,
+                repo.datas_do_experimento(conn, corpo.id_experimento, corpo.fuso)))
+        else:
+            planilhas.append(montagem.planilha_de_contexto(
+                repo.cultivos_dos_alvos(conn, periodos, corpo.fuso, pessoa["id_pessoa"]), corpo.fuso))
+    if "parametros" in corpo.anexos:
+        planilhas.append(montagem.planilha_de_parametros(repo.pedidos_dos_alvos(conn, periodos, corpo.fuso)))
+    if "alertas" in corpo.anexos:
+        planilhas.append(montagem.planilha_de_alertas(repo.alertas_dos_alvos(conn, periodos, corpo.fuso)))
+    if "calibracoes" in corpo.anexos:
+        planilhas.append(montagem.planilha_de_calibracoes(repo.calibracoes_dos_alvos(conn, periodos, corpo.fuso)))
+    try:
+        arquivo = montagem.escrever_xlsx(planilhas)
+    except montagem.ArquivoGrandeDemais:
+        raise HTTPException(
+            422, f"O arquivo passaria de {montagem.LIMITE_EXCEL:,} linhas, o limite de uma aba do Excel. "
+                 "Escolha um agrupamento, um período menor ou o formato CSV.".replace(",", ".", 2)) from None
+    finally:
+        leituras.close()
+    return Response(arquivo, media_type=_XLSX, headers=cabecalhos)

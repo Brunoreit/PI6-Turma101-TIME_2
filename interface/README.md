@@ -22,11 +22,12 @@ Há duas fontes:
 | `VITE_FONTE_DADOS` | O que mostra |
 |---|---|
 | `exemplo` (padrão) | Dados iguais aos do Figma, em `src/dados/exemplo.ts` e nos `exemplo.ts` de cada tela. As mudanças ficam na memória até recarregar a página |
-| `api` | Tudo pela API: células, alertas, experimentos, acessos e cultivos. O que a API não informa (estado do consumidor e das regras, setpoints aguardando, MAC, calibração em uso, bombas, manutenção) aparece como "sem dados" ou "—" |
+| `api` | Tudo pela API: células, alertas, experimentos, acessos e cultivos. A barra lateral mostra o broker, o consumidor (`ativo`, `sem broker`, `parado há…`) e as regras pelo `GET /saude`, e os alertas do sistema (`consumidor_parado`, `broker_inacessivel`) aparecem sem célula. O que a API não informa (MAC, bombas, manutenção) aparece como "sem dados" ou "—" |
 
 O login é sempre pela API, nos dois modos. No modo `api`, nenhuma tela usa
 dados de exemplo: a lista de células do Historiador e do Exportar vem de
-`GET /celulas`, e a aba Regras dos Alertas mostra as regras fixas do backend.
+`GET /celulas`, e a aba Regras dos Alertas mostra as regras criadas na tela
+(`/regras`) e as verificações fixas do backend.
 O que falta na API está em "Ainda falta na API", abaixo.
 
 ```bash
@@ -38,7 +39,8 @@ No Docker, defina a variável no `.env` e rode `docker compose up --build`.
 As telas da célula (`/celulas/{id}`, `/ajustes` e `/diagnostico`) seguem a
 mesma variável. No modo `exemplo`, qualquer célula mostra os dados da c08 do
 Figma. No modo `api`, o experimento da célula vem do cultivo aberto nela
-(ver Cultivos abaixo), e o que a API ainda não tem (MAC, calibração em uso,
+(ver Cultivos abaixo), a calibração vem de `GET /celulas/{id}/calibracoes`, e o
+que a API ainda não tem (MAC,
 bombas, manutenção, mensagens recebidas) aparece como "—" ou com aviso. Os
 botões dessas ações ficam como no Figma, mas não fazem nada e explicam o
 motivo ao passar o mouse. O único comando para a placa é o setpoint de
@@ -54,28 +56,39 @@ Células sem experimento nos dados de exemplo (a c04) mostram a tela
 | `/entrar`, `/cadastro`, `/recuperar-senha`, `/nova-senha?email=` | Login, Login · erro, Cadastro, Recuperar senha, e-mail enviado, Nova senha | Login e cadastro pela API, sempre (ver Login abaixo). Recuperar e trocar a senha ainda não |
 | `/` | Visão geral | Igual antes |
 | `/celulas/{id}` (e `/ajustes`, `/diagnostico`) | Célula c08 e Célula c04 · livre, modal Confirmar temperatura | Setpoint com confirmação. No modo `api`: atribuir, encerrar e resetar a participação e a faixa de pH do cultivo |
-| `/celulas/{id}/ajustes/calibracao` | Célula c08 · nova calibração de OD | Salva a nova curva pelo `POST /celulas/{id}/calibracoes` (no modo `api`) |
+| `/celulas/{id}/ajustes/calibracao` | Célula c08 · nova calibração de OD, · estabilizando, · padrão gravado e · excluir padrão | Leitura ao vivo pelo `GET /celulas/{id}/od-ao-vivo` e salva pelos pontos no `POST /celulas/{id}/calibracoes` (no modo `api`). Ver Nova calibração de OD abaixo |
 | `/experimentos?de=meus&status=andamento,standby` | Experimentos · compartilhados | Lista com filtro Todos, Meus e Compartilhados comigo e, combinado, o filtro por status (não está no Figma: escolha um ou mais entre Em andamento, Stand by, Encerrado e Cancelado, com a contagem de cada); os dois ficam na URL. Duplicar. Pela API no modo `api` (ver Experimentos abaixo) |
 | `/experimentos/novo?base=EXP-01` | Novo experimento · etapas e metadados | Cria o experimento em Stand by. Pela API no modo `api` |
 | `/experimentos/{código}/editar` | Não está no Figma: o mesmo formulário do Novo experimento | Edita conforme o status. Pela API no modo `api` |
 | `/experimentos/{código}` | Experimento EXP-01, · só leitura, · compartilhar, · mais ações, · só leitura · mais ações | Compartilhar e Duplicar no cabeçalho; Editar, Encerrar e Cancelar no menu "Mais ações", conforme o acesso. Pela API no modo `api` |
 | `/historiador?celulas=c04,c08` | Historiador | Gráfico das leituras pela API (no modo `api`) |
 | `/alertas` | Alertas · regras | Abertos e Histórico vêm da API (no modo `api`) |
-| `/exportar` | Exportar dados e · por célula e período | CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv` (baixado pela chamada com token, porque a rota exige login) |
+| `/exportar` | Exportar dados e · por célula e período | Excel ou CSV pelo `POST /exportacoes`, por experimento ou por célula e período (ver Exportar abaixo) |
 
 ### Ainda falta na API
 
-- **Regras de alerta configuráveis.** No modo `exemplo`, a aba Regras é a do
-  Figma, em memória. No modo `api`, ela mostra as cinco verificações fixas do
-  backend, e "Nova regra" fica indisponível.
-- **Exportação agrupada** (média por hora ou dia, intervalos, Excel, anexos).
-  Só sai o CSV de dados brutos, pelo `GET /celulas/{id}/leituras.csv`.
-- **Recuperar e trocar senha**, **convite para quem não tem conta** e **fechar
-  o alerta `colisao_seq`**.
-- **Dados da placa e da calibração:** não há `GET` de calibrações (a versão
-  em uso, a curva e o histórico de versões aparecem como "—"), nem MAC,
-  período de leitura, bombas e modo manutenção.
-- **Estado do consumidor e das regras** na barra lateral.
+- **E-mail dos alertas fixos.** Só as regras criadas na tela avisam por
+  e-mail; os alertas de comunicação, temperatura e pH aparecem só na tela.
+
+"Testar com as leituras das últimas 24 h", na janela "Nova regra", chama o
+`POST /regras/testar` e mostra, sem salvar nada, quantos alertas a regra
+teria aberto, em quais células, das que horas às que horas e o pior valor de
+cada um. Mudar qualquer campo da regra apaga o resultado. No modo exemplo o
+botão explica que não há leituras para testar.
+
+**Gravidade e e-mail da regra.** Uma regra *crítica* não muda quando o alerta
+abre ou fecha; muda o destaque: o alerta dela vem primeiro em todas as listas
+(tela Alertas, Visão geral e painel da célula), com fundo vermelho e o selo
+"crítico" (`compartilhado/componentes/SeloCritico.tsx`); o contador de
+Alertas da barra lateral fica vermelho cheio; e o card da célula ganha borda
+vermelha e o selo "Alerta crítico". A caixa *E-mail* do painel manda um
+e-mail por alerta, quando ele abre: para você, na regra de todas as células,
+ou para o responsável e quem pode modificar o experimento. No Docker Compose
+os e-mails ficam no Mailpit, em http://localhost:8025.
+- **Gráficos para publicação** (PNG, SVG, PDF) na tela Exportar: a API não
+  gera gráficos, e o botão "Baixar gráfico" explica isso.
+- **Recuperar e trocar senha** e **convite para quem não tem conta**.
+- **Dados da placa:** MAC, período de leitura, bombas e modo manutenção.
 
 No modo `exemplo`, as mudanças (novo experimento, compartilhar, encerrar,
 cancelar, nova regra) ficam na memória até recarregar a página. Os botões
@@ -129,7 +142,8 @@ Todo campo que a API devolve aparece em alguma tela no modo `api`:
 | `alertas_abertos` da célula | Card da Visão geral ("2 alertas") |
 | `ts_recebido` e `id_calibracao` da leitura | Diagnóstico, painel Sensores (medida, recebida, atraso e calibração) |
 | `primeiro_seq` da integridade | Diagnóstico, Integridade do histórico |
-| Resposta da nova calibração (`id_calibracao`, `criada_em`, `sensor`, `r2`, `pontos`, `organismo`, `id_pessoa`) | Aviso em Ajustes ao voltar da calibração |
+| Resposta da nova calibração (`id_calibracao`, `criada_em`, `sensor`, `r2`, `pontos`, `organismo`, `id_pessoa`, `ajuste`) | Aviso em Ajustes ao voltar da calibração |
+| `GET /celulas/{id}/calibracoes` (`versao`, `a`, `b`, `ativa`, `criada_em`, `pontos`, `r2`, `organismo`, `calibrado_por`) | Ajustes: versão em uso, curva e versões anteriores; Visão da célula: Informações da placa e Histórico |
 
 Outros dados ligados nesta parte:
 
@@ -139,13 +153,83 @@ Outros dados ligados nesta parte:
 - **Setpoints aguardando** (Visão geral): o último pedido de cada célula
   (`GET /celulas/{id}/setpoints`) que ainda está solicitado, recebido ou
   aplicado.
-- **Nova calibração:** vão junto os padrões usados na reta (branco e
-  padrões), o R² e o organismo (campo opcional). Ao voltar para Ajustes,
-  aparece a versão gravada e quantas leituras tiveram a OD recalculada. A
-  API não informa a versão em uso, então antes de salvar a tela diz "versão
-  nova".
+- **Nova calibração:** ver a seção Nova calibração de OD, abaixo.
 - **Diagnóstico:** primeiro anúncio, último contato e último `seq` gravado da
   placa, de `GET /celulas`.
+
+### Nova calibração de OD
+
+Telas do Figma "Célula c08 · nova calibração de OD", "· estabilizando",
+"· padrão gravado" e "· excluir padrão", em
+`src/funcionalidades/celula/NovaCalibracao/`.
+
+- **Sensor ao vivo** (`LeituraAoVivo.tsx`, `aoVivo.ts`): com a tela aberta,
+  `GET /celulas/{id}/od-ao-vivo` a cada 5 s; para ao sair. Mostra o valor
+  bruto, o `seq`, há quanto tempo chegou, quando deve chegar a próxima (pelo
+  intervalo médio entre leituras), o gráfico das últimas 8 leituras e o selo
+  Estável ou Estabilizando. A leitura é estável quando as últimas N leituras
+  (`CALIBRACAO_N_LEITURAS`, 6) variam menos que `CALIBRACAO_VARIACAO_MAX` (1%)
+  entre o mínimo e o máximo.
+- **Gravar em:** escolhe o branco ou um padrão; a linha fica destacada na
+  tabela. "Gravar <média> no Px" só libera com a leitura estável e guarda a
+  média, `seq_inicio`, `seq_fim`, `n_leituras` e o desvio da janela. Depois
+  mostra a confirmação e passa para o próximo ponto vazio; o botão espera a
+  janela ter só leituras novas ("Esperando o P4") antes de gravar de novo.
+- **Digitar:** para quem mediu por fora. Abre o campo do bruto e grava com
+  origem `digitado`.
+- **Tabela:** o branco aparece como "linha base", sem OD de referência. Cada
+  padrão mostra o bruto gravado, o valor sem o branco, a origem ("6 leituras
+  · ±2" ou "digitado") e a hora. A lixeira tira o padrão, com confirmação na
+  própria linha.
+- **Curva** (`GraficoDaCurva.tsx`, `regressao.ts`): eixo x é o bruto menos o
+  branco, e o branco não é ponto. O padrão sendo lido aparece vazado com o
+  valor ao vivo. A fórmula é "od = a · (bruto − branco) + b", com o R². É só
+  uma prévia, com as mesmas regras do servidor: ao salvar vale o que o
+  servidor devolve.
+- **Conferir e salvar:** libera com o branco e pelo menos 3 padrões, de
+  qualquer OD (a faixa de 0,2 a 0,8 saiu). Manda os pontos para o `POST
+  /celulas/{id}/calibracoes`, sem a, b e R²; o servidor recalcula a média dos
+  pontos lidos pelas leituras do banco e ajusta a reta.
+- **Em andamento:** a calibração fica no `localStorage`, na chave
+  `calibracao-em-andamento-<id_celula>`, até salvar ou cancelar. Ao abrir a
+  tela com pontos guardados, eles voltam com o aviso "Calibração em andamento
+  desde 09:41" e a opção de descartar. Sem `localStorage` (aba anônima), a tela
+  funciona, só não guarda.
+- **Modo exemplo:** a leitura ao vivo é simulada, uma a cada 3 s, que sobe até
+  o padrão do frasco e estabiliza em uns 30 s. Trocar a linha em "Gravar em"
+  troca o frasco. Salvar não grava nada.
+
+Em **Ajustes**, a versão em uso e as anteriores vêm de
+`GET /celulas/{id}/calibracoes`. Nas versões novas a fórmula aparece com o
+branco (tirado dos `pontos`, com b = b do banco + a · branco); nas antigas,
+sem ponto "branco", continua "od = a · bruto + b". O gráfico não destaca mais
+faixa nenhuma.
+
+### Exportar
+
+No modo `api`, a tela monta o pedido e baixa o arquivo do `POST /exportacoes`
+pela chamada com token (a rota exige login, então não dá para usar um link
+direto). O nome do arquivo vem da API.
+
+- **Por experimento:** manda `id_experimento` e, se não forem todas, as
+  células escolhidas. Cada célula sai no período em que esteve no
+  experimento, com a condição e a réplica.
+- **Por célula e período:** manda as células e `desde`/`ate`.
+- **Medidas:** temperatura, pH, OD, OD bruta e taxa de crescimento. A taxa é
+  calculada dentro de cada intervalo, então fica desabilitada em "Dados
+  brutos".
+- **Agrupamento:** dados brutos, média por hora, média por dia ou um
+  intervalo em minutos (1 a 1440).
+- **Formato:** Excel, com a aba Dados e uma aba por anexo marcado (Metadados
+  ou Contexto, Parâmetros, Alertas, Calibrações), ou CSV, com só os dados
+  num arquivo único; em CSV os anexos ficam desabilitados.
+- **Fuso:** as datas do arquivo saem no fuso do navegador.
+- **Exportações recentes:** as cinco últimas deste navegador
+  (`localStorage`, chave `tupa.exportacoes`). A API não guarda os arquivos:
+  "Baixar de novo" refaz o mesmo pedido, com os dados de agora.
+- O botão explica embaixo por que não exporta (nenhuma célula, nenhuma
+  medida, período invertido, intervalo inválido). No modo `exemplo` ele fica
+  indisponível, porque não há leituras para exportar.
 
 ### Apelido da célula
 
@@ -169,12 +253,51 @@ painel de alertas da célula.
 | Tipo | Título | Fecha sozinho? |
 |---|---|---|
 | `sem_comunicacao` | Sem comunicação | Sim, quando a célula volta |
-| `setpoint_sem_confirmacao` | Setpoint sem confirmação | Sim, quando a célula confirma |
-| `desvio_temperatura` | Desvio de temperatura | Sim, quando a temperatura volta para perto do alvo |
-| `ph_fora_da_faixa` | pH fora da faixa do cultivo | Sim, quando o pH volta para a faixa. A mensagem traz a faixa e o último valor |
-| `colisao_seq` | Leitura repetida com horário diferente | Não. A leitura original foi mantida; não há rota para fechar, então não há botão |
+| `setpoint_sem_confirmacao` | Setpoint sem confirmação | Sim, quando a célula confirma que aplicou, ou quando um pedido mais novo é confirmado |
+| `desvio_temperatura` | Desvio de temperatura | Sim, quando a temperatura volta para perto do alvo. Também abre quando o setpoint foi aplicado e a temperatura não chegou no prazo. A mensagem traz a temperatura atual |
+| `ph_fora_da_faixa` | pH fora da faixa do cultivo | Sim, quando o pH volta para a faixa. A mensagem traz a faixa e o valor atual |
+| `colisao_seq` | Leitura repetida com horário diferente | Não. A leitura original foi mantida; o botão "Fechar alerta" (aba Abertos) chama `POST /alertas/{id}/fechar`, e o Histórico mostra quem fechou |
+
+| `regra` | O nome que a pessoa deu à regra | Sim, quando a medida volta ao limite, quando a célula sai do experimento ou quando a regra é desligada ou excluída. A mensagem traz o valor atual |
 
 Um tipo que a interface não conhece aparece com o próprio nome.
+
+**Regras criadas na tela (aba Regras).** No modo `api`, "Nova regra" abre
+uma janela (pop-up) com os campos do painel do Figma e salva pelo `POST /regras`: uma medida (temperatura, OD ou
+pH) maior ou menor que um limite por N minutos seguidos, em todas as células
+ou num experimento aberto que a pessoa pode modificar. A regra passa a valer
+na próxima rodada do processo de regras e abre um alerta do tipo `regra` em
+cada célula fora do limite.
+
+- A lista mostra as regras de todas as células e as dos experimentos que a
+  pessoa vê (`GET /regras`), com quantos alertas cada uma tem abertos.
+- A chave liga e desliga (`PATCH /regras/{id}`); desligar fecha os alertas
+  da regra. "Excluir" pede confirmação (`DELETE /regras/{id}`).
+- Só quem criou a regra, ou o responsável e quem pode modificar o
+  experimento dela, liga, desliga e exclui (`pode_alterar`). Os outros veem
+  a regra sem o "Excluir", e a chave explica por que não muda.
+- Embaixo, no mesmo quadro, ficam as verificações do sistema, que não podem
+  ser desligadas, cada uma com o código do tipo de alerta.
+- No modo `exemplo`, a aba continua como no Figma, com as regras na memória.
+- A janela abre na aba em que a pessoa está, sem trocar de aba, e fecha no X,
+  no Esc, em Cancelar ou clicando fora. Começa fechada nos dois modos (no
+  Figma o painel fica aberto ao lado da tabela). Ao salvar, um aviso verde
+  confirma a regra criada, com "Ver regras" quando a pessoa está em outra aba.
+
+**As três abas seguem o mesmo desenho:** uma barra de resumo acima (Abertos:
+quantos e quantos críticos; Regras: quantas, ativas e com alerta aberto;
+Histórico: filtros e contagem) e um quadro com grupos de cabeçalho cinza. Nos
+Abertos, os grupos são "Críticos" (cabeçalho vermelho) e "Demais alertas";
+cada alerta tem a hora em que abriu, a célula num selo, há quanto tempo está
+aberto e as ações. Nas Regras, cada regra mostra a condição, o tempo e onde
+vale em selos, com os canais, a chave e o "Excluir" à direita.
+
+O Histórico filtra por célula (ou "Sistema") e por tipo, pelos parâmetros
+`id_celula` e `tipo` do `GET /alertas`, numa barra acima da lista com
+"Limpar filtros" e a contagem. Os alertas aparecem agrupados pelo dia em que
+abriram (Hoje, Ontem, depois a data), com a hora, a célula num selo, quanto
+durou e se fechou sozinho ou quem fechou. A API devolve até 500 alertas; se
+chegar nisso, a contagem diz que são os mais recentes.
 
 ### Experimentos
 
@@ -325,7 +448,7 @@ src/
   sessao/               SessaoProvider: conta logada, entrar, cadastrar e sair, pela API
   api/                  cliente tipado, com o token em Authorization: /auth/cadastro,
                         /auth/entrar, /auth/eu, /celulas, /alertas, /celulas/{id}/leituras,
-                        /saude, /celulas/{id}/setpoint(s), /calibracoes, /integridade,
+                        /saude, /celulas/{id}/setpoint(s), /calibracoes, /od-ao-vivo, /integridade,
                         /experimentos (e acessos) e /cultivos
   dados/                dados gerais, atualizados a cada 20 s e usados por todas as telas:
                         modelo, fonte (API ou exemplo), exemplo, DadosProvider

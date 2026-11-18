@@ -3,6 +3,7 @@
 import { Link } from "react-router-dom";
 import iconeCheckCirculo from "@/assets/icones/check-circulo.svg";
 import iconeSino from "@/assets/icones/sino.svg";
+import { SeloCritico } from "@/compartilhado/componentes/SeloCritico";
 import * as formatar from "@/compartilhado/formatar";
 import type { DetalheDaCelula } from "@/funcionalidades/celula/modelo";
 import comum from "@/funcionalidades/celula/Celula.module.css";
@@ -24,14 +25,17 @@ export function Alertas({ dados }: { dados: DetalheDaCelula }) {
           <p className={estilos.semAlertasDetalhe}>
             {experimento
               ? `A ${dados.id} está dentro das faixas do ${experimento.codigo}.`
-              : `Sem experimento, a ${dados.id} só gera alertas de comunicação.`}
+              : `Sem experimento, a ${dados.id} gera alertas de comunicação e de temperatura; o de pH depende da faixa do cultivo.`}
           </p>
         </div>
       ) : (
         <ul className={estilos.listaAlertas}>
           {dados.alertas.map((alerta) => (
-            <li key={alerta.id} className={estilos.alerta}>
-              <span className={estilos.alertaTitulo}>{alerta.titulo}</span>
+            <li key={alerta.id} className={alerta.critico ? `${estilos.alerta} ${estilos.alertaCritico}` : estilos.alerta}>
+              <span className={estilos.alertaTitulo}>
+                {alerta.titulo}
+                {alerta.critico && <> <SeloCritico /></>}
+              </span>
               <span className={estilos.alertaMensagem}>{alerta.mensagem}</span>
               {alerta.ajuda && <span className={estilos.alertaMensagem}>{alerta.ajuda}</span>}
               <span className={estilos.alertaTempo}>{formatar.tempoDecorrido(alerta.abertoEm, dados.atualizadoEm)}</span>

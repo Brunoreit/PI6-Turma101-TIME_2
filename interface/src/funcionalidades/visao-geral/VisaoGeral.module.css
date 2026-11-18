@@ -266,3 +266,12 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Alerta de regra crítica: vem primeiro e com fundo vermelho claro. */
+.alertaCritico {
+  background: var(--status\/alerta-fundo);
+}
+
+.alertaCritico .faixa {
+  width: 5px;
+}

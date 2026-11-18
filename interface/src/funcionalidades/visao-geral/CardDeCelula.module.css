@@ -145,3 +145,10 @@
 .apelido .idDaPlaca {
   font-family: var(--fonte-mono);
 }
+
+/* Célula com alerta de regra crítica: borda vermelha mais grossa (o padding
+   desconta o 1 px a mais, para o card não mudar de tamanho). */
+.critico {
+  padding: 15px 15px 13px;
+  border: 2px solid var(--status\/alerta);
+}

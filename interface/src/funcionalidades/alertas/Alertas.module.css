@@ -58,66 +58,6 @@
 
 /* ---------- regras */
 
-.corpo {
-  display: flex;
-  align-items: flex-start;
-  gap: 24px;
-}
-
-.tabela {
-  display: flex;
-  flex: 1 1 0;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--fundo\/pagina);
-  border: 1px solid var(--borda\/padrao);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.cabecalhoTabela,
-.linha,
-.linhaDestacada {
-  display: grid;
-  grid-template-columns: minmax(180px, 214px) minmax(130px, 160px) 52px 96px 48px 36px;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  font-size: 13px;
-}
-
-.cabecalhoTabela {
-  padding: 10px 16px;
-  background: var(--fundo\/sutil);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--texto\/secundario);
-}
-
-.linha,
-.linhaDestacada {
-  border-top: 1px solid var(--borda\/padrao);
-}
-
-.linhaDestacada {
-  background: var(--marca\/fundo);
-}
-
-.colunaRegra {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-
-.nomeRegra {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
 .descricao {
   font-size: 12px;
   color: var(--texto\/secundario);
@@ -138,11 +78,6 @@
   background: var(--fundo\/sutil);
   color: var(--texto\/secundario);
 }
-
-.codigo {
-  font-family: var(--fonte-mono);
-}
-
 .canais {
   display: flex;
   gap: 6px;
@@ -163,19 +98,6 @@
 }
 
 /* ---------- nova regra */
-
-.painel {
-  display: flex;
-  flex-shrink: 0;
-  flex-direction: column;
-  gap: 16px;
-  width: 380px;
-  padding: 18px 20px 20px;
-  background: var(--fundo\/pagina);
-  border: 1px solid var(--borda\/padrao);
-  border-radius: 8px;
-}
-
 .painelTitulo {
   display: flex;
   flex-direction: column;
@@ -324,47 +246,12 @@
   overflow: hidden;
 }
 
-.alerta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-}
-
-.alerta + .alerta {
-  border-top: 1px solid var(--borda\/padrao);
-}
-
-.pontoAlerta,
-.pontoFechado {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--status\/alerta);
-}
-
-.pontoFechado {
-  background: var(--status\/offline-barra);
-}
-
 .alertaTextos {
   display: flex;
   flex: 1 1 0;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-}
-
-.alertaTitulo {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.alertaTempo {
-  font-size: 12px;
-  color: var(--texto\/secundario);
-  white-space: nowrap;
 }
 
 .link {
@@ -389,4 +276,470 @@
   font-size: 12px;
   font-style: italic;
   color: var(--texto\/secundario);
+}
+
+/* ---------- filtros do histórico */
+
+.filtros {
+  display: flex;
+  flex: 0 1 520px;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* ---------- regras criadas na tela (modo api; não está no Figma) */
+
+.seloAbertos {
+  align-self: flex-start;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--status\/alerta-fundo);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--status\/alerta);
+}
+
+.acaoRegra,
+.acaoPerigo {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.acaoPerigo {
+  color: var(--status\/alerta);
+}
+
+.confirmacao {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--status\/alerta);
+}
+
+/* Resultado de "Testar com as leituras das últimas 24 h". */
+.resultadoTeste {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 6px;
+  background: var(--fundo\/sutil);
+  font-size: 12px;
+  color: var(--texto\/principal);
+}
+
+.resultadoTeste ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.resultadoTeste strong {
+  font-family: var(--fonte-mono);
+  font-weight: 600;
+}
+
+/* Alerta de regra crítica: vem primeiro (ordenarAlertas) e com fundo e faixa vermelhos. */
+/* ---------- verificações do sistema (modo api, embaixo das regras) */
+
+/* ---------- janela (pop-up) Nova regra */
+
+.fundoJanela {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  background: rgba(22, 25, 31, 0.4);
+}
+
+.janela {
+  display: flex;
+  flex-direction: column;
+  width: 600px;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 12px;
+  background: var(--fundo\/pagina);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.janelaCabecalho {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--borda\/padrao);
+}
+
+.janelaCabecalho .painelTitulo {
+  flex: 1 1 0;
+}
+
+.janelaCabecalho h2 {
+  font-size: 18px;
+}
+
+.janelaFechar {
+  display: flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.janelaFechar:hover {
+  background: var(--fundo\/sutil);
+}
+
+.janelaCorpo {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+
+.janelaSecao {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.janelaSecao + .janelaSecao {
+  padding-top: 20px;
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.janelaSecao .linhaCampos > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.janelaRodape {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--borda\/padrao);
+  background: var(--fundo\/sutil);
+}
+
+@media (max-width: 560px) {
+  .janelaSecao .linhaCampos {
+    flex-direction: column;
+  }
+}
+
+/* ---------- histórico: filtros numa barra, alertas agrupados por dia */
+
+.historico {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.barraFiltros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+  background: var(--fundo\/lateral);
+}
+
+.limparFiltros,
+.acaoAviso {
+  padding: 9px 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--marca\/texto);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.contagem {
+  margin-left: auto;
+  padding-bottom: 9px;
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.grupoDoDia + .grupoDoDia .dia {
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.dia {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--borda\/padrao);
+  background: var(--fundo\/sutil);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dia span {
+  font-weight: 400;
+  color: var(--texto\/secundario);
+}
+
+.linhaHistorico {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.linhaHistorico + .linhaHistorico {
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.horaHistorico {
+  padding-top: 2px;
+  font-family: var(--fonte-mono);
+  font-size: 13px;
+  color: var(--texto\/secundario);
+}
+
+.tituloHistorico {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.seloCelula {
+  padding: 1px 7px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 4px;
+  background: var(--fundo\/sutil);
+  font-family: var(--fonte-mono);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.fechamento {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  text-align: right;
+}
+
+.duracao {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--status\/offline-fundo);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .linhaHistorico {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .fechamento {
+    grid-column: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+  }
+
+  .contagem {
+    margin-left: 0;
+  }
+}
+
+/* ---------- aviso de regra criada (a janela Nova regra abre em qualquer aba) */
+
+.avisoCriada {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--status\/online);
+  border-radius: 8px;
+  background: var(--status\/online-fundo);
+  font-size: 13px;
+  color: var(--status\/online);
+}
+
+.avisoCriada > span {
+  flex: 1 1 auto;
+}
+
+.acaoAviso {
+  padding: 0;
+  color: var(--status\/online);
+}
+
+.fecharAviso {
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--status\/online);
+  cursor: pointer;
+}
+
+/* ---------- abertos e regras no estilo do histórico */
+
+.barraResumo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 8px;
+  background: var(--fundo\/lateral);
+}
+
+.barraResumo .contagem {
+  padding-bottom: 0;
+}
+
+.resumo {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.resumoAlerta {
+  color: var(--status\/alerta);
+}
+
+.diaCritico {
+  background: var(--status\/alerta-fundo);
+  color: var(--status\/alerta);
+}
+
+.diaCritico span {
+  color: var(--status\/alerta);
+}
+
+.linhaCritica {
+  box-shadow: inset 3px 0 0 var(--status\/alerta);
+}
+
+.horaHistorico small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+.duracaoAberta {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--status\/alerta-fundo);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--status\/alerta);
+  white-space: nowrap;
+}
+
+.acoesAlerta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.linhaRegra {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.linhaRegra + .linhaRegra {
+  border-top: 1px solid var(--borda\/padrao);
+}
+
+.regraDestacada {
+  background: var(--marca\/fundo);
+  box-shadow: inset 3px 0 0 var(--marca\/principal);
+}
+
+.chipsRegra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 2px;
+}
+
+.chip {
+  padding: 2px 8px;
+  border: 1px solid var(--borda\/padrao);
+  border-radius: 999px;
+  background: var(--fundo\/pagina);
+  font-size: 12px;
+}
+
+.chipCodigo {
+  font-family: var(--fonte-mono);
+}
+
+.seloDesligada {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--status\/offline-fundo);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--texto\/secundario);
+}
+
+.fechamento > .acaoRegra,
+.fechamento > .confirmacao {
+  align-self: flex-end;
+}
+
+.controlesRegra {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+@media (max-width: 760px) {
+  .linhaRegra {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .linhaRegra .fechamento {
+    grid-column: 1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
 }

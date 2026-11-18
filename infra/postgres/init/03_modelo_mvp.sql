@@ -138,11 +138,74 @@ ALTER TABLE pedido_setpoint ADD COLUMN IF NOT EXISTS id_pessoa INTEGER REFERENCE
 -- Leitura: campos que a placa mandou e o contrato ainda não conhece.
 ALTER TABLE leitura ADD COLUMN IF NOT EXISTS extras JSONB;
 
--- Alerta: dois tipos novos.
+-- Alerta: tipos novos. Os dois do sistema (consumidor_parado e
+-- broker_inacessivel) não são de uma célula e ficam com id_celula nulo.
+-- Continua valendo um aberto por célula e tipo; para os do sistema, um
+-- aberto por tipo (NULLS NOT DISTINCT).
 ALTER TABLE alerta DROP CONSTRAINT IF EXISTS alerta_tipo_check;
 ALTER TABLE alerta ADD CONSTRAINT alerta_tipo_check CHECK (tipo IN (
     'sem_comunicacao', 'setpoint_sem_confirmacao', 'desvio_temperatura',
-    'ph_fora_da_faixa', 'colisao_seq'));
+    'ph_fora_da_faixa', 'colisao_seq', 'consumidor_parado', 'broker_inacessivel', 'regra'));
+ALTER TABLE alerta ALTER COLUMN id_celula DROP NOT NULL;
+ALTER TABLE alerta DROP CONSTRAINT IF EXISTS alerta_celula_check;
+ALTER TABLE alerta ADD CONSTRAINT alerta_celula_check CHECK (
+    (id_celula IS NULL) = (tipo IN ('consumidor_parado', 'broker_inacessivel')));
+
+-- Regras de alerta criadas pelas pessoas na tela: uma medida acima ou
+-- abaixo de um limite por um tempo. Sem experimento, vale para todas as
+-- células; com experimento, só para as células com cultivo aberto nele.
+-- Excluir só marca excluida_em, para os alertas antigos continuarem
+-- apontando para a regra.
+CREATE TABLE IF NOT EXISTS regra_alerta (
+    id_regra       SERIAL PRIMARY KEY,
+    nome           TEXT NOT NULL CHECK (btrim(nome) <> ''),
+    parametro      TEXT NOT NULL CHECK (parametro IN ('temperatura', 'od', 'ph')),
+    comparacao     TEXT NOT NULL CHECK (comparacao IN ('maior', 'menor')),
+    limite         DOUBLE PRECISION NOT NULL,
+    por_minutos    INTEGER NOT NULL CHECK (por_minutos BETWEEN 1 AND 1440),
+    id_experimento INTEGER REFERENCES experimento,
+    gravidade      TEXT NOT NULL DEFAULT 'aviso' CHECK (gravidade IN ('aviso', 'critica')),
+    ativa          BOOLEAN NOT NULL DEFAULT true,
+    id_criada_por  INTEGER NOT NULL REFERENCES pessoa,
+    criada_em      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    excluida_em    TIMESTAMPTZ,
+    CONSTRAINT regra_excluida_fica_desligada CHECK (excluida_em IS NULL OR NOT ativa)
+);
+
+-- O alerta de uma regra (tipo regra) aponta para ela. Um aberto por
+-- célula, tipo e regra; nos outros tipos id_regra é nulo e vale o mesmo
+-- de antes, um aberto por célula e tipo.
+ALTER TABLE alerta ADD COLUMN IF NOT EXISTS id_regra INTEGER REFERENCES regra_alerta;
+ALTER TABLE alerta DROP CONSTRAINT IF EXISTS alerta_regra_check;
+ALTER TABLE alerta ADD CONSTRAINT alerta_regra_check CHECK ((tipo = 'regra') = (id_regra IS NOT NULL));
+DROP INDEX IF EXISTS alerta_um_aberto;
+CREATE UNIQUE INDEX alerta_um_aberto ON alerta (id_celula, tipo, id_regra) NULLS NOT DISTINCT
+    WHERE fechado_em IS NULL;
+-- Quem fechou à mão. Só o colisao_seq, que nenhuma regra fecha, pode ser
+-- fechado assim; nos outros fica nulo.
+ALTER TABLE alerta ADD COLUMN IF NOT EXISTS fechado_por INTEGER REFERENCES pessoa;
+
+-- Aviso por e-mail. A regra marcada com email avisa quem criou (regra de
+-- todas as células) ou o responsável e quem tem edição no experimento. O
+-- processo de regras envia o e-mail de cada alerta aberto uma vez só:
+-- email_enviado_em marca o envio; com falha no servidor de e-mail, tenta de
+-- novo depois de EMAIL_REPETIR_S (email_tentado_em, email_erro).
+ALTER TABLE regra_alerta ADD COLUMN IF NOT EXISTS email BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE alerta ADD COLUMN IF NOT EXISTS email_enviado_em TIMESTAMPTZ;
+ALTER TABLE alerta ADD COLUMN IF NOT EXISTS email_tentado_em TIMESTAMPTZ;
+ALTER TABLE alerta ADD COLUMN IF NOT EXISTS email_erro TEXT;
+
+-- Sinal de vida dos processos do backend. O consumidor grava a cada
+-- SINAL_VIDA_S e também quando conecta ou desconecta do broker; as regras
+-- gravam a cada rodada. Sem isso, consumidor parado parece célula muda.
+CREATE TABLE IF NOT EXISTS processo (
+    nome             TEXT PRIMARY KEY CHECK (nome IN ('consumidor', 'regras')),
+    iniciado_em      TIMESTAMPTZ NOT NULL,
+    ultimo_sinal     TIMESTAMPTZ NOT NULL,
+    -- Só o consumidor: se está conectado ao broker e desde quando.
+    broker_conectado BOOLEAN,
+    broker_desde     TIMESTAMPTZ
+);
 
 -- ---------------------------------------------------------------- visão
 

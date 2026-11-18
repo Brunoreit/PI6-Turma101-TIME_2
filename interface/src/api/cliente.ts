@@ -3,8 +3,8 @@
 // desenvolvimento) e pelo nginx (no Docker).
 
 import type {
-  AcessoApi, AlertaApi, CalibracaoSalvaApi, CelulaApi, CultivoApi, CultivoIniciadoApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
-  LeituraApi, PedidoSetpointApi, PermissaoApi, PessoaApi, SaudeApi, SessaoApi,
+  AcessoApi, AlertaApi, CalibracaoApi, CalibracaoSalvaApi, CelulaApi, OdAoVivoApi, PontoCalibracaoApi, CultivoApi, CultivoIniciadoApi, DetalheDoExperimentoApi, ExperimentoApi, ExperimentoListadoApi, FichaApi, IntegridadeApi,
+  LeituraApi, NovaRegraApi, PedidoSetpointApi, PermissaoApi, PessoaApi, RegraApi, ResultadoDoTesteApi, SaudeApi, SessaoApi, TesteDeRegraApi,
 } from "./tipos";
 
 const BASE = "/api";
@@ -107,8 +107,43 @@ export function listarCelulas(sinal?: AbortSignal): Promise<CelulaApi[]> {
   return buscar("/celulas", sinal);
 }
 
-export function listarAlertas(sinal?: AbortSignal, abertos = true): Promise<AlertaApi[]> {
-  return buscar(`/alertas?abertos=${abertos}`, sinal);
+/** `idCelula` "sistema" traz os alertas sem célula (consumidor e broker). */
+export function listarAlertas(
+  sinal?: AbortSignal,
+  abertos = true,
+  filtros: { idCelula?: string; tipo?: string } = {},
+): Promise<AlertaApi[]> {
+  const parametros = new URLSearchParams({ abertos: String(abertos) });
+  if (filtros.idCelula) parametros.set("id_celula", filtros.idCelula);
+  if (filtros.tipo) parametros.set("tipo", filtros.tipo);
+  return buscar(`/alertas?${parametros}`, sinal);
+}
+
+export function listarRegras(sinal?: AbortSignal): Promise<RegraApi[]> {
+  return buscar("/regras", sinal);
+}
+
+export function criarRegra(regra: NovaRegraApi): Promise<RegraApi> {
+  return enviar("/regras", regra);
+}
+
+/** O que a regra teria feito nas últimas 24 h, sem salvar nada. */
+export function testarRegra(regra: TesteDeRegraApi): Promise<ResultadoDoTesteApi> {
+  return enviar("/regras/testar", regra);
+}
+
+/** Desligar fecha os alertas que a regra abriu. */
+export function alterarRegra(id: number, ativa: boolean): Promise<RegraApi> {
+  return enviar(`/regras/${id}`, { ativa }, "PATCH");
+}
+
+export function excluirRegra(id: number): Promise<void> {
+  return enviar(`/regras/${id}`, undefined, "DELETE");
+}
+
+/** Só para o alerta que nenhuma regra fecha (colisao_seq); os outros dão 409. */
+export function fecharAlerta(id: number): Promise<AlertaApi> {
+  return enviar(`/alertas/${id}/fechar`, {});
 }
 
 export function listarLeituras(
@@ -140,22 +175,32 @@ export function pedirSetpoint(idCelula: string, temperaturaC: number): Promise<P
   });
 }
 
-/** Cadastra uma nova versão da curva de OD. Com `recalcular`, a API refaz a
- *  OD das leituras gravadas: todas, ou só as de `desde` em diante. Os padrões
- *  lidos, o R² e o organismo ficam guardados com a versão. */
+/** Cadastra uma nova versão da curva de OD pelos pontos (o branco e pelo
+ *  menos 3 padrões). A API confere as leituras dos pontos lidos ao vivo,
+ *  ajusta a reta e devolve a, b e R². Com `recalcular`, refaz a OD das
+ *  leituras gravadas: todas, ou só as de `desde` em diante. */
 export function cadastrarCalibracao(
   idCelula: string,
-  a: number,
-  b: number,
+  pontos: PontoCalibracaoApi[],
   recalcular: boolean,
   desde: Date | null,
-  extras: { pontos?: { od_referencia: number; bruto: number }[]; r2?: number | null; organismo?: string | null } = {},
+  organismo: string | null,
 ): Promise<CalibracaoSalvaApi> {
   return buscar(`/celulas/${encodeURIComponent(idCelula)}/calibracoes`, undefined, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ a, b, recalcular, recalcular_desde: desde?.toISOString() ?? null, ...extras }),
+    body: JSON.stringify({ pontos, recalcular, recalcular_desde: desde?.toISOString() ?? null, organismo }),
   });
+}
+
+/** Versões da curva de OD da célula, da mais nova para a mais antiga. */
+export function listarCalibracoes(idCelula: string, sinal?: AbortSignal): Promise<CalibracaoApi[]> {
+  return buscar(`/celulas/${encodeURIComponent(idCelula)}/calibracoes`, sinal);
+}
+
+/** Sensor de OD agora: a última leitura e a janela usada para gravar um padrão. */
+export function consultarOdAoVivo(idCelula: string, sinal?: AbortSignal): Promise<OdAoVivoApi> {
+  return buscar(`/celulas/${encodeURIComponent(idCelula)}/od-ao-vivo`, sinal);
 }
 
 /** Um pedido de setpoint, para acompanhar as etapas logo depois de enviar. */
@@ -244,13 +289,34 @@ export function cancelarCultivo(id: number, motivo: string): Promise<CultivoApi>
   return enviar(`/cultivos/${id}/cancelar`, { motivo });
 }
 
-/** Leituras medidas no período do cultivo, da mais nova para a mais antiga. */
-/** O CSV com todas as leituras da célula. Vem pela chamada com token, e não
- *  por um link direto, porque a rota exige login. */
-export async function baixarLeiturasCsv(idCelula: string): Promise<Blob> {
-  return (await requisitar(`/celulas/${encodeURIComponent(idCelula)}/leituras.csv`)).blob();
+/** O que a tela Exportar pede ao POST /exportacoes. Por experimento, cada
+ *  célula sai no período em que esteve nele; por célula, vale desde e ate. */
+export interface PedidoDeExportacao {
+  id_experimento?: number;
+  celulas?: string[];
+  desde?: string;
+  ate?: string;
+  medidas: ("temperatura" | "ph" | "od" | "od_bruta" | "taxa")[];
+  agrupamento: "brutos" | "hora" | "dia" | "intervalo";
+  intervalo_min?: number;
+  formato: "xlsx" | "csv";
+  anexos: ("contexto" | "parametros" | "alertas" | "calibracoes")[];
+  fuso: string;
 }
 
+/** O arquivo da exportação e o nome que a API deu a ele. Vem pela chamada
+ *  com token, e não por um link direto, porque a rota exige login. */
+export async function exportarDados(pedido: PedidoDeExportacao): Promise<{ arquivo: Blob; nome: string }> {
+  const resposta = await requisitar("/exportacoes", undefined, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(pedido),
+  });
+  const nome = /filename="([^"]+)"/.exec(resposta.headers.get("Content-Disposition") ?? "")?.[1];
+  return { arquivo: await resposta.blob(), nome: nome ?? `exportacao.${pedido.formato}` };
+}
+
+/** Leituras medidas no período do cultivo, da mais nova para a mais antiga. */
 export function listarLeiturasDoCultivo(
   id: number, opcoes: { desde?: Date; limite?: number } = {}, sinal?: AbortSignal,
 ): Promise<LeituraApi[]> {

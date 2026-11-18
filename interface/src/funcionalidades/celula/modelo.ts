@@ -75,14 +75,20 @@ export interface Series {
 
 export interface VersaoDeCalibracao {
   versao: number;
-  /** od = a · bruto + b */
+  /** Como o banco guarda: od = a · bruto + b. Nas versões com branco, o
+   *  branco já está embutido no b (ver `branco`). */
   a: number;
   b: number;
+  /** Bruto do branco, nas versões novas (ponto "branco" dos pontos). `null`
+   *  nas antigas, que mostram a fórmula sem branco. */
+  branco: number | null;
   criadaEm: Date;
-  autor: string;
-  /** OD do espectrofotômetro e OD calculada para cada padrão lido. */
+  /** Quem calibrou. `null` na versão padrão do sistema. */
+  autor: string | null;
+  /** OD do espectrofotômetro e OD calculada para cada padrão. */
   padroes: { referencia: number; calculada: number }[];
   r2: number | null;
+  organismo?: string | null;
 }
 
 export interface Bomba {

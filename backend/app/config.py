@@ -16,7 +16,7 @@ class Config:
     mqtt_host: str = os.environ.get("MQTT_HOST", "localhost")
     mqtt_port: int = int(os.environ.get("MQTT_PORT", 1883))
 
-    # Faixa aceita para o setpoint. O eVOLVER opera da temperatura ambiente até 45 °C.
+    # Faixa aceita para o setpoint. O T.U.P.A opera da temperatura ambiente até 45 °C.
     temperatura_min_c: float = _float("TEMPERATURA_MIN_C", 20.0)
     temperatura_max_c: float = _float("TEMPERATURA_MAX_C", 45.0)
 
@@ -26,6 +26,44 @@ class Config:
     setpoint_timeout_s: float = _float("SETPOINT_TIMEOUT_S", 120)
     tolerancia_atingido_c: float = _float("TOLERANCIA_ATINGIDO_C", 0.5)
     desvio_max_c: float = _float("DESVIO_MAX_C", 2.0)
+    # Depois de aplicado, o setpoint tem este tempo para a temperatura chegar
+    # perto do alvo. Passado ele, vale a regra de desvio de temperatura.
+    setpoint_atingir_s: float = _float("SETPOINT_ATINGIR_S", 900)
+    # Temperatura e pH só abrem alerta se nenhuma leitura dos últimos
+    # ALERTA_PERSISTENCIA_S esteve dentro da faixa. Uma leitura ruidosa
+    # sozinha não abre. 0 volta a olhar só a última leitura.
+    alerta_persistencia_s: float = _float("ALERTA_PERSISTENCIA_S", 60)
+
+    # Sinal de vida. O consumidor grava a cada SINAL_VIDA_S; sem sinal há
+    # mais de SINAL_VIDA_LIMITE_S ele é dado como parado (alerta
+    # consumidor_parado). Desconectado do broker há mais de
+    # BROKER_INACESSIVEL_S abre broker_inacessivel. Nos dois casos a regra
+    # sem_comunicacao não abre alerta: o problema é do servidor.
+    sinal_vida_s: float = _float("SINAL_VIDA_S", 10)
+    sinal_vida_limite_s: float = _float("SINAL_VIDA_LIMITE_S", 30)
+    broker_inacessivel_s: float = _float("BROKER_INACESSIVEL_S", 20)
+
+    # Aviso por e-mail das regras marcadas com e-mail (só o processo de regras
+    # envia). Sem SMTP_HOST, nada é enviado: o alerta só aparece na tela. No
+    # Compose, o SMTP_HOST é o Mailpit, que guarda os e-mails numa página local.
+    smtp_host: str = os.environ.get("SMTP_HOST", "")
+    smtp_porta: int = int(os.environ.get("SMTP_PORTA", 25))
+    smtp_usuario: str = os.environ.get("SMTP_USUARIO", "")
+    smtp_senha: str = os.environ.get("SMTP_SENHA", "")
+    # nenhuma | starttls | ssl
+    smtp_seguranca: str = os.environ.get("SMTP_SEGURANCA", "nenhuma")
+    email_remetente: str = os.environ.get("EMAIL_REMETENTE", "T.U.P.A <alertas@tupa.local>")
+    # Endereço da interface, para o link do e-mail.
+    interface_url: str = os.environ.get("INTERFACE_URL", "http://localhost:8080")
+    email_repetir_s: float = _float("EMAIL_REPETIR_S", 300)
+    # Fuso dos horários escritos no e-mail (o contêiner roda em UTC).
+    email_fuso: str = os.environ.get("EMAIL_FUSO", "America/Sao_Paulo")
+
+    # Nova calibração de OD pela leitura ao vivo (só a API usa). O bruto de
+    # um padrão é a média das últimas N leituras, gravada só com a leitura
+    # estável: (máximo - mínimo) / média menor que a variação máxima.
+    calibracao_n_leituras: int = int(os.environ.get("CALIBRACAO_N_LEITURAS", 6))
+    calibracao_variacao_max: float = _float("CALIBRACAO_VARIACAO_MAX", 0.01)
 
     # Sessão da API. Sem SEGREDO_SESSAO a API não sobe; consumidor e regras
     # não usam e não precisam dele.
