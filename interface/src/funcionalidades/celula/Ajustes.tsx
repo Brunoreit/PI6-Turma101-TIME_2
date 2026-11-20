@@ -131,7 +131,7 @@ function CalibracaoDeOd({ idCelula, calibracao }: { idCelula: string; calibracao
           {padroes.length > 0 && (
             <>
               <CurvaDeCalibracao padroes={padroes} />
-              <p className={estilos.nota}>Eixo vertical: OD calculada pelo T.U.P.A. Eixo horizontal: OD do espectrofotômetro.</p>
+              <p className={estilos.nota}>Eixo vertical: OD calculada pelo TUPÃ. Eixo horizontal: OD do espectrofotômetro.</p>
             </>
           )}
         </>

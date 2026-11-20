@@ -26,7 +26,7 @@ export function CartaoDeConta({ titulo, subtitulo, icone, rodape, onSubmit, chil
             <img src={simboloCnpem} width={32} height={32} alt="" />
           </span>
           <div className={estilos.nome}>
-            <span className={estilos.produto}>T.U.P.A</span>
+            <span className={estilos.produto}>TUPÃ</span>
             <span className={estilos.instituicao}>CNPEM · Monitoramento</span>
           </div>
         </div>

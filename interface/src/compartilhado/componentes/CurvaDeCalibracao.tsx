@@ -57,7 +57,7 @@ export function CurvaDeCalibracao({ padroes }: { padroes: { referencia: number; 
             titulo={`Padrão ${apontado + 1} de ${padroes.length}`}
             linhas={[
               { rotulo: "Espectrofotômetro", valor: od(padrao.referencia) },
-              { rotulo: "T.U.P.A", valor: od(padrao.calculada), forte: true },
+              { rotulo: "TUPÃ", valor: od(padrao.calculada), forte: true },
               {
                 rotulo: "Diferença",
                 valor: `${padrao.calculada - padrao.referencia >= 0 ? "+" : "−"}${od(Math.abs(padrao.calculada - padrao.referencia))}`,
